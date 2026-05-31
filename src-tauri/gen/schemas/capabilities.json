@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Permissions de la fenetre principale : commandes applicatives + API d'evenements (listen/emit) necessaires au dashboard temps reel.","local":true,"windows":["main"],"permissions":["core:default"]}}
