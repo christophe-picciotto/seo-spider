@@ -17,6 +17,8 @@ fn main() {
             commands::network_info,
             commands::load_history,
             commands::save_history,
+            commands::save_crawl,
+            commands::load_crawl,
             commands::history_location,
             commands::open_history_folder
         ])

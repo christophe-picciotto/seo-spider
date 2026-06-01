@@ -235,3 +235,46 @@ pub fn open_history_folder(app: AppHandle) -> Result<(), String> {
     }
     Ok(())
 }
+
+
+/// Dossier des crawls enregistres (sous le dossier de donnees de l'application).
+fn crawls_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    Ok(dir.join("crawls"))
+}
+
+/// Transforme un identifiant (URL de depart) en nom de fichier sur (sans separateurs).
+fn sanitize_id(id: &str) -> String {
+    let mut s: String = id
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() || ch == '.' || ch == '-' { ch } else { '_' })
+        .collect();
+    if s.len() > 120 {
+        s.truncate(120);
+    }
+    if s.is_empty() {
+        s.push_str("crawl");
+    }
+    s
+}
+
+/// Enregistre un crawl complet (JSON) sous `crawls/<id>.json`. Renvoie le chemin du fichier.
+#[tauri::command]
+pub fn save_crawl(app: AppHandle, id: String, json: String) -> Result<String, String> {
+    let dir = crawls_dir(&app)?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join(format!("{}.json", sanitize_id(&id)));
+    std::fs::write(&path, json).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// Charge un crawl enregistre par son identifiant (URL de depart). Renvoie "" si absent.
+#[tauri::command]
+pub fn load_crawl(app: AppHandle, id: String) -> Result<String, String> {
+    let dir = crawls_dir(&app)?;
+    let path = dir.join(format!("{}.json", sanitize_id(&id)));
+    match std::fs::read_to_string(&path) {
+        Ok(s) => Ok(s),
+        Err(_) => Ok(String::new()),
+    }
+}

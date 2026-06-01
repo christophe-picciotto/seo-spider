@@ -2117,6 +2117,23 @@
       });
   }
 
+  // B : enregistre le crawl courant dans le local data (crawls/<site>.json).
+  // Appele a la FIN et au STOP. save_crawl ECRASE l'enregistrement precedent du
+  // meme site -> relancer un crawl sur la meme URL remplace l'ancien.
+  function saveCurrentCrawl(showPath) {
+    var seed = S.multi.config && S.multi.config.seed_url;
+    if (!TAURI || !seed || !S.pages.length) return;
+    var crawlData = JSON.stringify({
+      seed_url: seed,
+      date: new Date().toISOString(),
+      pages: S.pages.slice(),
+      sitemap_urls: S.sitemapUrls || []
+    });
+    TAURI.core.invoke("save_crawl", { id: seed, json: crawlData })
+      .then(function (path) { if (path) { S.lastSavePath = path; if (showPath) setStatusState("Enregistre : " + path); } })
+      .catch(function (err) { console.error("save_crawl error:", err); });
+  }
+
   function finishSequence() {
     S.multi.running = false;
     S.running = false;
@@ -2148,6 +2165,8 @@
       },
       pagesData: (S.multi.lastRows || []).slice(0, 5000)   // pour la consultation
     });
+
+    saveCurrentCrawl(true);   // B : enregistre le crawl complet (ecrase l'ancien du meme site)
   }
 
   // Vide UNIQUEMENT les donnees du run courant (pages, index, issues, bw).
@@ -2170,6 +2189,61 @@
     renderTabCounts();
     renderOverview();
     renderGrid();
+  }
+
+  // C : recharge un crawl ENREGISTRE (consultation, sans relancer de crawl).
+  // Reutilise ingestPage() -> tous les index/agregats se reconstruisent au rendu.
+  function loadSavedCrawl(data) {
+    if (TAURI) TAURI.core.invoke("clear_crawl").catch(function () {});
+    unsubscribeEvents();
+    S.search = ""; var se = $("grid-search"); if (se) se.value = "";
+    clearCategoryFilter();
+    resetData();
+    S.running = false; S.paused = false;
+    S.multi = {
+      target: 0, done: 0, totalBytes: 0, totalPages: 0, totalDynamic: 0, totalMiss: 0,
+      stopRequested: false, running: false,
+      config: { seed_url: data.seed_url || "" }, lastTechs: [], lastRows: []
+    };
+    var pages = Array.isArray(data.pages) ? data.pages : [];
+    for (var i = 0; i < pages.length; i++) ingestPage(pages[i]);
+    S.sitemapUrls = Array.isArray(data.sitemap_urls) ? data.sitemap_urls : [];
+    S.sitemapSet = {};
+    for (var s = 0; s < S.sitemapUrls.length; s++) {
+      if (S.sitemapUrls[s]) S.sitemapSet[normUrl(S.sitemapUrls[s])] = true;
+    }
+    var when = data.date ? (" (enregistre le " + String(data.date).slice(0, 10) + ")") : "";
+    setStatusState("Consultation : " + (data.seed_url || "") + " — " + pages.length + " page(s)" + when);
+    updateButtons();
+    scheduleRender();
+  }
+
+  // C : dialogue Nouveau crawl / Revoir l'enregistrement (cree dynamiquement).
+  function showCrawlChoice(url, data) {
+    var old = $("crawl-choice-modal"); if (old) old.parentNode.removeChild(old);
+    var nb = Array.isArray(data.pages) ? data.pages.length : 0;
+    var when = data.date ? (" le " + String(data.date).slice(0, 10)) : "";
+    var ov = document.createElement("div");
+    ov.id = "crawl-choice-modal";
+    ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999;";
+    var box = document.createElement("div");
+    box.style.cssText = "background:var(--header-bg2,#f5f6f8);color:var(--text,#1c2330);border:1px solid var(--border,#ccd);border-radius:8px;padding:18px 20px;max-width:500px;font-size:13px;box-shadow:0 10px 40px rgba(0,0,0,.35);";
+    box.innerHTML =
+      '<div style="font-weight:600;margin-bottom:8px;font-size:14px;">Crawl deja enregistre</div>' +
+      '<div style="margin-bottom:16px;line-height:1.45;">Le site <strong>' + esc(url) + '</strong> a deja ete crawle' + when +
+      ' (' + nb + ' page(s) enregistrees). Que veux-tu faire ?</div>' +
+      '<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">' +
+      '<button type="button" id="cc-cancel" class="btn">Annuler</button>' +
+      '<button type="button" id="cc-review" class="btn">Revoir cet enregistrement</button>' +
+      '<button type="button" id="cc-new" class="btn btn--primary">Nouveau crawl</button>' +
+      '</div>';
+    ov.appendChild(box);
+    document.body.appendChild(ov);
+    function close() { if (ov.parentNode) ov.parentNode.removeChild(ov); }
+    $("cc-cancel").onclick = close;
+    $("cc-review").onclick = function () { close(); loadSavedCrawl(data); };
+    $("cc-new").onclick = function () { close(); S._forceNew = true; onSubmit({ preventDefault: function () {} }); };
+    ov.onclick = function (e) { if (e.target === ov) close(); };
   }
 
   // =========================================================================
@@ -2215,6 +2289,21 @@
       // URL differente : on abandonne l'etat en pause et on repart proprement.
     }
 
+    // C : si un crawl est deja enregistre pour cette URL, proposer Nouveau / Revoir.
+    if (!S._forceNew && typedUrl) {
+      TAURI.core.invoke("load_crawl", { id: typedUrl }).then(function (json) {
+        var saved = null;
+        try { saved = json ? JSON.parse(json) : null; } catch (e) { saved = null; }
+        if (saved && Array.isArray(saved.pages) && saved.pages.length) {
+          showCrawlChoice(typedUrl, saved);
+        } else {
+          S._forceNew = true; onSubmit(evt);
+        }
+      }).catch(function () { S._forceNew = true; onSubmit(evt); });
+      return;
+    }
+    S._forceNew = false;
+
     var repetitions = 1; // repetition retiree : crawl unique (bande passante mesuree a chaque passage)
     var config = readConfig();
 
@@ -2254,6 +2343,7 @@
     S.paused = true;                        // -> "Reprendre" disponible
     updateButtons();
     setStatusState("En pause — " + S.pages.length + " page(s) collectee(s).");
+    saveCurrentCrawl();   // B : enregistre aussi a la pause (reprise / consultation ensuite)
   }
 
   // Bouton "Vider" : VIDE l'etat de crawl backend + remet l'affichage a zero.
