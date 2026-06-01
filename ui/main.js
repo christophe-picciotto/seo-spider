@@ -2150,7 +2150,7 @@
       // URL differente : on abandonne l'etat en pause et on repart proprement.
     }
 
-    var repetitions = Math.max(1, Math.round(parseFloat($("repetitions").value) || 1));
+    var repetitions = 1; // repetition retiree : crawl unique (bande passante mesuree a chaque passage)
     var config = readConfig();
 
     // (Re)initialise l'agregat multi-run.

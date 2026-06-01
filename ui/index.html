@@ -59,18 +59,13 @@
           <label for="max-depth">Profondeur max</label>
           <input type="number" id="max-depth" value="10" min="1" max="50" />
         </div>
-        <div class="setting">
+        <div class="setting" title="Debit maximal : cadence d'envoi des requetes (plafond anti-surcharge serveur)">
           <label for="rps">Req / sec</label>
           <input type="number" id="rps" value="5" min="1" max="50" step="1" />
-          <!-- Aide : Req/sec = debit maximal (cadence d'envoi). -->
-          <span class="setting-hint">Debit max (cadence)</span>
         </div>
-        <!-- B) Nombre de pages traitees EN PARALLELE (threads du crawler). -->
-        <div class="setting">
+        <div class="setting" title="Nombre de pages telechargees EN PARALLELE (workers simultanes)">
           <label for="threads">Threads</label>
           <input type="number" id="threads" value="5" min="1" max="50" step="1" />
-          <!-- Aide : Threads = nombre de pages telechargees simultanement. -->
-          <span class="setting-hint setting-hint--accent">Pages en parallele</span>
         </div>
         <label class="setting setting--check" title="Delais aleatoires entre requetes (comportement humain)">
           <input type="checkbox" id="random-rps" />
@@ -84,10 +79,6 @@
           <input type="checkbox" id="random-ua" />
           <span>UA aleatoire</span>
         </label>
-        <div class="setting">
-          <label for="repetitions">Repetitions (bande passante)</label>
-          <input type="number" id="repetitions" value="1" min="1" max="1000" />
-        </div>
       </div>
     </header>
 
