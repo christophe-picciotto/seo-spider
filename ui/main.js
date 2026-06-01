@@ -1913,6 +1913,9 @@
     var unlimited = !!(S.multi.config && S.multi.config.unlimited);
     var totalLabel = unlimited ? "∞" : String(done + queued);
 
+    var curUrl = (prog && prog.current_url) ? prog.current_url : "";
+    var urlEl = $("status-url");
+    if (urlEl) { urlEl.textContent = curUrl; urlEl.title = curUrl; }
     setText("status-done", done);
     setText("status-total", totalLabel);
     setText("status-queued", queued);

@@ -622,6 +622,9 @@ a:hover { text-decoration: underline; }
 .status-sep { width: 1px; height: 14px; background: var(--border); }
 .status-item--multi { color: var(--accent-dark); font-weight: 600; }
 .status-item--multi[hidden] { display: none; }
+/* Barre de statut : URL courante a GAUCHE (absorbe la largeur), stats a DROITE (fixes). */
+.statusbar .status-item { flex: 0 0 auto; }
+.status-url { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .85; }
 
 
 /* =========================================================================
