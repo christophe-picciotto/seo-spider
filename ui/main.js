@@ -1178,7 +1178,9 @@
       var col = def.columns[c];
       var cls = "";
       if (S.sort.key === col.key) cls = S.sort.dir === "asc" ? "sort-asc" : "sort-desc";
-      hh += '<th data-key="' + esc(col.key) + '" class="' + cls + '">' + esc(col.label) + '</th>';
+      var savedW = PREFS.colWidths && PREFS.colWidths[S.activeTab] && PREFS.colWidths[S.activeTab][col.key];
+      var wStyle = savedW ? ' style="width:' + savedW + 'px"' : '';
+      hh += '<th data-key="' + esc(col.key) + '" class="' + cls + '"' + wStyle + '>' + esc(col.label) + '<span class="col-resizer"></span></th>';
     }
     hh += "</tr>";
     head.innerHTML = hh;
@@ -2635,6 +2637,37 @@
     });
   }
 
+  // #F : redimensionnement des colonnes a la souris ; largeurs persistees par onglet.
+  function initColResize() {
+    var rz = null;
+    document.addEventListener("mousedown", function (e) {
+      var h = e.target.closest && e.target.closest(".col-resizer");
+      if (!h) return;
+      var th = h.closest("th"); if (!th) return;
+      e.preventDefault();
+      rz = { th: th, key: th.getAttribute("data-key"), startX: e.clientX, startW: th.offsetWidth, moved: false };
+      document.body.style.cursor = "col-resize";
+    });
+    document.addEventListener("mousemove", function (e) {
+      if (!rz) return;
+      var w = Math.max(40, rz.startW + (e.clientX - rz.startX));
+      rz.th.style.width = w + "px";
+      rz.moved = true;
+    });
+    document.addEventListener("mouseup", function () {
+      if (!rz) return;
+      if (rz.key && rz.moved) {
+        PREFS.colWidths = PREFS.colWidths || {};
+        PREFS.colWidths[S.activeTab] = PREFS.colWidths[S.activeTab] || {};
+        PREFS.colWidths[S.activeTab][rz.key] = rz.th.offsetWidth;
+        persistPrefs();
+        S._suppressSort = true; setTimeout(function () { S._suppressSort = false; }, 0);
+      }
+      document.body.style.cursor = "";
+      rz = null;
+    });
+  }
+
   function loadNetInfo() {
     var el = $("net-info"), txt = $("net-info-text");
     if (!TAURI || !el || !txt) return;
@@ -2770,6 +2803,7 @@
     randRps.addEventListener("change", function () { $("rps").disabled = randRps.checked; });
 
     initSaveDir();   // #E : champ dossier des projets
+    initColResize();   // #F : colonnes redimensionnables
 
     // Volet de reglages repliable.
     var toggle = $("btn-toggle-settings");
@@ -2789,6 +2823,7 @@
 
     // Tri par clic sur les en-tetes de la grille (neutre->desc->asc->neutre).
     $("grid-head").addEventListener("click", function (e) {
+      if (S._suppressSort || (e.target.closest && e.target.closest(".col-resizer"))) return;  // #F
       var th = e.target.closest("th[data-key]");
       if (!th) return;
       var key = th.getAttribute("data-key");

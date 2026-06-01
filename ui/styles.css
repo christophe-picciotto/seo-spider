@@ -772,3 +772,8 @@ a:hover { text-decoration: underline; }
 .setting--dir { margin-left: auto; }
 .setting-dir-row { display: flex; gap: 6px; align-items: center; }
 .dir-input { width: 260px; max-width: 38vw; font-size: 12px; padding: 3px 6px; }
+
+/* #F : poignee de redimensionnement des colonnes. */
+.grid thead th { position: relative; }
+.col-resizer { position: absolute; top: 0; right: 0; width: 6px; height: 100%; cursor: col-resize; user-select: none; z-index: 2; }
+.col-resizer:hover { background: var(--accent); opacity: .5; }
