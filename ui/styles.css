@@ -336,7 +336,7 @@ a:hover { text-decoration: underline; }
   border-spacing: 0;
   width: 100%;
   font-size: var(--fs);
-  table-layout: auto;
+  table-layout: fixed;
 }
 /* En-tete fige en haut pendant le scroll vertical */
 .grid thead th {
@@ -759,3 +759,8 @@ a:hover { text-decoration: underline; }
 #grid-head[data-tab="issues"]     { --grid-accent:#e11d48; }
 #grid-head[data-tab="sitemap"]    { --grid-accent:#65a30d; }
 #grid-head[data-tab="bandwidth"]  { --grid-accent:#ea580c; }
+
+
+/* Vague 4+ : largeurs figees (anti-saut des colonnes pendant le crawl) */
+.grid th:first-child, .grid td:first-child { width: 36%; }
+.grid th.num, .grid td.num { width: 80px; }

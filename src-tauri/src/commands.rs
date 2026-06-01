@@ -62,6 +62,7 @@ pub async fn start_crawl(
     config: CrawlConfig,
 ) -> Result<(), String> {
     // --- Choix : reprise d'un etat existant, ou nouvel etat. ---
+    let is_resume: bool;
     let shared: Arc<SharedState> = {
         let mut slot = state.inner.lock().await;
 
@@ -72,6 +73,7 @@ pub async fn start_crawl(
             }
             None => false,
         };
+        is_resume = resume;
 
         if resume {
             // REPREND : on reutilise l'etat partage existant tel quel.
@@ -84,12 +86,27 @@ pub async fn start_crawl(
         }
     };
 
+    // Sitemap : fetch au DEBUT (comme robots.txt), uniquement pour un NOUVEAU crawl.
+    let seed = config.seed_url.clone();
+    let do_sitemap = !is_resume;
+    let app_sitemap = app.clone();
+
     // Clones de l'AppHandle (cheap, ref-compte) pour les emissions.
     let app_progress = app.clone();
     let app_page = app.clone();
     let app_done = app.clone();
 
     tauri::async_runtime::spawn(async move {
+        // Sitemap recupere AU DEBUT (robots.txt + /sitemap.xml) et emis tout de
+        // suite, pour que l'onglet Sitemap se remplisse sans attendre la fin.
+        let sitemap_urls: Vec<String> = if do_sitemap {
+            let urls = crawl_core::sitemap::fetch_default(&seed).await;
+            let _ = app_sitemap.emit("crawl:sitemap", urls.clone());
+            urls
+        } else {
+            Vec::new()
+        };
+
         // Closure progression -> evenement "crawl:progress".
         let on_progress = move |progress: CrawlProgress| {
             let _ = app_progress.emit("crawl:progress", progress);
@@ -102,10 +119,13 @@ pub async fn start_crawl(
 
         // Lancement (ou reprise) du crawl sur l'etat partage.
         match crawl_core::crawler::run_shared(shared, config, on_progress, on_page).await {
-            Ok(summary) => {
+            Ok(mut summary) => {
                 // On emet toujours le resume (fin naturelle OU pause) afin que l'UI
                 // sorte de l'etat "en cours". En cas de pause, le resume est partiel
                 // et l'etat reste reprenable via un nouvel appel a start_crawl.
+                if !sitemap_urls.is_empty() {
+                    summary.sitemap_urls = sitemap_urls;
+                }
                 let _ = app_done.emit("crawl:done", summary);
             }
             Err(e) => {

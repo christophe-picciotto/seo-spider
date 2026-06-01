@@ -397,7 +397,7 @@ where
         let mut summary = state.summary.lock().await;
         let techs = std::mem::take(&mut summary.tech_detected);
         summary.tech_detected = dedup_keep_order(techs);
-        summary.sitemap_urls = crate::sitemap::fetch(&client, &config.seed_url).await;
+        // sitemap deplace au DEBUT du crawl (src-tauri/commands.rs + event crawl:sitemap)
     }
 
     let summary = state.summary.lock().await.clone();

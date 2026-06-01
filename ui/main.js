@@ -1881,6 +1881,11 @@
       setText("status-rate", rate.toFixed(1));
     }
 
+    // Temps de reponse moyen par page (ms) sur les pages mesurees (Vague 4+).
+    var rts = S.pages.filter(function (p) { return p && p.response_time_ms; });
+    var avgMs = rts.length ? Math.round(rts.reduce(function (a, p) { return a + p.response_time_ms; }, 0) / rts.length) : 0;
+    setText("status-avgms", avgMs);
+
     // Barre de progression (indeterminee si unlimited : on borne a 90%).
     var fill = $("status-fill");
     if (fill) {
@@ -1955,6 +1960,17 @@
       console.error("crawl:error", event.payload);
     }).then(function (u) { S.unlisteners.push(u); });
 
+    TAURI.event.listen("crawl:sitemap", function (event) {
+      // Sitemap recu AU DEBUT du crawl (robots.txt + /sitemap.xml) : on remplit
+      // l'onglet Sitemap tout de suite, sans attendre la fin du crawl.
+      var smap = Array.isArray(event.payload) ? event.payload : [];
+      if (!smap.length) return;
+      S.sitemapUrls = smap;
+      S.sitemapSet = {};
+      for (var si = 0; si < smap.length; si++) { if (smap[si]) S.sitemapSet[normUrl(smap[si])] = true; }
+      scheduleRender();
+    }).then(function (u) { S.unlisteners.push(u); });
+
     TAURI.event.listen("crawl:done", function (event) {
       // Vague 3 : le payload de crawl:done est le CrawlSummary complet. On y
       // recupere sitemap_urls pour alimenter l'onglet Sitemap. Les autres
@@ -1962,10 +1978,12 @@
       // on ne les reexploite donc pas ici (pas de double comptage).
       var summary = (event && event.payload) ? event.payload : {};
       var smap = Array.isArray(summary.sitemap_urls) ? summary.sitemap_urls : [];
-      S.sitemapUrls = smap;
-      S.sitemapSet = {};
-      for (var si = 0; si < smap.length; si++) {
-        if (smap[si]) S.sitemapSet[normUrl(smap[si])] = true;
+      if (smap.length) {   // ne pas ecraser si vide : l'event crawl:sitemap (debut) fait foi
+        S.sitemapUrls = smap;
+        S.sitemapSet = {};
+        for (var si = 0; si < smap.length; si++) {
+          if (smap[si]) S.sitemapSet[normUrl(smap[si])] = true;
+        }
       }
 
       // VAGUE 4 (C) : si l'utilisateur a mis EN PAUSE, ce crawl:done provient du
