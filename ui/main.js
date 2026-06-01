@@ -61,6 +61,50 @@
     if (s >= 400)            return "http--err";
     return "http--muted";
   }
+
+  // Explication (sens + impact SEO) de chaque code HTTP, pour l'infobulle au survol.
+  var HTTP_EXPLAIN = {
+    0:   "Pas de réponse : page inaccessible, bloquée par robots.txt, ou erreur réseau / délai dépassé.",
+    200: "OK : la page répond normalement.",
+    201: "Créé : la ressource a été créée avec succès.",
+    204: "Aucun contenu : réponse valide mais sans corps.",
+    206: "Contenu partiel : réponse fragmentée (requête Range).",
+    301: "Redirection permanente : la page a définitivement déménagé. Le jus SEO est transmis à la cible — pensez à mettre à jour les liens.",
+    302: "Redirection temporaire : déplacement provisoire. Le jus SEO n'est pas (ou peu) transmis. Si le changement est définitif, préférez un 301.",
+    303: "Voir ailleurs : redirige vers une autre URL (typiquement après un POST).",
+    304: "Non modifié : la version en cache est encore valide, rien n'est retéléchargé.",
+    307: "Redirection temporaire stricte : comme 302, mais conserve la méthode HTTP.",
+    308: "Redirection permanente stricte : comme 301 (transmet le jus SEO), mais conserve la méthode HTTP.",
+    400: "Requête invalide : le serveur n'a pas compris la requête.",
+    401: "Authentification requise : il faut être connecté pour accéder à la page.",
+    403: "Accès interdit : le serveur refuse l'accès (droits, pare-feu, blocage de robot). Vérifiez que Googlebot n'est pas bloqué.",
+    404: "Introuvable : la page n'existe pas (lien cassé). À corriger — rediriger en 301 ou retirer les liens entrants.",
+    405: "Méthode non autorisée : la méthode HTTP (GET, POST…) n'est pas permise ici.",
+    406: "Non acceptable : le serveur ne peut pas fournir le format demandé.",
+    408: "Délai de requête dépassé : le serveur a trop attendu.",
+    410: "Supprimé définitivement : page retirée volontairement (désindexation plus forte qu'un 404).",
+    418: "Je suis une théière (clin d'oeil ; serveur facétieux).",
+    429: "Trop de requêtes : le serveur limite le débit. Ralentissez le crawl (baissez Req/sec).",
+    451: "Indisponible pour raisons légales.",
+    500: "Erreur serveur interne : bug ou panne côté serveur. À corriger en priorité (bloque l'indexation).",
+    501: "Non implémenté : le serveur ne gère pas cette fonctionnalité.",
+    502: "Passerelle invalide : un serveur intermédiaire a reçu une réponse invalide.",
+    503: "Service indisponible : serveur surchargé ou en maintenance. Temporaire, mais à surveiller.",
+    504: "Délai de passerelle dépassé : un serveur intermédiaire n'a pas répondu à temps."
+  };
+  function httpExplain(status) {
+    var s = parseInt(status, 10) || 0;
+    if (HTTP_EXPLAIN[s]) return s + " · " + HTTP_EXPLAIN[s];
+    if (s >= 200 && s < 300) return s + " · Succès (2xx) : la requête a abouti.";
+    if (s >= 300 && s < 400) return s + " · Redirection (3xx) : la ressource est ailleurs.";
+    if (s >= 400 && s < 500) return s + " · Erreur client (4xx) : page absente, accès refusé, etc.";
+    if (s >= 500)            return s + " · Erreur serveur (5xx) : problème côté serveur.";
+    return s + " · Code inhabituel.";
+  }
+  // Cellule "Code HTTP" : pastille colorée + infobulle explicative au survol.
+  function httpCodeHtml(status) {
+    return '<span class="http-code ' + httpClass(status) + '" title="' + esc(httpExplain(status)) + '">' + esc(status || 0) + '</span>';
+  }
   function seoOf(p) { return p && p.seo ? p.seo : null; }
 
   // ----- VAGUE 4 (A) — Temps de reponse (response_time_ms) -----------------
@@ -294,7 +338,7 @@
         var nout = Array.isArray(p.outlinks) ? p.outlinks.length : 0;
         return [
           { html: urlCellHtml(p.url), text: p.url || "", sort: p.url || "" },
-          { html: '<span class="http-code ' + httpClass(p.status) + '">' + esc(p.status || 0) + '</span>',
+          { html: httpCodeHtml(p.status),
             text: String(p.status || 0), sort: p.status || 0 },
           { html: esc(shortType(p.content_type)), text: p.content_type || "", sort: p.content_type || "" },
           // VAGUE 4 (A) : temps de reponse colore (vert/orange/rouge), triable.
@@ -322,7 +366,7 @@
         var redir = p.redirect_to || "";
         return [
           { html: urlCellHtml(p.url), text: p.url || "", sort: p.url || "" },
-          { html: '<span class="http-code ' + httpClass(p.status) + '">' + esc(p.status || 0) + '</span>',
+          { html: httpCodeHtml(p.status),
             text: String(p.status || 0), sort: p.status || 0 },
           { html: esc(shortType(p.content_type)), text: p.content_type || "", sort: p.content_type || "" },
           { html: redir ? urlCellHtml(redir) : '<span class="muted">—</span>', text: redir, sort: redir }
@@ -803,7 +847,7 @@
           stHtml = pill("ok", "Crawlee"); stText = "Crawlee"; stSort = 0;
         }
         var codeHtml = it.crawled
-          ? '<span class="http-code ' + httpClass(it.status) + '">' + esc(it.status || 0) + '</span>'
+          ? httpCodeHtml(it.status)
           : '<span class="muted">—</span>';
         return [
           { html: urlCellHtml(it.url), text: it.url || "", sort: it.url || "" },
