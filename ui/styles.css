@@ -323,6 +323,12 @@ a:hover { text-decoration: underline; }
   max-width: 460px;
 }
 .grid tbody tr:nth-child(even) { background: var(--row-alt); }
+/* Ligne en alerte (Vague 2) : URL trop longue/non-ASCII, contenu mixte.
+   Seul le FOND est colore (rose leger) pour ne pas ecraser les couleurs des
+   pastilles/badges. Placee apres le zebrage pour primer dessus, mais avant
+   hover/selection qui restent prioritaires (ordre source, meme specificite). */
+.grid tbody tr.row--alert,
+.grid tbody tr.row--alert:nth-child(even) { background: var(--err-bg); }
 .grid tbody tr:hover { background: var(--row-hover); cursor: pointer; }
 .grid tbody tr.is-selected { background: var(--row-sel); box-shadow: inset 2px 0 0 var(--row-sel-bd); }
 .grid tbody tr.is-selected td { border-bottom-color: #b6d2f5; }

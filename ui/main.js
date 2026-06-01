@@ -81,6 +81,31 @@
     return String(u).trim().replace(/#.*$/, "").replace(/\/+$/, "").toLowerCase();
   }
 
+  // ----- Extraction des valeurs servant au calcul des DOUBLONS (Vague 2) ----
+  // Comparaison EXACTE (apres trim). Une cle vide ne compte jamais comme doublon.
+  function dupKeyTitle(p) { var s = seoOf(p); return s && s.title ? s.title.trim() : ""; }
+  function dupKeyMeta(p)  { var s = seoOf(p); return s && s.meta_description ? s.meta_description.trim() : ""; }
+  function dupKeyH1(p)    {
+    var s = seoOf(p);
+    var arr = s && Array.isArray(s.h1) ? s.h1 : [];
+    return arr.length && arr[0] ? String(arr[0]).trim() : "";
+  }
+
+  // Acces aux nouveaux objets Vague 2 (peuvent etre null cote backend).
+  function secOf(p)   { return p && p.security ? p.security : null; }
+  function flagsOf(p) { return p && p.url_flags ? p.url_flags : null; }
+
+  // Nombre d'en-tetes manquants (tableau security.missing_headers).
+  function missingHeadersOf(p) {
+    var sec = secOf(p);
+    return sec && Array.isArray(sec.missing_headers) ? sec.missing_headers : [];
+  }
+  // Nombre de ressources en contenu mixte (tableau security.mixed_content).
+  function mixedContentOf(p) {
+    var sec = secOf(p);
+    return sec && Array.isArray(sec.mixed_content) ? sec.mixed_content : [];
+  }
+
   // =========================================================================
   // Etat global
   // =========================================================================
@@ -104,6 +129,10 @@
 
     // Inlinks : index inverse normUrl(cible) -> [{from, anchor, rel}]
     inlinksIndex: {},
+
+    // Cartes de doublons (Vague 2) : valeur normalisee -> nombre de pages.
+    // Reconstruites une fois par cycle de rendu (evite O(n^2) par ligne).
+    dupMaps: { title: {}, meta: {}, h1: {} },
 
     // Mesure de bande passante (run courant + agregats multi-run)
     bw: { totalBytes: 0, maxWeight: 0 },
@@ -189,6 +218,95 @@
       }
     },
 
+    // ----- URL (Vague 2) : analyse de la forme des adresses -----
+    // Colonnes : Adresse, Longueur, non-ASCII, Underscores, Majuscules, Parametres.
+    // Une ligne est en alerte si l'URL depasse 115 caracteres OU contient du non-ASCII.
+    url: {
+      kind: "pages",
+      columns: [
+        { key: "url",        label: "Adresse" },
+        { key: "length",     label: "Longueur", num: true },
+        { key: "nonascii",   label: "non-ASCII" },
+        { key: "underscores", label: "Underscores" },
+        { key: "uppercase",  label: "Majuscules" },
+        { key: "slashes",    label: "Slashes //" },
+        { key: "params",     label: "Parametres" }
+      ],
+      row: function (p) {
+        var f = flagsOf(p);
+        // Repli sur l'URL elle-meme si le backend n'a pas (encore) rempli url_flags.
+        var len = f && f.length != null ? f.length : (p.url ? p.url.length : 0);
+        var nonAscii = f ? !!f.non_ascii : false;
+        var underscores = f ? !!f.underscores : false;
+        var uppercase = f ? !!f.uppercase : false;
+        var multipleSlashes = f ? !!f.multiple_slashes : false;
+        var params = f ? !!f.params : false;
+        // Surlignage de la longueur si > 115 (le surlignage de ligne est gere par rowClass).
+        var lenHtml = '<span class="col-num' + (len > 115 ? ' num-bad' : '') + '">' + len + '</span>';
+        return [
+          // La classe row--alert (posee via rowClass plus bas) surligne la ligne.
+          { html: urlCellHtml(p.url), text: p.url || "", sort: p.url || "" },
+          { html: lenHtml, text: String(len), sort: len },
+          { html: nonAscii ? '<span class="bool-yes">oui</span>' : '<span class="bool-no">—</span>',
+            text: nonAscii ? "oui" : "non", sort: nonAscii ? 1 : 0 },
+          { html: underscores ? '<span class="bool-yes">oui</span>' : '<span class="bool-no">—</span>',
+            text: underscores ? "oui" : "non", sort: underscores ? 1 : 0 },
+          { html: uppercase ? '<span class="bool-yes">oui</span>' : '<span class="bool-no">—</span>',
+            text: uppercase ? "oui" : "non", sort: uppercase ? 1 : 0 },
+          { html: multipleSlashes ? '<span class="bool-yes">oui</span>' : '<span class="bool-no">—</span>',
+            text: multipleSlashes ? "oui" : "non", sort: multipleSlashes ? 1 : 0 },
+          { html: params ? '<span class="bool-yes">oui</span>' : '<span class="bool-no">—</span>',
+            text: params ? "oui" : "non", sort: params ? 1 : 0 }
+        ];
+      },
+      // Surligne la ligne entiere si alerte (URL trop longue, non-ASCII ou double slash).
+      rowClass: function (p) {
+        var f = flagsOf(p);
+        var len = f && f.length != null ? f.length : (p.url ? p.url.length : 0);
+        var nonAscii = f ? !!f.non_ascii : false;
+        var multipleSlashes = f ? !!f.multiple_slashes : false;
+        return (len > 115 || nonAscii || multipleSlashes) ? "row--alert" : "";
+      }
+    },
+
+    // ----- Securite (Vague 2) : HTTPS, contenu mixte, en-tetes manquants -----
+    // Une ligne est en alerte si la page presente du contenu mixte.
+    security: {
+      kind: "pages",
+      columns: [
+        { key: "url",     label: "Adresse" },
+        { key: "https",   label: "HTTPS" },
+        { key: "mixed",   label: "Contenu mixte", num: true },
+        { key: "headers", label: "En-tetes manquants" }
+      ],
+      row: function (p) {
+        var sec = secOf(p);
+        var https = sec ? !!sec.https : (p.url ? /^https:/i.test(p.url) : false);
+        var mixed = mixedContentOf(p);
+        var headers = missingHeadersOf(p);
+        // Liste courte des en-tetes manquants (max 3 affiches, reste en "+N").
+        var headHtml, headText;
+        if (!headers.length) { headHtml = '<span class="bool-no">—</span>'; headText = ""; }
+        else {
+          var shown = headers.slice(0, 3).map(function (h) { return '<span class="badge">' + esc(h) + '</span>'; }).join("");
+          if (headers.length > 3) shown += '<span class="muted">+' + (headers.length - 3) + '</span>';
+          headHtml = shown;
+          headText = headers.join(", ");
+        }
+        return [
+          { html: urlCellHtml(p.url), text: p.url || "", sort: p.url || "" },
+          { html: https ? pill("ok", "oui") : pill("err", "non"),
+            text: https ? "oui" : "non", sort: https ? 1 : 0 },
+          { html: mixed.length ? '<span class="col-num num-bad">' + mixed.length + '</span>'
+                               : '<span class="col-num">0</span>',
+            text: String(mixed.length), sort: mixed.length },
+          { html: headHtml, text: headText, sort: headers.length }
+        ];
+      },
+      // Surligne la ligne entiere si contenu mixte present.
+      rowClass: function (p) { return mixedContentOf(p).length ? "row--alert" : ""; }
+    },
+
     // ----- Page Titles -----
     titles: {
       kind: "pages",
@@ -196,6 +314,7 @@
         { key: "url",   label: "Adresse" },
         { key: "title", label: "Title" },
         { key: "len",   label: "Longueur", num: true },
+        { key: "dup",   label: "Duplique" },
         { key: "state", label: "Etat" }
       ],
       row: function (p) {
@@ -203,10 +322,13 @@
         var title = s && s.title ? s.title : "";
         var len = s ? (s.title_len || 0) : 0;
         var st = titleState(title, len);
+        var dup = isDup("title", dupKeyTitle, p);   // doublon exact calcule cote JS
         return [
           { html: urlCellHtml(p.url), text: p.url || "", sort: p.url || "" },
           { html: esc(title || "—"), text: title, sort: title },
           { html: '<span class="col-num">' + len + '</span>', text: String(len), sort: len },
+          { html: dup ? pill("warn", "Oui") : '<span class="muted">—</span>',
+            text: dup ? "Oui" : "Non", sort: dup ? 1 : 0 },
           { html: pill(st.kind, st.label), text: st.label, sort: st.label }
         ];
       }
@@ -219,6 +341,7 @@
         { key: "url",  label: "Adresse" },
         { key: "meta", label: "Meta Description" },
         { key: "len",  label: "Longueur", num: true },
+        { key: "dup",  label: "Duplique" },
         { key: "state", label: "Etat" }
       ],
       row: function (p) {
@@ -226,10 +349,13 @@
         var meta = s && s.meta_description ? s.meta_description : "";
         var len = s ? (s.meta_description_len || 0) : 0;
         var st = metaState(meta, len);
+        var dup = isDup("meta", dupKeyMeta, p);     // doublon exact calcule cote JS
         return [
           { html: urlCellHtml(p.url), text: p.url || "", sort: p.url || "" },
           { html: esc(meta || "—"), text: meta, sort: meta },
           { html: '<span class="col-num">' + len + '</span>', text: String(len), sort: len },
+          { html: dup ? pill("warn", "Oui") : '<span class="muted">—</span>',
+            text: dup ? "Oui" : "Non", sort: dup ? 1 : 0 },
           { html: pill(st.kind, st.label), text: st.label, sort: st.label }
         ];
       }
@@ -242,6 +368,7 @@
         { key: "url",   label: "Adresse" },
         { key: "h1",    label: "Premier H1" },
         { key: "count", label: "Nombre", num: true },
+        { key: "dup",   label: "Duplique" },
         { key: "state", label: "Etat" }
       ],
       row: function (p) {
@@ -250,10 +377,13 @@
         var count = s ? (s.h1_count || arr.length) : 0;
         var first = arr.length ? arr[0] : "";
         var st = h1State(count);
+        var dup = isDup("h1", dupKeyH1, p);         // doublon exact du 1er h1 (JS)
         return [
           { html: urlCellHtml(p.url), text: p.url || "", sort: p.url || "" },
           { html: esc(first || "—"), text: first, sort: first },
           { html: '<span class="col-num">' + count + '</span>', text: String(count), sort: count },
+          { html: dup ? pill("warn", "Oui") : '<span class="muted">—</span>',
+            text: dup ? "Oui" : "Non", sort: dup ? 1 : 0 },
           { html: pill(st.kind, st.label), text: st.label, sort: st.label }
         ];
       }
@@ -310,25 +440,32 @@
       columns: [
         { key: "url",       label: "Adresse" },
         { key: "robots",    label: "Meta Robots" },
+        { key: "xrobots",   label: "X-Robots-Tag" },
         { key: "indexable", label: "Indexable" },
         { key: "noindex",   label: "Noindex" },
-        { key: "nofollow",  label: "Nofollow" }
+        { key: "nofollow",  label: "Nofollow" },
+        { key: "canonsd",   label: "Canonicalisee" }
       ],
       row: function (p) {
         var s = seoOf(p);
         var robots = s && s.meta_robots ? s.meta_robots : "";
+        var xrobots = s && s.x_robots_tag ? s.x_robots_tag : "";    // en-tete HTTP (Vague 2)
         var indexable = s ? !!s.indexable : false;
         var noindex = s ? !!s.noindex : false;
         var nofollow = s ? !!s.nofollow : false;
+        var canonicalised = s ? !!s.canonicalised : false;          // canonical != URL (Vague 2)
         return [
           { html: urlCellHtml(p.url), text: p.url || "", sort: p.url || "" },
           { html: esc(robots || "—"), text: robots, sort: robots },
+          { html: esc(xrobots || "—"), text: xrobots, sort: xrobots },
           { html: indexable ? pill("ok", "Oui") : pill("err", "Non"),
             text: indexable ? "Oui" : "Non", sort: indexable ? 1 : 0 },
           { html: noindex ? '<span class="bool-yes">oui</span>' : '<span class="bool-no">—</span>',
             text: noindex ? "oui" : "non", sort: noindex ? 1 : 0 },
           { html: nofollow ? '<span class="bool-yes">oui</span>' : '<span class="bool-no">—</span>',
-            text: nofollow ? "oui" : "non", sort: nofollow ? 1 : 0 }
+            text: nofollow ? "oui" : "non", sort: nofollow ? 1 : 0 },
+          { html: canonicalised ? '<span class="bool-yes">oui</span>' : '<span class="bool-no">—</span>',
+            text: canonicalised ? "oui" : "non", sort: canonicalised ? 1 : 0 }
         ];
       }
     },
@@ -358,23 +495,76 @@
       }
     },
 
+    // ----- Pagination (Vague 2) : rel=prev / rel=next -----
+    // N'affiche QUE les pages ayant au moins l'un des deux liens de pagination.
+    pagination: {
+      kind: "pages",
+      // Filtre specifique a l'onglet : conserve seulement les pages paginees.
+      filter: function (p) {
+        var s = seoOf(p);
+        return !!(s && (s.pagination_prev || s.pagination_next));
+      },
+      columns: [
+        { key: "url",  label: "Adresse" },
+        { key: "prev", label: "rel=prev" },
+        { key: "next", label: "rel=next" }
+      ],
+      row: function (p) {
+        var s = seoOf(p);
+        var prev = s && s.pagination_prev ? s.pagination_prev : "";
+        var next = s && s.pagination_next ? s.pagination_next : "";
+        return [
+          { html: urlCellHtml(p.url), text: p.url || "", sort: p.url || "" },
+          { html: prev ? urlCellHtml(prev) : '<span class="muted">—</span>', text: prev, sort: prev },
+          { html: next ? urlCellHtml(next) : '<span class="muted">—</span>', text: next, sort: next }
+        ];
+      }
+    },
+
     // ----- Structured Data -----
+    // Colonnes : Adresse, Types, Valide (structured_data_valid), Erreurs (structured_data_errors).
+    // Une ligne est en alerte si la page a des donnees structurees invalides.
     schema: {
       kind: "pages",
       columns: [
-        { key: "url",   label: "Adresse" },
-        { key: "types", label: "Types" }
+        { key: "url",    label: "Adresse" },
+        { key: "types",  label: "Types" },
+        { key: "valid",  label: "Valide" },
+        { key: "errors", label: "Erreurs", num: true }
       ],
       row: function (p) {
         var s = seoOf(p);
         var types = s && Array.isArray(s.structured_data_types) ? s.structured_data_types : [];
-        var html = types.length
+        var errors = s && Array.isArray(s.structured_data_errors) ? s.structured_data_errors : [];
+        var hasData = types.length > 0;
+        var valid = s ? !!s.structured_data_valid : true;
+        var typesHtml = hasData
           ? types.map(function (t) { return '<span class="badge">' + esc(t) + '</span>'; }).join(" ")
           : '<span class="muted">—</span>';
+        // "Valide" n'a de sens que si la page porte des donnees structurees.
+        var validHtml, validText, validSort;
+        if (!hasData) { validHtml = '<span class="bool-no">—</span>'; validText = ""; validSort = -1; }
+        else if (valid) { validHtml = pill("ok", "oui"); validText = "oui"; validSort = 1; }
+        else { validHtml = pill("err", "non"); validText = "non"; validSort = 0; }
+        // Erreurs : nombre + premiere erreur en infobulle.
+        var errHtml, errText;
+        if (!errors.length) { errHtml = '<span class="col-num">0</span>'; errText = "0"; }
+        else {
+          errHtml = '<span class="col-num num-bad" title="' + esc(errors.join(" | ")) + '">' + errors.length + '</span>';
+          errText = errors.join(", ");
+        }
         return [
           { html: urlCellHtml(p.url), text: p.url || "", sort: p.url || "" },
-          { html: html, text: types.join(", "), sort: types.length }
+          { html: typesHtml, text: types.join(", "), sort: types.length },
+          { html: validHtml, text: validText, sort: validSort },
+          { html: errHtml, text: errText, sort: errors.length }
         ];
+      },
+      // Surligne la ligne si la page a des donnees structurees invalides.
+      rowClass: function (p) {
+        var s = seoOf(p);
+        var types = s && Array.isArray(s.structured_data_types) ? s.structured_data_types : [];
+        return (types.length && s && !s.structured_data_valid) ? "row--alert" : "";
       }
     },
 
@@ -565,6 +755,7 @@
       S.rafPending = false;
       if (!S.dirty) return;
       S.dirty = false;
+      rebuildDupMaps();      // cartes de doublons fraiches pour grille + overview
       renderTabCounts();
       renderOverview();
       renderGrid();
@@ -578,11 +769,16 @@
   // SOURCES DE LIGNES selon l'onglet (avec filtres recherche/categorie/sev)
   // =========================================================================
 
-  // Pages filtrees par recherche d'URL + filtre de categorie (sidebar).
+  // Pages filtrees par recherche d'URL + filtre de categorie (sidebar) +
+  // filtre propre a l'onglet courant (ex: Pagination ne montre que les pages
+  // ayant rel=prev/next).
   function pagesFiltered() {
     var q = S.search ? S.search.toLowerCase() : "";
     var cat = S.catFilter;
+    var def = TABS[S.activeTab];
+    var tabFilter = def && typeof def.filter === "function" ? def.filter : null;
     return S.pages.filter(function (p) {
+      if (tabFilter && !tabFilter(p)) return false;
       if (q && (p.url || "").toLowerCase().indexOf(q) === -1) return false;
       if (cat && !cat.predicate(p)) return false;
       return true;
@@ -672,12 +868,18 @@
     // --- Construction HTML (une seule affectation innerHTML = perf) ---
     var rows = "";
     var selKey = S.selectedUrl ? normUrl(S.selectedUrl) : null;
+    var hasRowClass = def.kind === "pages" && typeof def.rowClass === "function";
     for (var r = 0; r < mapped.length; r++) {
       var cells = mapped[r].cells;
       var item = mapped[r].item;
       var rowUrl = item.url || item.from || "";   // pages/issues -> url ; liens -> from
-      var selCls = (selKey && def.kind === "pages" && normUrl(item.url) === selKey) ? " is-selected" : "";
-      rows += '<tr data-url="' + esc(rowUrl) + '"' + (selCls ? ' class="is-selected"' : "") + '>';
+      // Classes cumulees : selection (ligne ouverte dans le detail) + alerte
+      // eventuelle propre a l'onglet (URL trop longue, contenu mixte...).
+      var classes = [];
+      if (selKey && def.kind === "pages" && normUrl(item.url) === selKey) classes.push("is-selected");
+      if (hasRowClass) { var rc = def.rowClass(item); if (rc) classes.push(rc); }
+      var clsAttr = classes.length ? ' class="' + classes.join(" ") + '"' : "";
+      rows += '<tr data-url="' + esc(rowUrl) + '"' + clsAttr + '>';
       for (var k = 0; k < cells.length; k++) rows += "<td>" + cells[k].html + "</td>";
       rows += "</tr>";
     }
@@ -703,9 +905,17 @@
   // =========================================================================
   function renderTabCounts() {
     var nPages = S.pages.length;
+    // Pagination : ne compte que les pages ayant rel=prev OU rel=next.
+    var nPagination = 0;
+    for (var pi = 0; pi < S.pages.length; pi++) {
+      var sp = seoOf(S.pages[pi]);
+      if (sp && (sp.pagination_prev || sp.pagination_next)) nPagination++;
+    }
     var counts = {
       internal: nPages,
       response: nPages,
+      url: nPages,
+      security: nPages,
       titles: nPages,
       meta: nPages,
       h1: nPages,
@@ -713,6 +923,7 @@
       canonical: nPages,
       directives: nPages,
       hreflang: nPages,
+      pagination: nPagination,
       schema: nPages,
       bandwidth: nPages,
       links: S.pages.reduce(function (s, p) { return s + (Array.isArray(p.outlinks) ? p.outlinks.length : 0); }, 0),
@@ -741,43 +952,71 @@
       { id: "titleMissing", label: "Manquant", tone: "err",  pred: function (p) { var s = seoOf(p); return !s || !s.title; } },
       { id: "titleLong",    label: "> 60 car.", tone: "warn", pred: function (p) { var s = seoOf(p); return s && s.title && s.title_len > 60; } },
       { id: "titleShort",   label: "< 30 car.", tone: "warn", pred: function (p) { var s = seoOf(p); return s && s.title && s.title_len < 30; } },
-      { id: "titleDup",     label: "Duplique", tone: "warn", pred: dupPred("title", function (s) { return s && s.title ? s.title.trim() : ""; }) }
+      { id: "titleDup",     label: "Duplique", tone: "warn", pred: dupPred("title", dupKeyTitle) }
     ]},
     { group: "Meta Description", tab: "meta", rows: [
       { id: "metaMissing", label: "Manquant", tone: "err",  pred: function (p) { var s = seoOf(p); return !s || !s.meta_description; } },
       { id: "metaLong",    label: "> 160 car.", tone: "warn", pred: function (p) { var s = seoOf(p); return s && s.meta_description && s.meta_description_len > 160; } },
-      { id: "metaShort",   label: "< 70 car.", tone: "warn", pred: function (p) { var s = seoOf(p); return s && s.meta_description && s.meta_description_len < 70; } }
+      { id: "metaShort",   label: "< 70 car.", tone: "warn", pred: function (p) { var s = seoOf(p); return s && s.meta_description && s.meta_description_len < 70; } },
+      { id: "metaDup",     label: "Duplique", tone: "warn", pred: dupPred("meta", dupKeyMeta) }
     ]},
     { group: "H1", tab: "h1", rows: [
       { id: "h1Missing",  label: "Manquant", tone: "err",  pred: function (p) { var s = seoOf(p); return !s || (s.h1_count || 0) === 0; } },
-      { id: "h1Multiple", label: "Multiple", tone: "warn", pred: function (p) { var s = seoOf(p); return s && (s.h1_count || 0) > 1; } }
+      { id: "h1Multiple", label: "Multiple", tone: "warn", pred: function (p) { var s = seoOf(p); return s && (s.h1_count || 0) > 1; } },
+      { id: "h1Dup",      label: "Duplique", tone: "warn", pred: dupPred("h1", dupKeyH1) }
     ]},
     { group: "Images", tab: "images", rows: [
       { id: "imgMissingAlt", label: "Sans alt", tone: "warn", pred: function (p) { var s = seoOf(p); return s && (s.images_missing_alt || 0) > 0; } }
     ]},
     { group: "Canonicals", tab: "canonical", rows: [
-      { id: "canonMissing", label: "Manquant", tone: "warn", pred: function (p) { var s = seoOf(p); return !s || !s.canonical; } }
+      { id: "canonMissing", label: "Manquant", tone: "warn", pred: function (p) { var s = seoOf(p); return !s || !s.canonical; } },
+      { id: "canonicalised", label: "Canonicalisees", tone: "warn", pred: function (p) { var s = seoOf(p); return !!(s && s.canonicalised); } }
     ]},
     { group: "Indexabilite", tab: "directives", rows: [
       { id: "idxYes", label: "Indexable", tone: "ok",  pred: function (p) { var s = seoOf(p); return s && s.indexable; } },
       { id: "idxNo",  label: "Non indexable", tone: "err", pred: function (p) { var s = seoOf(p); return !s || !s.indexable; } }
+    ]},
+    // ----- Nouveaux groupes Vague 2 -----
+    { group: "URL", tab: "url", rows: [
+      { id: "urlNonAscii", label: "Non-ASCII", tone: "warn", pred: function (p) { var f = flagsOf(p); return !!(f && f.non_ascii); } },
+      { id: "urlLong",     label: "Longues (>115)", tone: "warn", pred: function (p) {
+          var f = flagsOf(p);
+          var len = f && f.length != null ? f.length : (p.url ? p.url.length : 0);
+          return len > 115;
+      } }
+    ]},
+    { group: "Securite", tab: "security", rows: [
+      { id: "secMixed",   label: "Contenu mixte", tone: "err",  pred: function (p) { return mixedContentOf(p).length > 0; } },
+      { id: "secHeaders", label: "En-tetes manquants", tone: "warn", pred: function (p) { return missingHeadersOf(p).length > 0; } }
     ]}
   ];
 
-  // Fabrique un predicate "duplique" : vrai si la valeur (title/meta) apparait
-  // sur plus d'une page. Recalcule a chaque appel (jeu de pages qui grossit).
-  function dupPred(_kind, getter) {
-    return function (p) {
-      var s = seoOf(p);
-      var val = getter(s);
-      if (!val) return false;
-      var n = 0;
-      for (var i = 0; i < S.pages.length; i++) {
-        var ss = seoOf(S.pages[i]);
-        if (getter(ss) === val) { n++; if (n > 1) return true; }
-      }
-      return false;
-    };
+  // (Re)construit les cartes de doublons (title / meta / 1er h1) en UN passage
+  // O(n) sur S.pages. Cle = valeur exacte (trim) -> nombre de pages partageant
+  // cette valeur. Appelee une fois par cycle de rendu (cf. scheduleRender).
+  function rebuildDupMaps() {
+    var maps = { title: {}, meta: {}, h1: {} };
+    for (var i = 0; i < S.pages.length; i++) {
+      var p = S.pages[i];
+      var kt = dupKeyTitle(p); if (kt) maps.title[kt] = (maps.title[kt] || 0) + 1;
+      var km = dupKeyMeta(p);  if (km) maps.meta[km]  = (maps.meta[km]  || 0) + 1;
+      var kh = dupKeyH1(p);    if (kh) maps.h1[kh]    = (maps.h1[kh]    || 0) + 1;
+    }
+    S.dupMaps = maps;
+  }
+
+  // Vrai si la page p partage sa valeur (title/meta/h1) avec au moins une autre.
+  // Lit la carte pre-calculee S.dupMaps[mapKey] (pas de boucle interne).
+  function isDup(mapKey, keyFn, p) {
+    var val = keyFn(p);
+    if (!val) return false;
+    return (S.dupMaps[mapKey][val] || 0) >= 2;
+  }
+
+  // Fabrique un predicate "duplique" pour la sidebar Overview, base sur les
+  // cartes pre-calculees (>= 2 pages partageant la valeur exacte).
+  function dupPred(mapKey, keyFn) {
+    return function (p) { return isDup(mapKey, keyFn, p); };
   }
 
   function countFor(pred) {
@@ -936,6 +1175,38 @@
            '</div>';
   }
 
+  // --- Helpers texte pour les champs Securite du panneau Infos (Vague 2) ---
+  // Repli sur le schema de l'URL si l'objet security n'est pas fourni.
+  function secInfoHttps(p) {
+    var sec = secOf(p);
+    if (sec && typeof sec.https === "boolean") return sec.https ? "Oui" : "Non";
+    return (p.url && /^https:/i.test(p.url)) ? "Oui" : "Non";
+  }
+  function secInfoMixed(p) {
+    var m = mixedContentOf(p);
+    if (!m.length) return "Aucun";
+    // On liste les premieres ressources mixtes pour faciliter le diagnostic.
+    var head = m.slice(0, 5).join("  |  ");
+    return m.length + " ressource(s) : " + head + (m.length > 5 ? "  | ..." : "");
+  }
+  function secInfoHeaders(p) {
+    var h = missingHeadersOf(p);
+    return h.length ? h.join(", ") : "Aucun";
+  }
+  // --- Helpers texte pour les donnees structurees (Vague 2) ---
+  // "Valide" n'a de sens que si la page porte des donnees structurees.
+  function schemaInfoValid(p) {
+    var s = seoOf(p);
+    var types = s && Array.isArray(s.structured_data_types) ? s.structured_data_types : [];
+    if (!types.length) return "—";
+    return (s && s.structured_data_valid) ? "Oui" : "Non";
+  }
+  function schemaInfoErrors(p) {
+    var s = seoOf(p);
+    var errs = s && Array.isArray(s.structured_data_errors) ? s.structured_data_errors : [];
+    return errs.length ? errs.join("  |  ") : "Aucune";
+  }
+
   // Vue "Infos / En-tetes" : liste cle/valeur.
   function renderInfo(p) {
     var s = seoOf(p);
@@ -950,7 +1221,9 @@
       ["Redirige vers", p.redirect_to || "—"],
       ["Chaine de redirection", (Array.isArray(p.redirect_chain) && p.redirect_chain.length) ? p.redirect_chain.join("  ->  ") : "—"],
       ["Canonical", (s && s.canonical) ? s.canonical : "—"],
+      ["Canonicalisee", (s && s.canonicalised) ? "Oui" : "Non"],
       ["Meta robots", (s && s.meta_robots) ? s.meta_robots : "—"],
+      ["X-Robots-Tag", (s && s.x_robots_tag) ? s.x_robots_tag : "—"],
       ["Indexable", (s && s.indexable) ? "Oui" : "Non"],
       ["Langue", (s && s.lang) ? s.lang : "—"],
       ["Viewport", (s && s.viewport) ? s.viewport : "—"],
@@ -959,6 +1232,13 @@
       ["Ratio texte/code", s ? (Math.round((s.text_ratio || 0) * 1000) / 10) + " %" : "—"],
       ["Liens internes / externes", s ? ((s.internal_links || 0) + " / " + (s.external_links || 0)) : "—"],
       ["Technos", (Array.isArray(p.tech) && p.tech.length) ? p.tech.join(", ") : "—"],
+      ["Donnees structurees valides", schemaInfoValid(p)],
+      ["Erreurs donnees structurees", schemaInfoErrors(p)],
+      ["HTTPS", secInfoHttps(p)],
+      ["Contenu mixte", secInfoMixed(p)],
+      ["En-tetes manquants", secInfoHeaders(p)],
+      ["rel=prev", (s && s.pagination_prev) ? s.pagination_prev : "—"],
+      ["rel=next", (s && s.pagination_next) ? s.pagination_next : "—"],
       ["Erreur", p.error || "—"]
     ];
     var h = '<div class="kv">';
@@ -1148,6 +1428,7 @@
     S.issues = [];
     S.sevCounts = { critical: 0, warning: 0, opportunity: 0, info: 0 };
     S.inlinksIndex = {};
+    S.dupMaps = { title: {}, meta: {}, h1: {} };
     S.bw = { totalBytes: 0, maxWeight: 0 };
     closeDetail();
     renderTabCounts();

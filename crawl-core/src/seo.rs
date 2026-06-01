@@ -117,6 +117,80 @@ fn collect_ld_types(value: &serde_json::Value, out: &mut Vec<String>) {
     }
 }
 
+/// Does this JSON-LD object carry a non-empty `@type`?
+fn ld_obj_has_type(map: &serde_json::Map<String, serde_json::Value>) -> bool {
+    match map.get("@type") {
+        Some(serde_json::Value::String(s)) => !s.trim().is_empty(),
+        Some(serde_json::Value::Array(items)) => items.iter().any(|v| {
+            matches!(v, serde_json::Value::String(s) if !s.trim().is_empty())
+        }),
+        _ => false,
+    }
+}
+
+/// Validate a single parsed JSON-LD `<script>` block (basic check).
+///
+/// Rules: each described entity must carry `@type`, and `@context` must be
+/// present (either on the wrapper object or, for an array, on each entity).
+/// Returns a human-readable error string on the first problem, or `None` when
+/// the block is acceptable. The block may be a single object, an array of
+/// objects, or an object wrapping a `@graph` array.
+fn validate_ld_block(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::Object(map) => {
+            // @graph container: @context on the wrapper, @type on each node.
+            if let Some(graph) = map.get("@graph") {
+                if map.get("@context").is_none() {
+                    return Some("@context manquant".to_string());
+                }
+                return match graph {
+                    serde_json::Value::Array(items) => {
+                        for item in items {
+                            match item {
+                                serde_json::Value::Object(node) => {
+                                    if !ld_obj_has_type(node) {
+                                        return Some("@type manquant".to_string());
+                                    }
+                                }
+                                _ => return Some("@type manquant".to_string()),
+                            }
+                        }
+                        None
+                    }
+                    // @graph present but not an array: still require a @type somewhere.
+                    serde_json::Value::Object(node) => {
+                        if ld_obj_has_type(node) {
+                            None
+                        } else {
+                            Some("@type manquant".to_string())
+                        }
+                    }
+                    _ => Some("@type manquant".to_string()),
+                };
+            }
+
+            if !ld_obj_has_type(map) {
+                return Some("@type manquant".to_string());
+            }
+            if map.get("@context").is_none() {
+                return Some("@context manquant".to_string());
+            }
+            None
+        }
+        serde_json::Value::Array(items) => {
+            // Top-level array: every entry must be a valid object on its own.
+            for item in items {
+                if let Some(err) = validate_ld_block(item) {
+                    return Some(err);
+                }
+            }
+            None
+        }
+        // A bare scalar / null is not a valid JSON-LD entity.
+        _ => Some("@type manquant".to_string()),
+    }
+}
+
 /// Extract SEO-relevant data from an HTML document.
 ///
 /// `page_url` is the absolute URL the HTML was fetched from (used to resolve
@@ -250,6 +324,20 @@ pub fn extract_seo(html: &str, page_url: &str, seed_host: Option<&str>) -> SeoDa
             };
         }
 
+        // Pagination: <link rel="next"> / <link rel="prev"> (resolus en absolu).
+        if rels.iter().any(|r| *r == "next") && data.pagination_next.is_none() {
+            data.pagination_next = match base.as_ref() {
+                Some(b) => resolve_url(b, href),
+                None => Some(href.to_string()),
+            };
+        }
+        if rels.iter().any(|r| *r == "prev") && data.pagination_prev.is_none() {
+            data.pagination_prev = match base.as_ref() {
+                Some(b) => resolve_url(b, href),
+                None => Some(href.to_string()),
+            };
+        }
+
         if rels.iter().any(|r| *r == "alternate") {
             if let Some(lang) = v.attr("hreflang") {
                 let lang = lang.trim();
@@ -277,6 +365,10 @@ pub fn extract_seo(html: &str, page_url: &str, seed_host: Option<&str>) -> SeoDa
         },
     };
     data.indexable = !data.noindex && canonical_ok;
+
+    // canonicalised : un canonical est present ET pointe vers une AUTRE url
+    // (normalisee) que la page courante -> la page se declare non-indexable.
+    data.canonicalised = data.canonical.is_some() && !canonical_ok;
 
     // --- headings ---------------------------------------------------------
     for el in document.select(&sel("h1")) {
@@ -344,20 +436,35 @@ pub fn extract_seo(html: &str, page_url: &str, seed_host: Option<&str>) -> SeoDa
     }
 
     // --- structured data (JSON-LD) ----------------------------------------
+    // Pour chaque bloc : on collecte les @type et on valide basiquement
+    // (JSON parsable + @type/@context presents).
     let mut sd_types: Vec<String> = Vec::new();
+    let mut sd_errors: Vec<String> = Vec::new();
+    let mut sd_block_index = 0usize;
     for el in document.select(&sel("script[type=\"application/ld+json\"]")) {
         let raw = el.text().collect::<String>();
         let raw = raw.trim();
         if raw.is_empty() {
             continue;
         }
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(raw) {
-            collect_ld_types(&json, &mut sd_types);
+        sd_block_index += 1;
+        match serde_json::from_str::<serde_json::Value>(raw) {
+            Ok(json) => {
+                collect_ld_types(&json, &mut sd_types);
+                if let Some(err) = validate_ld_block(&json) {
+                    sd_errors.push(format!("Bloc {}: {}", sd_block_index, err));
+                }
+            }
+            Err(_) => {
+                sd_errors.push(format!("Bloc {}: JSON invalide", sd_block_index));
+            }
         }
     }
     sd_types.sort();
     sd_types.dedup();
     data.structured_data_types = sd_types;
+    data.structured_data_valid = sd_errors.is_empty();
+    data.structured_data_errors = sd_errors;
 
     // --- word count & text ratio ------------------------------------------
     let visible_text = match document.select(&sel("body")).next() {
@@ -457,6 +564,78 @@ pub fn analyze(report: &PageReport) -> Vec<Issue> {
     // --- Canonical --------------------------------------------------------
     if seo.canonical.is_none() {
         push("opportunity", "Canonical", "Canonical manquant".to_string());
+    }
+
+    // --- Canonical : page canonicalisee (pointe vers une autre URL) -------
+    if seo.canonicalised {
+        push(
+            "warning",
+            "Canonical",
+            "Page canonicalisee (non-indexable)".to_string(),
+        );
+    }
+
+    // --- Directives : X-Robots-Tag noindex (en-tete HTTP) -----------------
+    if let Some(xrt) = seo.x_robots_tag.as_deref() {
+        if xrt.to_ascii_lowercase().contains("noindex") {
+            push("warning", "Directives", "X-Robots-Tag noindex".to_string());
+        }
+    }
+
+    // --- Pagination -------------------------------------------------------
+    if seo.pagination_next.is_some() || seo.pagination_prev.is_some() {
+        push("info", "Pagination", "Page paginee".to_string());
+    }
+
+    // --- Donnees structurees ----------------------------------------------
+    if !seo.structured_data_valid {
+        let first = seo
+            .structured_data_errors
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "erreur".to_string());
+        push(
+            "warning",
+            "Donnees structurees",
+            format!("Donnees structurees invalides ({})", first),
+        );
+    }
+
+    // --- Securite : mixed content + en-tetes manquants --------------------
+    if let Some(security) = report.security.as_ref() {
+        if !security.mixed_content.is_empty() {
+            push(
+                "warning",
+                "Securite",
+                format!(
+                    "Contenu mixte ({} ressources http)",
+                    security.mixed_content.len()
+                ),
+            );
+        }
+        for header in &security.missing_headers {
+            push(
+                "info",
+                "Securite",
+                format!("En-tete securite manquant: {}", header),
+            );
+        }
+    }
+
+    // --- URL : qualite de l'URL -------------------------------------------
+    if let Some(flags) = report.url_flags.as_ref() {
+        if flags.non_ascii {
+            push("info", "URL", "URL avec caracteres non-ASCII".to_string());
+        }
+        if flags.length > 115 {
+            push("opportunity", "URL", format!("URL longue ({})", flags.length));
+        }
+        if flags.uppercase {
+            push("info", "URL", "URL avec majuscules".to_string());
+        }
+        if flags.underscores {
+            push("info", "URL", "URL avec underscores".to_string());
+        }
     }
 
     issues

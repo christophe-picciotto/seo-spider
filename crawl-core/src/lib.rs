@@ -8,5 +8,7 @@ pub mod netinfo;
 pub mod seo;
 pub mod useragents;
 pub mod robots;
+pub mod security;
+pub mod urlcheck;
 
 pub use report::*;

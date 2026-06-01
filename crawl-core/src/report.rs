@@ -47,6 +47,29 @@ pub struct SeoData {
     pub external_links: u32,
     pub hreflang: Vec<Hreflang>,
     pub structured_data_types: Vec<String>,
+    pub x_robots_tag: Option<String>,
+    pub pagination_next: Option<String>,
+    pub pagination_prev: Option<String>,
+    pub canonicalised: bool,            // canonical pointe vers une AUTRE url (page non-indexable)
+    pub structured_data_valid: bool,
+    pub structured_data_errors: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SecurityData {
+    pub https: bool,
+    pub mixed_content: Vec<String>,
+    pub missing_headers: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct UrlFlags {
+    pub length: usize,
+    pub non_ascii: bool,
+    pub underscores: bool,
+    pub uppercase: bool,
+    pub multiple_slashes: bool,
+    pub params: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -94,6 +117,10 @@ pub struct PageReport {
     pub redirect_chain: Vec<String>,
     #[serde(default)]
     pub outlinks: Vec<LinkInfo>,
+    #[serde(default)]
+    pub security: Option<SecurityData>,
+    #[serde(default)]
+    pub url_flags: Option<UrlFlags>,
 }
 
 /// Default value helper for serde (`respect_robots` defaults to true).

@@ -408,6 +408,18 @@ where
             }
         }
 
+        // Indicateurs URL + securite (Vague 2). Calcules AVANT seo::analyze
+        // pour que la generation d'issues puisse en tenir compte plus tard.
+        report.url_flags = Some(crate::urlcheck::analyze(&url));
+        report.security = Some(crate::security::analyze(&url, &probe.headers, &probe.html));
+        if let Some(seo) = report.seo.as_mut() {
+            seo.x_robots_tag = probe
+                .headers
+                .get("x-robots-tag")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string());
+        }
+
         report.issues = crate::seo::analyze(&report);
 
         // 4. Notifications + agregation.
