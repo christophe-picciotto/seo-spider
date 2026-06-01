@@ -23,8 +23,9 @@
     <header class="topbar">
       <form id="crawl-form" class="topbar-main" autocomplete="off">
         <input
-          type="url" id="seed-url" name="seed_url"
+          type="url" id="seed-url" name="seed_url" list="url-history"
           class="url-input" placeholder="https://exemple.com" required />
+        <datalist id="url-history"></datalist>
         <button type="submit" id="btn-start" class="btn btn--primary">Demarrer</button>
         <button type="button" id="btn-stop"  class="btn btn--danger" disabled>Stop</button>
         <button type="button" id="btn-clear" class="btn">Vider</button>

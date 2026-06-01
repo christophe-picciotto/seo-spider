@@ -2548,6 +2548,7 @@
       .then(function (json) {
         try { history = JSON.parse(json) || []; } catch (e) { history = []; }
         if (!Array.isArray(history)) history = [];
+        refreshUrlDatalist();
       })
       .catch(function (err) { console.error("load_history error:", err); });
   }
@@ -2560,6 +2561,18 @@
     history.unshift(entry);
     if (history.length > 100) history = history.slice(0, 100);
     saveHistory();
+    refreshUrlDatalist();
+  }
+  // Autocomplete de la barre d'URL : propose les sites deja crawles (historique).
+  function refreshUrlDatalist() {
+    var dl = $("url-history");
+    if (!dl) return;
+    var seen = {}, opts = [];
+    for (var i = 0; i < history.length; i++) {
+      var u = history[i] && history[i].url;
+      if (u && !seen[u]) { seen[u] = 1; opts.push('<option value="' + esc(u) + '"></option>'); }
+    }
+    dl.innerHTML = opts.join("");
   }
 
   // =========================================================================
