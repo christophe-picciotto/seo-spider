@@ -2631,9 +2631,29 @@
       input.value = PREFS.saveDir || "";
       input.addEventListener("change", function () { PREFS.saveDir = input.value.trim(); persistPrefs(); });
     }
-    var btn = $("btn-open-crawls");
-    if (btn) btn.addEventListener("click", function () {
-      if (TAURI) TAURI.core.invoke("open_crawls_folder", { dir: saveDirArg() }).catch(function (e) { console.error("open_crawls_folder:", e); });
+    // #E : choisir le DOSSIER de sauvegarde via un dialogue natif.
+    var pick = $("btn-pick-folder");
+    if (pick) pick.addEventListener("click", function () {
+      if (!TAURI) return;
+      TAURI.core.invoke("pick_folder").then(function (path) {
+        if (path) {
+          PREFS.saveDir = path; persistPrefs();
+          if (input) input.value = path;
+          setStatusState("Dossier de sauvegarde : " + path);
+        }
+      }).catch(function (e) { console.error("pick_folder:", e); });
+    });
+    // #E : ouvrir un PROJET enregistre (dialogue fichier .json) -> consultation.
+    var openBtn = $("btn-open-project");
+    if (openBtn) openBtn.addEventListener("click", function () {
+      if (!TAURI) return;
+      TAURI.core.invoke("pick_open_project").then(function (json) {
+        if (!json) return;
+        var data = null;
+        try { data = JSON.parse(json); } catch (e) { data = null; }
+        if (data && Array.isArray(data.pages)) { loadSavedCrawl(data); }
+        else { setStatusState("Fichier de projet invalide ou vide."); }
+      }).catch(function (e) { console.error("pick_open_project:", e); });
     });
   }
 

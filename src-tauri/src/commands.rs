@@ -34,6 +34,7 @@ use tokio::sync::Mutex;
 
 use crawl_core::crawler::SharedState;
 use crawl_core::report::{CrawlConfig, CrawlProgress, CrawlSummary, PageReport};
+use tauri_plugin_dialog::DialogExt;
 
 /// Etat partage gere par Tauri (via `.manage`). Porte l'etat du crawl COURANT
 /// (file + visited + agregats + navigateur), conserve entre pause et reprise.
@@ -298,4 +299,34 @@ pub fn open_crawls_folder(app: AppHandle, dir: Option<String>) -> Result<(), Str
         std::process::Command::new("xdg-open").arg(&d).spawn().map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+/// Ouvre un selecteur de DOSSIER natif. Renvoie le chemin choisi, ou None si annule.
+#[tauri::command]
+pub async fn pick_folder(app: AppHandle) -> Result<Option<String>, String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog().file().pick_folder(move |folder| {
+        let path = folder
+            .and_then(|f| f.into_path().ok())
+            .map(|p| p.to_string_lossy().to_string());
+        let _ = tx.send(path);
+    });
+    rx.await.map_err(|e| e.to_string())
+}
+
+/// Ouvre un selecteur de FICHIER (.json) et renvoie le CONTENU du projet choisi,
+/// ou None si annule. Le frontend parse ce JSON et l'affiche (consultation).
+#[tauri::command]
+pub async fn pick_open_project(app: AppHandle) -> Result<Option<String>, String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .add_filter("Projet de crawl", &["json"])
+        .pick_file(move |file| {
+            let content = file
+                .and_then(|f| f.into_path().ok())
+                .and_then(|p| std::fs::read_to_string(p).ok());
+            let _ = tx.send(content);
+        });
+    rx.await.map_err(|e| e.to_string())
 }

@@ -9,6 +9,7 @@ fn main() {
     tauri::Builder::default()
         // Etat partage : drapeau d'arret du crawl.
         .manage(CrawlState::default())
+        .plugin(tauri_plugin_dialog::init())
         // Commandes exposees au frontend.
         .invoke_handler(tauri::generate_handler![
             commands::start_crawl,
@@ -20,6 +21,8 @@ fn main() {
             commands::save_crawl,
             commands::load_crawl,
             commands::open_crawls_folder,
+            commands::pick_folder,
+            commands::pick_open_project,
             commands::history_location,
             commands::open_history_folder
         ])
