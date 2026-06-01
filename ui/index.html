@@ -62,6 +62,15 @@
         <div class="setting">
           <label for="rps">Req / sec</label>
           <input type="number" id="rps" value="5" min="1" max="50" step="1" />
+          <!-- Aide : Req/sec = debit maximal (cadence d'envoi). -->
+          <span class="setting-hint">Debit max (cadence)</span>
+        </div>
+        <!-- B) Nombre de pages traitees EN PARALLELE (threads du crawler). -->
+        <div class="setting">
+          <label for="threads">Threads</label>
+          <input type="number" id="threads" value="5" min="1" max="50" step="1" />
+          <!-- Aide : Threads = nombre de pages telechargees simultanement. -->
+          <span class="setting-hint setting-hint--accent">Pages en parallele</span>
         </div>
         <label class="setting setting--check" title="Delais aleatoires entre requetes (comportement humain)">
           <input type="checkbox" id="random-rps" />
@@ -221,6 +230,8 @@
           <button type="button" class="dtab" data-dtab="outlinks">Outlinks <span id="dt-outlinks-count">0</span></button>
           <button type="button" class="dtab" data-dtab="serp">SERP Snippet</button>
           <button type="button" class="dtab" data-dtab="info">Infos / En-tetes</button>
+          <!-- D) Sous-onglet dedie au contenu brut des donnees structurees (JSON-LD). -->
+          <button type="button" class="dtab" data-dtab="schema">Donnees structurees <span id="dt-schema-count">0</span></button>
           <button type="button" class="dtab" data-dtab="source">Source</button>
         </div>
         <button type="button" class="detail-close" id="detail-close" title="Fermer">x</button>

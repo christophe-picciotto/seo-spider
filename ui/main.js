@@ -63,6 +63,32 @@
   }
   function seoOf(p) { return p && p.seo ? p.seo : null; }
 
+  // ----- VAGUE 4 (A) — Temps de reponse (response_time_ms) -----------------
+  // Lit le temps de reponse d'une page en millisecondes (0 si absent).
+  function respMs(p) {
+    return p && p.response_time_ms != null ? (p.response_time_ms || 0) : 0;
+  }
+  // Formate un temps : "<n> ms" si < 1000 ms, sinon "<x,x> s" (virgule FR).
+  function fmtSpeed(ms) {
+    ms = ms || 0;
+    if (ms < 1000) return ms + " ms";
+    return (ms / 1000).toFixed(1).replace(".", ",") + " s";
+  }
+  // Classe de couleur facon "rapidite" : vert <=500 ms, orange <=1500 ms,
+  // rouge au-dela. Renvoie "" si pas de mesure (0) pour rester neutre.
+  function speedClass(ms) {
+    ms = ms || 0;
+    if (ms <= 0)    return "speed--na";
+    if (ms <= 500)  return "speed--fast";
+    if (ms <= 1500) return "speed--mid";
+    return "speed--slow";
+  }
+  // Cellule HTML "vitesse" coloree (pastille). text/sort fournis par l'appelant.
+  function speedCellHtml(ms) {
+    if (!ms) return '<span class="speed-pill speed--na">—</span>';
+    return '<span class="speed-pill ' + speedClass(ms) + '">' + esc(fmtSpeed(ms)) + '</span>';
+  }
+
   // Cellule URL : lien tronque, titre complet au survol. stopPropagation pour
   // ne pas selectionner la ligne quand on ouvre le lien dans le navigateur.
   function urlCellHtml(url) {
@@ -172,6 +198,7 @@
   var S = {
     pages: [],            // tous les PageReport bruts recus (verbatim serde)
     byUrl: {},            // index normUrl -> PageReport (pour le panneau detail)
+    pageIndex: {},        // index normUrl -> position dans S.pages (ingestion idempotente)
     issues: [],           // toutes les issues agregees {url,severity,category,message}
     sevCounts: { critical: 0, warning: 0, opportunity: 0, info: 0 },
 
@@ -227,6 +254,7 @@
     dirty: false,
     rafPending: false,
     running: false,
+    paused: false,                      // VAGUE 4 (C) : crawl mis en pause (Stop)
     rateStartTs: 0,                     // pour estimer le debit pages/seconde
 
     unlisteners: []
@@ -252,6 +280,7 @@
         { key: "url",       label: "Adresse" },
         { key: "status",    label: "Code", num: true },
         { key: "ctype",     label: "Type" },
+        { key: "speed",     label: "Vitesse", num: true },
         { key: "words",     label: "Mots", num: true },
         { key: "title",     label: "Title" },
         { key: "indexable", label: "Indexable" },
@@ -268,6 +297,9 @@
           { html: '<span class="http-code ' + httpClass(p.status) + '">' + esc(p.status || 0) + '</span>',
             text: String(p.status || 0), sort: p.status || 0 },
           { html: esc(shortType(p.content_type)), text: p.content_type || "", sort: p.content_type || "" },
+          // VAGUE 4 (A) : temps de reponse colore (vert/orange/rouge), triable.
+          { html: '<span class="col-num">' + speedCellHtml(respMs(p)) + '</span>',
+            text: respMs(p) ? String(respMs(p)) : "", sort: respMs(p) },
           { html: '<span class="col-num">' + words + '</span>', text: String(words), sort: words },
           { html: esc(title || "—"), text: title, sort: title },
           { html: indexable ? pill("ok", "Indexable") : pill("err", "Non indexable"),
@@ -668,8 +700,11 @@
         var errors = s && Array.isArray(s.structured_data_errors) ? s.structured_data_errors : [];
         var hasData = types.length > 0;
         var valid = s ? !!s.structured_data_valid : true;
+        // D) Badges de type CLIQUABLES : un clic ouvre le detail JSON-LD brut.
         var typesHtml = hasData
-          ? types.map(function (t) { return '<span class="badge">' + esc(t) + '</span>'; }).join(" ")
+          ? types.map(function (t) {
+              return '<span class="badge badge--schema" title="Voir le JSON-LD brut">' + esc(t) + '</span>';
+            }).join(" ")
           : '<span class="muted">—</span>';
         // "Valide" n'a de sens que si la page porte des donnees structurees.
         var validHtml, validText, validSort;
@@ -788,6 +823,7 @@
         { key: "url",    label: "Adresse" },
         { key: "tech",   label: "Techno" },
         { key: "weight", label: "Poids total", num: true },
+        { key: "speed",  label: "Vitesse", num: true },
         { key: "imgs",   label: "Images", num: true },
         { key: "req",    label: "Requetes", num: true },
         { key: "dyn",    label: "dont dyn.", num: true },
@@ -808,6 +844,9 @@
           { html: tech.length ? tech.map(function (t) { return '<span class="badge">' + esc(t) + '</span>'; }).join("")
                               : '<span class="muted">—</span>', text: tech.join(", "), sort: tech.join(",") },
           { html: '<span class="col-num">' + fmtBytes(weight) + '</span>', text: String(weight), sort: weight },
+          // VAGUE 4 (A) : temps de reponse colore, triable.
+          { html: '<span class="col-num">' + speedCellHtml(respMs(p)) + '</span>',
+            text: respMs(p) ? String(respMs(p)) : "", sort: respMs(p) },
           { html: '<span class="col-num">' + imgs.length + " / " + fmtBytes(imgBytes) + '</span>',
             text: String(imgBytes), sort: imgBytes },
           { html: '<span class="col-num">' + (p.request_count || 0) + '</span>', text: String(p.request_count || 0), sort: p.request_count || 0 },
@@ -881,37 +920,67 @@
   // =========================================================================
   function ingestPage(payload) {
     var p = payload || {};
-    S.pages.push(p);
-    S.byUrl[normUrl(p.url)] = p;
-
-    // Index inverse pour les Inlinks : pour chaque outlink interne, on note
-    // "telle page pointe vers telle cible avec telle ancre".
-    var outs = Array.isArray(p.outlinks) ? p.outlinks : [];
-    for (var i = 0; i < outs.length; i++) {
-      var l = outs[i];
-      if (!l || !l.target) continue;
-      var key = normUrl(l.target);
-      if (!S.inlinksIndex[key]) S.inlinksIndex[key] = [];
-      S.inlinksIndex[key].push({ from: p.url, anchor: l.anchor || "", rel: l.rel || "" });
+    var key = normUrl(p.url);
+    // IDEMPOTENT (Vague 4 / point C) : si l'URL est deja connue (cas d'une
+    // REPRISE qui re-crawle), on REMPLACE l'entree en place au lieu d'empiler
+    // un doublon. En crawl normal chaque URL est unique : comportement inchange.
+    var existing = S.byUrl[key];
+    if (existing && S.pageIndex[key] != null) {
+      S.pages[S.pageIndex[key]] = p;
+    } else {
+      S.pageIndex[key] = S.pages.length;
+      S.pages.push(p);
     }
+    S.byUrl[key] = p;
 
-    // Issues agregees + compteurs de severite.
-    var iss = Array.isArray(p.issues) ? p.issues : [];
-    for (var j = 0; j < iss.length; j++) {
-      var it = iss[j] || {};
-      var sev = it.severity || "info";
-      S.issues.push({ url: it.url || p.url || "", severity: sev,
-                      category: it.category || "", message: it.message || "" });
-      if (S.sevCounts[sev] === undefined) S.sevCounts[sev] = 0;
-      S.sevCounts[sev] += 1;
-    }
-
-    // Mesure de bande passante (run courant + agregat multi-run).
-    var w = p.total_bytes || 0;
-    S.bw.totalBytes += w;
-    if (w > S.bw.maxWeight) S.bw.maxWeight = w;
-
+    // Les agregats derives (inlinks, issues, severites, bande passante) sont
+    // desormais RECALCULES par frame dans rebuildAggregates() — ainsi une page
+    // re-ingeree ne double pas les compteurs.
     scheduleRender();
+  }
+
+  // (Re)construit en O(total) les agregats derives de S.pages :
+  //   - inlinksIndex : index inverse cible -> [{from, anchor, rel}] ;
+  //   - issues + sevCounts : problemes backend agreges par severite ;
+  //   - bw : poids total cumule + poids max d'une page (barre bande passante).
+  // Recalcule a chaque cycle de rendu => robuste a la re-ingestion (reprise).
+  function rebuildAggregates() {
+    var inlinks = {};
+    var issues = [];
+    var sev = { critical: 0, warning: 0, opportunity: 0, info: 0 };
+    var totalBytes = 0, maxWeight = 0;
+
+    for (var i = 0; i < S.pages.length; i++) {
+      var p = S.pages[i];
+
+      var outs = Array.isArray(p.outlinks) ? p.outlinks : [];
+      for (var k = 0; k < outs.length; k++) {
+        var l = outs[k];
+        if (!l || !l.target) continue;
+        var t = normUrl(l.target);
+        (inlinks[t] || (inlinks[t] = [])).push({ from: p.url, anchor: l.anchor || "", rel: l.rel || "" });
+      }
+
+      var iss = Array.isArray(p.issues) ? p.issues : [];
+      for (var j = 0; j < iss.length; j++) {
+        var it = iss[j] || {};
+        var sv = it.severity || "info";
+        issues.push({ url: it.url || p.url || "", severity: sv,
+                      category: it.category || "", message: it.message || "" });
+        if (sev[sv] === undefined) sev[sv] = 0;
+        sev[sv] += 1;
+      }
+
+      var w = p.total_bytes || 0;
+      totalBytes += w;
+      if (w > maxWeight) maxWeight = w;
+    }
+
+    S.inlinksIndex = inlinks;
+    S.issues = issues;
+    S.sevCounts = sev;
+    S.bw.totalBytes = totalBytes;
+    S.bw.maxWeight = maxWeight;
   }
 
   // =========================================================================
@@ -926,6 +995,7 @@
       S.rafPending = false;
       if (!S.dirty) return;
       S.dirty = false;
+      rebuildAggregates();   // Vague 4 : inlinks/issues/bw recalcules (idempotent)
       rebuildDupMaps();      // cartes de doublons fraiches pour grille + overview
       rebuildNearDup();      // Vague 3 : near-duplicates (Hamming sur simhash)
       rebuildHreflangRecip();// Vague 3 : reciprocite hreflang (lien retour)
@@ -1522,6 +1592,8 @@
     var outs = Array.isArray(p.outlinks) ? p.outlinks : [];
     setText("dt-inlinks-count", inl.length);
     setText("dt-outlinks-count", outs.length);
+    // D) Compteur de blocs JSON-LD bruts presents sur la page.
+    setText("dt-schema-count", structuredRawOf(p).length);
 
     // Onglets actifs.
     document.querySelectorAll(".dtab").forEach(function (b) {
@@ -1549,9 +1621,69 @@
       body.innerHTML = renderSerp(p);
     } else if (S.detailTab === "info") {
       body.innerHTML = renderInfo(p);
+    } else if (S.detailTab === "schema") {
+      body.innerHTML = renderStructuredData(p);   // D) JSON-LD bruts indentes
     } else if (S.detailTab === "source") {
       body.innerHTML = renderSource(p);
     }
+  }
+
+  // ----- VAGUE 4 (D) — Donnees structurees brutes (blocs JSON-LD) -----------
+  // Lit seo.structured_data_raw (tableau de chaines JSON-LD brutes), ou [].
+  function structuredRawOf(p) {
+    var s = seoOf(p);
+    return s && Array.isArray(s.structured_data_raw) ? s.structured_data_raw : [];
+  }
+
+  // Tente d'extraire un libelle de type lisible d'un objet JSON-LD parse
+  // (champ @type, qui peut etre une chaine ou un tableau). Renvoie "" sinon.
+  function jsonLdTypeLabel(obj) {
+    if (!obj || typeof obj !== "object") return "";
+    var t = obj["@type"];
+    if (!t && obj["@graph"]) return "@graph";   // graphe : types multiples a l'interieur
+    if (Array.isArray(t)) return t.join(", ");
+    return t ? String(t) : "";
+  }
+
+  // Rendu du sous-onglet "Donnees structurees" : pour chaque bloc JSON-LD brut,
+  // on tente JSON.parse + JSON.stringify(obj, null, 2) (indente, lisible) ; si le
+  // parse echoue (JSON-LD malforme), on affiche le texte brut tel quel. Chaque
+  // bloc est precede d'un petit en-tete (index + type detecte via @type).
+  function renderStructuredData(p) {
+    var raw = structuredRawOf(p);
+    if (!raw.length) {
+      // Repli informatif : on signale les types detectes meme sans bloc brut
+      // (utile si le backend ne fournit pas structured_data_raw pour cette page).
+      var s = seoOf(p);
+      var types = s && Array.isArray(s.structured_data_types) ? s.structured_data_types : [];
+      if (types.length) {
+        return '<div class="detail-empty">Types detectes : ' +
+               types.map(function (t) { return '<span class="badge">' + esc(t) + '</span>'; }).join(" ") +
+               '<br>Aucun bloc JSON-LD brut fourni pour cette page.</div>';
+      }
+      return '<div class="detail-empty">Aucune donnee structuree (JSON-LD) sur cette page.</div>';
+    }
+    var html = '<div class="sd-list">';
+    for (var i = 0; i < raw.length; i++) {
+      var block = raw[i];
+      var pretty, label = "";
+      try {
+        var obj = JSON.parse(block);
+        pretty = JSON.stringify(obj, null, 2);     // indentation 2 espaces
+        label = jsonLdTypeLabel(obj);
+      } catch (e) {
+        pretty = String(block);                    // JSON invalide : brut tel quel
+        label = "(JSON invalide)";
+      }
+      html += '<div class="sd-block">' +
+              '<div class="sd-block-head">Bloc ' + (i + 1) +
+              (label ? ' — <span class="sd-type">' + esc(label) + '</span>' : '') +
+              '</div>' +
+              '<pre class="sd-json">' + esc(pretty) + '</pre>' +
+              '</div>';
+    }
+    html += '</div>';
+    return html;
   }
 
   // Tableau generique pour inlinks / outlinks.
@@ -1660,7 +1792,6 @@
       ["Sonde", probeLabel(p.measured_with)],
       ["Poids total", fmtBytes(p.total_bytes || 0)],
       ["Requetes", String(p.request_count || 0) + " (dont " + (p.dynamic_requests || 0) + " dyn.)"],
-      ["Temps de reponse", (p.response_time_ms || 0) + " ms"],
       ["Redirige vers", p.redirect_to || "—"],
       ["Chaine de redirection", (Array.isArray(p.redirect_chain) && p.redirect_chain.length) ? p.redirect_chain.join("  ->  ") : "—"],
       ["Canonical", (s && s.canonical) ? s.canonical : "—"],
@@ -1692,6 +1823,9 @@
     // Lignes Vague 3 a contenu HTML (liens vers pages similaires / hreflang) :
     // injectees hors de la boucle car nearDupHtml/hreflangRecipHtml renvoient du
     // HTML deja echappe en interne (urlCellHtml echappe l'URL).
+    // VAGUE 4 (A) : temps de reponse colore (pastille vert/orange/rouge).
+    h += '<div class="kv-row"><div class="kv-key">Temps de reponse</div>' +
+         '<div class="kv-val">' + speedCellHtml(respMs(p)) + '</div></div>';
     h += '<div class="kv-row"><div class="kv-key">Near-duplicates</div>' +
          '<div class="kv-val">' + nearDupHtml(p) + '</div></div>';
     h += '<div class="kv-row"><div class="kv-key">Hreflang reciproque</div>' +
@@ -1756,6 +1890,33 @@
     }
   }
 
+  // VAGUE 4 (C) — Met a jour libelles + etats (disabled) des 3 boutons selon
+  // l'etat courant. Trois etats :
+  //   - running : crawl en cours        -> Demarrer OFF, Stop ON ("Stop"), Vider ON
+  //   - paused  : crawl en pause (Stop) -> Demarrer ON ("Reprendre"), Stop OFF, Vider ON
+  //   - idle    : rien en cours         -> Demarrer ON ("Demarrer"), Stop OFF, Vider ON
+  // C'est CE point qui corrige le bug du bouton "Demarrer" reste grise apres Stop.
+  function updateButtons() {
+    var start = $("btn-start");
+    var stop  = $("btn-stop");
+    var clear = $("btn-clear");
+    if (start) {
+      start.disabled = S.running;                 // actif sauf pendant un crawl actif
+      start.textContent = S.paused ? "Reprendre" : "Demarrer";
+      start.title = S.paused
+        ? "Reprendre le crawl en pause (sans effacer les donnees deja collectees)"
+        : "Lancer un nouveau crawl";
+    }
+    if (stop) {
+      stop.disabled = !S.running;                  // actif seulement pendant un crawl actif
+      stop.title = "Mettre en pause (les donnees collectees sont conservees)";
+    }
+    if (clear) {
+      clear.disabled = false;                      // toujours disponible
+      clear.title = "Effacer toutes les donnees et remettre a zero";
+    }
+  }
+
   function setStatusState(txt) { setText("status-state", txt); }
 
   function updateMultiStatus() {
@@ -1784,7 +1945,9 @@
     TAURI.event.listen("crawl:progress", function (event) {
       var p = event.payload || {};
       updateStatus(p);
-      if (p.current_url) setStatusState("Crawl : " + truncUrl(p.current_url, 70));
+      // VAGUE 4 (C) : si on vient de mettre en PAUSE, un dernier progress peut
+      // arriver (page courante terminee) -> on garde le libelle "En pause".
+      if (p.current_url && !S.paused) setStatusState("Crawl : " + truncUrl(p.current_url, 70));
     }).then(function (u) { S.unlisteners.push(u); });
 
     TAURI.event.listen("crawl:error", function (event) {
@@ -1805,7 +1968,17 @@
         if (smap[si]) S.sitemapSet[normUrl(smap[si])] = true;
       }
 
+      // VAGUE 4 (C) : si l'utilisateur a mis EN PAUSE, ce crawl:done provient du
+      // crawl backend qui s'est termine de lui-meme apres le stop_crawl. On
+      // recupere le sitemap (ci-dessus) mais on NE cloture PAS la sequence et on
+      // NE quitte PAS l'etat pause : l'affichage reste fige, "Reprendre" actif.
+      if (S.paused) { scheduleRender(); return; }
+
       // Fin du run courant : on cumule dans l'agregat multi-run.
+      // rebuildAggregates() tourne normalement dans le rAF (asynchrone) ; on le
+      // rejoue ici de facon SYNCHRONE pour garantir que S.bw.totalBytes reflete
+      // bien TOUTES les pages de ce run avant le cumul (mesure fiable).
+      rebuildAggregates();
       S.multi.done       += 1;
       S.multi.totalBytes += S.bw.totalBytes;
       S.multi.totalPages += S.pages.length;
@@ -1838,6 +2011,8 @@
     // Nouveau run : on repart d'un jeu de donnees vide (mais on garde la config).
     resetData();
     S.running = true;
+    S.paused = false;
+    updateButtons();
     S.rateStartTs = Date.now();
     setStatusState("Demarrage...");
     updateMultiStatus();
@@ -1851,11 +2026,37 @@
       });
   }
 
+  // VAGUE 4 (C) — REPRISE d'un crawl mis en pause. Le backend gere une VRAIE
+  // reprise : start_crawl, appele avec la MEME seed alors qu'un etat reprenable
+  // existe (file non vide), RELANCE les workers sur la file restante — il ne
+  // re-crawle donc PAS les pages deja vues et n'emet que les NOUVELLES pages.
+  // Cote UI on conserve les donnees deja collectees et on poursuit le cumul.
+  // (L'ingestion idempotente reste un filet de securite si une page revenait.)
+  function resumeRun() {
+    S.running = true;
+    S.paused = false;
+    S.multi.stopRequested = false;
+    S.multi.running = true;
+    updateButtons();
+    S.rateStartTs = Date.now();
+    setStatusState("Reprise du crawl...");
+    updateMultiStatus();
+
+    // On se re-abonne aux evenements (ils avaient ete laisses actifs, mais on
+    // garantit l'etat) puis on relance le crawl backend avec la meme config.
+    TAURI.core.invoke("start_crawl", { config: S.multi.config })
+      .catch(function (err) {
+        setStatusState("Erreur : " + (err || "inconnue"));
+        console.error("start_crawl (resume) error:", err);
+        finishSequence();
+      });
+  }
+
   function finishSequence() {
     S.multi.running = false;
     S.running = false;
-    $("btn-start").disabled = false;
-    $("btn-stop").disabled = true;
+    S.paused = false;                 // VAGUE 4 (C) : fin reelle -> retour a l'etat idle
+    updateButtons();
     var fill = $("status-fill");
     if (fill) fill.style.width = "100%";
     setStatusState("Termine — " + S.multi.done + " run(s), " + S.multi.totalPages + " page(s).");
@@ -1888,6 +2089,7 @@
   function resetData() {
     S.pages = [];
     S.byUrl = {};
+    S.pageIndex = {};
     S.issues = [];
     S.sevCounts = { critical: 0, warning: 0, opportunity: 0, info: 0 };
     S.inlinksIndex = {};
@@ -1914,12 +2116,16 @@
     var maxPages = parseInt($("max-pages").value, 10) || 500;
     var maxDepth = parseInt($("max-depth").value, 10) || 10;
     var rps      = Math.max(1, Math.round(parseFloat($("rps").value) || 5));
+    // VAGUE 4 (B) : nombre de pages traitees en parallele (threads du crawler).
+    // Borne 1..50, defaut 5 (coherent avec l'attribut min/max du champ HTML).
+    var threads  = Math.min(50, Math.max(1, parseInt($("threads").value, 10) || 5));
     return {
       seed_url: seedUrl,
       max_pages: maxPages,
       max_depth: maxDepth,
       same_domain_only: true,
       requests_per_second: rps,
+      threads: threads,                           // <-- VAGUE 4 (B) : envoye au backend
       force_chrome: $("force-chrome").checked,
       random_user_agent: $("random-ua").checked,
       random_delay: $("random-rps").checked,
@@ -1932,6 +2138,18 @@
     evt.preventDefault();
     if (!TAURI) { alert("Interface Tauri non disponible. Lancez l'application via Tauri."); return; }
 
+    // VAGUE 4 (C) — Aligne sur le backend (start_crawl = demarrer OU reprendre).
+    // Si un crawl est EN PAUSE et que l'URL saisie correspond a la seed en pause
+    // (ou est vide), le bouton "Reprendre" REPREND la file existante cote backend
+    // SANS vider les donnees ni reinitialiser la sequence. Si l'URL a change, on
+    // considere que l'utilisateur veut un NOUVEAU crawl.
+    var typedUrl = $("seed-url").value.trim();
+    if (S.paused) {
+      var pausedSeed = (S.multi.config && S.multi.config.seed_url) || "";
+      if (!typedUrl || typedUrl === pausedSeed) { resumeRun(); return; }
+      // URL differente : on abandonne l'etat en pause et on repart proprement.
+    }
+
     var repetitions = Math.max(1, Math.round(parseFloat($("repetitions").value) || 1));
     var config = readConfig();
 
@@ -1943,30 +2161,45 @@
       config: config, lastTechs: [], lastRows: []
     };
 
-    $("btn-start").disabled = true;
-    $("btn-stop").disabled = false;
-
     // Nouvelle sequence : jeu de donnees vierge + reset des filtres.
     S.search = ""; var se = $("grid-search"); if (se) se.value = "";
     clearCategoryFilter();
 
     unsubscribeEvents();
     subscribeEvents();
-    startRun();
+
+    // Depart PROPRE : on vide d'abord l'etat backend (clear_crawl) pour ne pas
+    // "reprendre" par erreur une file reprenable de la meme seed, PUIS on lance.
+    // clear_crawl est async : on chaine startRun() pour eviter une course.
+    Promise.resolve(TAURI.core.invoke("clear_crawl").catch(function () {}))
+      .then(function () { startRun(); });  // running=true + paused=false + updateButtons()
   }
 
+  // VAGUE 4 (C) — Bouton Stop = MISE EN PAUSE. Le crawl s'arrete cote affichage
+  // (on coupe l'emission backend via stop_crawl) mais les DONNEES collectees
+  // sont CONSERVEES. On stoppe aussi l'enchainement multi-run. Surtout : le
+  // bouton "Demarrer" (devenu "Reprendre") redevient ACTIF immediatement
+  // (correction du bug ou il restait grise apres un Stop).
   function onStop() {
     if (!TAURI) return;
-    S.multi.stopRequested = true;
+    if (!S.running) return;                 // rien a mettre en pause
+    S.multi.stopRequested = true;           // stoppe l'enchainement des runs
     TAURI.core.invoke("stop_crawl").catch(function (err) { console.error("stop_crawl error:", err); });
-    $("btn-stop").disabled = true;
-    setStatusState("Arret demande...");
+    S.running = false;
+    S.paused = true;                        // -> "Reprendre" disponible
+    updateButtons();
+    setStatusState("En pause — " + S.pages.length + " page(s) collectee(s).");
   }
 
-  // Bouton "Vider" : arrete un crawl en cours + remet l'affichage a zero.
+  // Bouton "Vider" : VIDE l'etat de crawl backend + remet l'affichage a zero.
+  // VAGUE 4 (C) : on invoque clear_crawl (et non stop_crawl) pour que le backend
+  // OUBLIE la file/visited de l'etat partage. Sans ca, un Stop met seulement en
+  // PAUSE (etat conserve) et un Demarrer ulterieur sur la meme URL REPRENDRAIT
+  // l'ancienne file au lieu de repartir de zero. clear_crawl est idempotent
+  // (sans effet si aucun etat n'existe).
   function onClear() {
     S.multi.stopRequested = true;
-    if (TAURI && S.multi.running) TAURI.core.invoke("stop_crawl").catch(function () {});
+    if (TAURI) TAURI.core.invoke("clear_crawl").catch(function () {});
     unsubscribeEvents();
     S.multi = {
       target: 0, done: 0,
@@ -1984,8 +2217,8 @@
     setText("status-queued", 0); setText("status-rate", 0);
     setText("status-bytes", "0 o");
     updateMultiStatus();
-    $("btn-start").disabled = false;
-    $("btn-stop").disabled = true;
+    S.paused = false;                  // VAGUE 4 (C) : retour a l'etat idle
+    updateButtons();
   }
 
   // =========================================================================
@@ -1997,6 +2230,10 @@
     document.querySelectorAll(".tab").forEach(function (t) {
       t.classList.toggle("is-active", t.getAttribute("data-tab") === key);
     });
+    // VAGUE 4 (E) : on reporte l'onglet courant sur l'en-tete de grille, ce qui
+    // declenche le lisere colore (CSS #grid-head[data-tab="..."]).
+    var gh = $("grid-head");
+    if (gh) gh.setAttribute("data-tab", key);
     // Filtres de severite : visibles seulement sur l'onglet Problemes.
     var sevBox = $("sev-filters");
     if (sevBox) sevBox.hidden = (key !== "issues");
@@ -2371,6 +2608,11 @@
       // L'onglet "Liens" ne represente pas une page unique : pas de detail.
       if (TABS[S.activeTab].kind !== "pages") return;
       var url = tr.getAttribute("data-url");
+      // D) Sur l'onglet "Donnees structurees" (schema), ou si on clique sur un
+      // badge de type, on ouvre directement le sous-onglet JSON-LD brut.
+      if (S.activeTab === "schema" || e.target.closest(".badge--schema")) {
+        S.detailTab = "schema";
+      }
       if (url) openDetail(url);
     });
 
@@ -2417,6 +2659,7 @@
   // INITIALISATION
   // =========================================================================
   setupControls();
+  updateButtons();        // VAGUE 4 (C) : etat initial coherent des boutons
   loadNetInfo();
   loadHistory();
   renderTabCounts();

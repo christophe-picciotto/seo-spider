@@ -32,6 +32,9 @@ pub struct HttpProbeResult {
     pub first_status: Option<u16>,
     /// Final URL reached after following all redirects.
     pub final_url: String,
+    /// Temps total de la sonde HTTP en millisecondes : du debut de la 1ere requete
+    /// (chaine de redirections incluse) jusqu'a la lecture complete du corps final.
+    pub response_time_ms: u64,
 }
 
 /// Resolve an `href`/`src` value against a base URL, keeping only http(s) URLs.
@@ -62,6 +65,10 @@ pub async fn probe(
     client: &reqwest::Client,
     target: &str,
 ) -> anyhow::Result<HttpProbeResult> {
+    // Chrono : mesure le temps total de la sonde (toute la chaine de redirections
+    // + lecture du corps final), pour alimenter PageReport.response_time_ms.
+    let probe_start = std::time::Instant::now();
+
     // Chain of URLs traversed, starting with the requested one.
     let mut chain: Vec<String> = vec![target.to_string()];
     let mut first_status: Option<u16> = None;
@@ -134,6 +141,9 @@ pub async fn probe(
     // If there was no redirect, expose an empty chain (length-1 chains are noise).
     let redirect_chain = if chain.len() > 1 { chain } else { Vec::new() };
 
+    // Temps total ecoule depuis le debut de la sonde.
+    let response_time_ms = probe_start.elapsed().as_millis() as u64;
+
     Ok(HttpProbeResult {
         status: final_status,
         headers,
@@ -143,6 +153,7 @@ pub async fn probe(
         redirect_chain,
         first_status,
         final_url,
+        response_time_ms,
     })
 }
 

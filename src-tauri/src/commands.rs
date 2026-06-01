@@ -4,48 +4,85 @@
 //!   - `crawl:progress` : payload `crawl_core::CrawlProgress` (avancement)
 //!   - `crawl:page`     : payload `crawl_core::PageReport` (une page mesuree)
 //!   - `crawl:done`     : payload `crawl_core::CrawlSummary` (resume final)
+//!   - `crawl:error`    : payload `String` (message d'erreur global)
 //!
 //! Commandes (doivent correspondre aux `invoke("...")` du frontend) :
-//!   - `start_crawl(config)` : demarre un crawl en tache de fond.
-//!   - `stop_crawl()`        : demande l'arret (les emissions se taisent).
+//!   - `start_crawl(config)` : DEMARRE un nouveau crawl, ou REPREND un crawl mis
+//!                             en pause (meme `seed_url` + file non vide).
+//!   - `stop_crawl()`        : met le crawl en PAUSE (l'etat est conserve, on peut
+//!                             reprendre via un nouvel appel a `start_crawl`).
+//!   - `clear_crawl()`       : VIDE l'etat de crawl (apres ca, `start_crawl` repart
+//!                             de zero). Le bouton "Vider" de l'UI peut l'appeler.
+//!
+//! ## Pause / reprise (Vague 4)
+//!
+//! L'etat du crawl ([`crawl_core::crawler::SharedState`]) est stocke dans l'etat
+//! applicatif Tauri ([`CrawlState`]) afin de SURVIVRE entre un `stop` (pause) et
+//! un `start` (reprise). `stop_crawl` ne fait que lever un drapeau : les workers
+//! finissent leur page courante puis sortent sans vider la file. Un `start_crawl`
+//! ulterieur, si un etat reprenable existe pour la meme seed, RELANCE les workers
+//! sur la file existante (reprise) ; sinon il initialise un etat neuf.
+//!
+//! Ceci corrige aussi le bug du bouton "Demarrer" inerte apres un "Stop" : comme
+//! les workers s'arretent vraiment, `crawl:done` est emis rapidement et l'UI sort
+//! de l'etat "en cours" ; un nouvel appel a `start_crawl` repart (ou reprend).
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use tauri::{AppHandle, Emitter, Manager, State};
+use tokio::sync::Mutex;
 
+use crawl_core::crawler::SharedState;
 use crawl_core::report::{CrawlConfig, CrawlProgress, CrawlSummary, PageReport};
 
-/// Etat partage gere par Tauri (via `.manage`). Porte le drapeau d'arret du crawl.
+/// Etat partage gere par Tauri (via `.manage`). Porte l'etat du crawl COURANT
+/// (file + visited + agregats + navigateur), conserve entre pause et reprise.
 #[derive(Default)]
 pub struct CrawlState {
-    /// `true` => arret demande : les closures cessent d'emettre vers le frontend.
-    pub stop: Arc<AtomicBool>,
+    /// Etat du crawl courant, ou `None` si aucun crawl n'a (encore) ete lance /
+    /// si l'etat a ete vide via `clear_crawl`. Mutable derriere un `Mutex` car
+    /// l'objet manage par Tauri est, lui, immuable.
+    pub inner: Mutex<Option<Arc<SharedState>>>,
 }
 
-/// Demarre un crawl en arriere-plan.
+/// Demarre un nouveau crawl, ou REPREND un crawl mis en pause.
 ///
-/// - Remet le drapeau d'arret a `false`.
-/// - Spawn une task qui appelle `crawl_core::crawler::run` avec deux closures qui
-///   relaient l'avancement (`crawl:progress`) et chaque page (`crawl:page`) vers
-///   le frontend via `AppHandle::emit`.
-/// - A la fin, emet `crawl:done` avec le resume.
+/// Heuristique de decision :
+///   - s'il existe un etat reprenable (`SharedState` deja initialise, file non
+///     vide) pour la MEME `seed_url` -> on REPREND sur cet etat ;
+///   - sinon -> on cree un etat NEUF a partir de la seed et on l'enregistre.
 ///
-/// Les closures consultent le drapeau d'arret (clone de l'`Arc`) : si l'arret est
-/// demande, elles n'emettent plus rien (le crawler n'expose pas de signal d'arret,
-/// donc on stoppe au minimum l'emission cote UI).
+/// Dans les deux cas, on spawn une task qui appelle `crawler::run_shared` avec
+/// deux closures relayant l'avancement (`crawl:progress`) et chaque page
+/// (`crawl:page`) vers le frontend, puis emet `crawl:done` avec le resume.
 #[tauri::command]
 pub async fn start_crawl(
     app: AppHandle,
     state: State<'_, CrawlState>,
     config: CrawlConfig,
 ) -> Result<(), String> {
-    // Reinitialise le drapeau d'arret pour ce nouveau crawl.
-    state.stop.store(false, Ordering::SeqCst);
+    // --- Choix : reprise d'un etat existant, ou nouvel etat. ---
+    let shared: Arc<SharedState> = {
+        let mut slot = state.inner.lock().await;
 
-    // Clones de l'Arc pour chaque closure (gate d'emission).
-    let stop_progress = Arc::clone(&state.stop);
-    let stop_page = Arc::clone(&state.stop);
+        // Reprise possible ? Meme seed + etat encore reprenable (file non vide).
+        let resume = match slot.as_ref() {
+            Some(existing) => {
+                existing.seed_url == config.seed_url && existing.is_resumable().await
+            }
+            None => false,
+        };
+
+        if resume {
+            // REPREND : on reutilise l'etat partage existant tel quel.
+            Arc::clone(slot.as_ref().unwrap())
+        } else {
+            // NOUVEAU : on cree un etat neuf amorce avec la seed et on l'enregistre.
+            let fresh = Arc::new(SharedState::new(&config.seed_url));
+            *slot = Some(Arc::clone(&fresh));
+            fresh
+        }
+    };
 
     // Clones de l'AppHandle (cheap, ref-compte) pour les emissions.
     let app_progress = app.clone();
@@ -55,25 +92,20 @@ pub async fn start_crawl(
     tauri::async_runtime::spawn(async move {
         // Closure progression -> evenement "crawl:progress".
         let on_progress = move |progress: CrawlProgress| {
-            if stop_progress.load(Ordering::SeqCst) {
-                return; // Arret demande : on n'emet plus.
-            }
             let _ = app_progress.emit("crawl:progress", progress);
         };
 
         // Closure page -> evenement "crawl:page".
         let on_page = move |page: PageReport| {
-            if stop_page.load(Ordering::SeqCst) {
-                return; // Arret demande : on n'emet plus.
-            }
             let _ = app_page.emit("crawl:page", page);
         };
 
-        // Lancement du crawl.
-        match crawl_core::crawler::run(config, on_progress, on_page).await {
+        // Lancement (ou reprise) du crawl sur l'etat partage.
+        match crawl_core::crawler::run_shared(shared, config, on_progress, on_page).await {
             Ok(summary) => {
-                // On emet toujours le resume final (meme apres un stop) afin que
-                // l'UI puisse cloturer proprement l'etat "en cours".
+                // On emet toujours le resume (fin naturelle OU pause) afin que l'UI
+                // sorte de l'etat "en cours". En cas de pause, le resume est partiel
+                // et l'etat reste reprenable via un nouvel appel a start_crawl.
                 let _ = app_done.emit("crawl:done", summary);
             }
             Err(e) => {
@@ -96,11 +128,29 @@ pub async fn start_crawl(
     Ok(())
 }
 
-/// Demande l'arret du crawl en cours : passe le drapeau a `true`.
-/// Les closures d'emission cesseront de relayer les evenements vers le frontend.
+/// Met le crawl en cours en PAUSE : leve le drapeau d'arret de l'etat partage.
+/// Les workers finissent leur page courante puis sortent SANS vider l'etat ;
+/// un `start_crawl` ulterieur (meme seed) reprendra la ou on s'etait arrete.
 #[tauri::command]
-pub fn stop_crawl(state: State<'_, CrawlState>) {
-    state.stop.store(true, Ordering::SeqCst);
+pub async fn stop_crawl(state: State<'_, CrawlState>) -> Result<(), String> {
+    if let Some(shared) = state.inner.lock().await.as_ref() {
+        shared.request_stop();
+    }
+    Ok(())
+}
+
+/// VIDE l'etat de crawl : leve le drapeau d'arret du crawl courant (s'il existe)
+/// puis oublie l'etat partage. Apres cet appel, `start_crawl` repart de zero.
+/// (Le bouton "Vider" de l'UI peut appeler cette commande ; l'UI actuelle se
+/// contente d'appeler `stop_crawl` + reset local, ce qui reste valable.)
+#[tauri::command]
+pub async fn clear_crawl(state: State<'_, CrawlState>) -> Result<(), String> {
+    let mut slot = state.inner.lock().await;
+    if let Some(shared) = slot.as_ref() {
+        shared.request_stop();
+    }
+    *slot = None;
+    Ok(())
 }
 
 /// Renvoie l'IP publique sortante + le reverse DNS (affiche dans l'en-tete).

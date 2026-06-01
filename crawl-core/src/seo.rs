@@ -485,6 +485,7 @@ pub fn extract_seo(html: &str, page_url: &str, seed_host: Option<&str>) -> SeoDa
     // (JSON parsable + @type/@context presents).
     let mut sd_types: Vec<String> = Vec::new();
     let mut sd_errors: Vec<String> = Vec::new();
+    let mut sd_raw: Vec<String> = Vec::new();
     let mut sd_block_index = 0usize;
     for el in document.select(&sel("script[type=\"application/ld+json\"]")) {
         let raw = el.text().collect::<String>();
@@ -493,6 +494,8 @@ pub fn extract_seo(html: &str, page_url: &str, seed_host: Option<&str>) -> SeoDa
             continue;
         }
         sd_block_index += 1;
+        // Texte brut du bloc, tel quel (deja trim) : l'UI le formattera/affichera.
+        sd_raw.push(raw.to_string());
         match serde_json::from_str::<serde_json::Value>(raw) {
             Ok(json) => {
                 collect_ld_types(&json, &mut sd_types);
@@ -508,6 +511,7 @@ pub fn extract_seo(html: &str, page_url: &str, seed_host: Option<&str>) -> SeoDa
     sd_types.sort();
     sd_types.dedup();
     data.structured_data_types = sd_types;
+    data.structured_data_raw = sd_raw;
     data.structured_data_valid = sd_errors.is_empty();
     data.structured_data_errors = sd_errors;
 

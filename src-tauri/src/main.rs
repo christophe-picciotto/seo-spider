@@ -13,6 +13,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::start_crawl,
             commands::stop_crawl,
+            commands::clear_crawl,
             commands::network_info,
             commands::load_history,
             commands::save_history,

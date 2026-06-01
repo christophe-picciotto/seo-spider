@@ -47,6 +47,8 @@ pub struct SeoData {
     pub external_links: u32,
     pub hreflang: Vec<Hreflang>,
     pub structured_data_types: Vec<String>,
+    #[serde(default)]
+    pub structured_data_raw: Vec<String>,   // blocs JSON-LD bruts (texte du script ld+json), pour affichage detaille
     pub x_robots_tag: Option<String>,
     pub pagination_next: Option<String>,
     pub pagination_prev: Option<String>,
@@ -125,6 +127,11 @@ pub struct PageReport {
     pub url_flags: Option<UrlFlags>,
 }
 
+/// Default value helper for serde (`threads` defaults to 5).
+fn default_threads() -> usize {
+    5
+}
+
 /// Default value helper for serde (`respect_robots` defaults to true).
 fn default_true() -> bool {
     true
@@ -149,6 +156,8 @@ pub struct CrawlConfig {
     pub unlimited: bool,
     #[serde(default = "default_true")]
     pub respect_robots: bool,
+    #[serde(default = "default_threads")]
+    pub threads: usize,   // nb de workers paralleles
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
