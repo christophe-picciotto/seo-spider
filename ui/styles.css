@@ -767,3 +767,8 @@ a:hover { text-decoration: underline; }
 /* Vague 4+ : largeurs figees (anti-saut des colonnes pendant le crawl) */
 .grid th:first-child, .grid td:first-child { width: 36%; }
 .grid th.num, .grid td.num { width: 80px; }
+
+/* #E : champ "Dossier des projets" pousse a droite dans la barre de reglages. */
+.setting--dir { margin-left: auto; }
+.setting-dir-row { display: flex; gap: 6px; align-items: center; }
+.dir-input { width: 260px; max-width: 38vw; font-size: 12px; padding: 3px 6px; }

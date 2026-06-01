@@ -2129,7 +2129,7 @@
       pages: S.pages.slice(),
       sitemap_urls: S.sitemapUrls || []
     });
-    TAURI.core.invoke("save_crawl", { id: seed, json: crawlData })
+    TAURI.core.invoke("save_crawl", { id: seed, json: crawlData, dir: saveDirArg() })
       .then(function (path) { if (path) { S.lastSavePath = path; if (showPath) setStatusState("Enregistre : " + path); } })
       .catch(function (err) { console.error("save_crawl error:", err); });
   }
@@ -2291,7 +2291,7 @@
 
     // C : si un crawl est deja enregistre pour cette URL, proposer Nouveau / Revoir.
     if (!S._forceNew && typedUrl) {
-      TAURI.core.invoke("load_crawl", { id: typedUrl }).then(function (json) {
+      TAURI.core.invoke("load_crawl", { id: typedUrl, dir: saveDirArg() }).then(function (json) {
         var saved = null;
         try { saved = json ? JSON.parse(json) : null; } catch (e) { saved = null; }
         if (saved && Array.isArray(saved.pages) && saved.pages.length) {
@@ -2612,6 +2612,29 @@
   // =========================================================================
   // INFO RESEAU (IP + reverse DNS) — PRESERVE
   // =========================================================================
+  // Preferences persistantes (localStorage) : dossier d'enregistrement, largeurs de colonnes...
+  var PREFS = (function () {
+    try { return JSON.parse(localStorage.getItem("seoSpiderPrefs")) || {}; } catch (e) { return {}; }
+  })();
+  function persistPrefs() {
+    try { localStorage.setItem("seoSpiderPrefs", JSON.stringify(PREFS)); } catch (e) {}
+  }
+  // Dossier d'enregistrement a passer aux commandes save_crawl/load_crawl (null = defaut app).
+  function saveDirArg() { return (PREFS.saveDir && PREFS.saveDir.trim()) ? PREFS.saveDir.trim() : null; }
+
+  // #E : init du champ "Dossier des projets" + bouton Ouvrir.
+  function initSaveDir() {
+    var input = $("save-dir");
+    if (input) {
+      input.value = PREFS.saveDir || "";
+      input.addEventListener("change", function () { PREFS.saveDir = input.value.trim(); persistPrefs(); });
+    }
+    var btn = $("btn-open-crawls");
+    if (btn) btn.addEventListener("click", function () {
+      if (TAURI) TAURI.core.invoke("open_crawls_folder", { dir: saveDirArg() }).catch(function (e) { console.error("open_crawls_folder:", e); });
+    });
+  }
+
   function loadNetInfo() {
     var el = $("net-info"), txt = $("net-info-text");
     if (!TAURI || !el || !txt) return;
@@ -2745,6 +2768,8 @@
     // Case "Debit aleatoire" : grise le champ "Req/sec".
     var randRps = $("random-rps");
     randRps.addEventListener("change", function () { $("rps").disabled = randRps.checked; });
+
+    initSaveDir();   // #E : champ dossier des projets
 
     // Volet de reglages repliable.
     var toggle = $("btn-toggle-settings");

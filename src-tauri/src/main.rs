@@ -19,6 +19,7 @@ fn main() {
             commands::save_history,
             commands::save_crawl,
             commands::load_crawl,
+            commands::open_crawls_folder,
             commands::history_location,
             commands::open_history_folder
         ])

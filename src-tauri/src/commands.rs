@@ -238,7 +238,12 @@ pub fn open_history_folder(app: AppHandle) -> Result<(), String> {
 
 
 /// Dossier des crawls enregistres (sous le dossier de donnees de l'application).
-fn crawls_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+fn crawls_dir(app: &AppHandle, custom: &Option<String>) -> Result<std::path::PathBuf, String> {
+    if let Some(d) = custom {
+        if !d.trim().is_empty() {
+            return Ok(std::path::PathBuf::from(d.trim()));
+        }
+    }
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     Ok(dir.join("crawls"))
 }
@@ -260,21 +265,37 @@ fn sanitize_id(id: &str) -> String {
 
 /// Enregistre un crawl complet (JSON) sous `crawls/<id>.json`. Renvoie le chemin du fichier.
 #[tauri::command]
-pub fn save_crawl(app: AppHandle, id: String, json: String) -> Result<String, String> {
-    let dir = crawls_dir(&app)?;
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let path = dir.join(format!("{}.json", sanitize_id(&id)));
+pub fn save_crawl(app: AppHandle, id: String, json: String, dir: Option<String>) -> Result<String, String> {
+    let d = crawls_dir(&app, &dir)?;
+    std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
+    let path = d.join(format!("{}.json", sanitize_id(&id)));
     std::fs::write(&path, json).map_err(|e| e.to_string())?;
     Ok(path.to_string_lossy().to_string())
 }
 
 /// Charge un crawl enregistre par son identifiant (URL de depart). Renvoie "" si absent.
 #[tauri::command]
-pub fn load_crawl(app: AppHandle, id: String) -> Result<String, String> {
-    let dir = crawls_dir(&app)?;
-    let path = dir.join(format!("{}.json", sanitize_id(&id)));
+pub fn load_crawl(app: AppHandle, id: String, dir: Option<String>) -> Result<String, String> {
+    let d = crawls_dir(&app, &dir)?;
+    let path = d.join(format!("{}.json", sanitize_id(&id)));
     match std::fs::read_to_string(&path) {
         Ok(s) => Ok(s),
         Err(_) => Ok(String::new()),
     }
+}
+
+/// Ouvre, dans l'explorateur, le dossier des crawls enregistres (custom ou defaut).
+#[tauri::command]
+pub fn open_crawls_folder(app: AppHandle, dir: Option<String>) -> Result<(), String> {
+    let d = crawls_dir(&app, &dir)?;
+    std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
+    #[cfg(windows)]
+    {
+        std::process::Command::new("explorer").arg(&d).spawn().map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(windows))]
+    {
+        std::process::Command::new("xdg-open").arg(&d).spawn().map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
