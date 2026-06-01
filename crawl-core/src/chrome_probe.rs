@@ -349,6 +349,7 @@ pub async fn measure_page(
             images: st.images.clone(),
             measured_with: "chrome".to_string(),
             error: nav_error,
+            ..Default::default()
         }
     };
 

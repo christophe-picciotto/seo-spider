@@ -4,16 +4,34 @@ use futures::stream::{self, StreamExt};
 use scraper::{Html, Selector};
 use url::Url;
 
-use crate::report::{AssetReport, TypeStat};
+use crate::report::{AssetReport, LinkInfo, TypeStat};
 
 /// Number of asset downloads run concurrently.
 const ASSET_CONCURRENCY: usize = 8;
 
+/// Maximum number of redirect hops followed before giving up.
+const MAX_REDIRECTS: usize = 10;
+
 pub struct HttpProbeResult {
+    /// Status of the FINAL response (after following redirects). The first 3xx
+    /// code of a redirect chain is exposed separately via `first_status`.
     pub status: u16,
     pub headers: reqwest::header::HeaderMap,
     pub html: String,
+    /// Deduplicated absolute http(s) links used to feed the crawl frontier.
     pub links: Vec<String>,
+    /// Every `<a href>` with its anchor text and `rel`, in document order
+    /// (used to populate `PageReport.outlinks`). May contain duplicates.
+    pub links_detailed: Vec<LinkInfo>,
+    /// URLs traversed during redirection, in order: the requested URL first,
+    /// then every intermediate hop, then the final URL. Empty (or length 1)
+    /// when there was no redirect.
+    pub redirect_chain: Vec<String>,
+    /// Status code of the FIRST response when it was a redirect (3xx), else
+    /// `None` (the request landed directly on its final response).
+    pub first_status: Option<u16>,
+    /// Final URL reached after following all redirects.
+    pub final_url: String,
 }
 
 /// Resolve an `href`/`src` value against a base URL, keeping only http(s) URLs.
@@ -29,8 +47,14 @@ fn resolve_url(base: &Url, raw: &str) -> Option<String> {
     }
 }
 
-/// Light HTTP probe: GET the target, capture status/headers/body and extract
-/// every absolute http(s) link found in `a[href]`.
+/// Light HTTP probe: GET the target FOLLOWING redirects manually so the full
+/// chain is observable, capture the final status/headers/body and extract every
+/// absolute http(s) link found in `a[href]`.
+///
+/// Redirects are followed by hand (the supplied `client` must use
+/// `redirect::Policy::none()`): every hop URL is recorded in
+/// `redirect_chain`, the first 3xx code in `first_status`, and the final
+/// response body is the one analysed for SEO. Up to `MAX_REDIRECTS` hops.
 ///
 /// `scraper::Html` is not `Send`, so the HTML is parsed and every URL is
 /// collected into owned `String`s in a scope that ends before any `.await`.
@@ -38,18 +62,87 @@ pub async fn probe(
     client: &reqwest::Client,
     target: &str,
 ) -> anyhow::Result<HttpProbeResult> {
-    let resp = client.get(target).send().await?;
-    let status = resp.status().as_u16();
-    let headers = resp.headers().clone();
-    let html = resp.text().await?;
+    // Chain of URLs traversed, starting with the requested one.
+    let mut chain: Vec<String> = vec![target.to_string()];
+    let mut first_status: Option<u16> = None;
 
-    let links = extract_links(target, &html);
+    let mut current = target.to_string();
+    let mut hops = 0usize;
+
+    // Loop: follow Location while we get a 3xx with a resolvable target.
+    let (final_status, headers, html, final_url) = loop {
+        let resp = client.get(&current).send().await?;
+        let status = resp.status();
+        let code = status.as_u16();
+
+        // Not a redirect (or a 3xx without usable Location) -> terminal response.
+        let location = if status.is_redirection() {
+            resp.headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string())
+        } else {
+            None
+        };
+
+        match location {
+            Some(loc) if hops < MAX_REDIRECTS => {
+                // Resolve the (possibly relative) Location against the current URL.
+                let next = match Url::parse(&current).and_then(|b| b.join(&loc)) {
+                    Ok(u) => u,
+                    Err(_) => {
+                        // Unresolvable redirect target: treat current as terminal.
+                        let headers = resp.headers().clone();
+                        let html = resp.text().await?;
+                        break (code, headers, html, current.clone());
+                    }
+                };
+                // Only follow http(s) redirects.
+                match next.scheme() {
+                    "http" | "https" => {}
+                    _ => {
+                        let headers = resp.headers().clone();
+                        let html = resp.text().await?;
+                        break (code, headers, html, current.clone());
+                    }
+                }
+
+                if first_status.is_none() {
+                    first_status = Some(code);
+                }
+                // Drain the body so the connection can be reused.
+                let _ = resp.bytes().await;
+
+                let next_str: String = next.into();
+                chain.push(next_str.clone());
+                current = next_str;
+                hops += 1;
+            }
+            _ => {
+                // Terminal: capture final headers/body.
+                let headers = resp.headers().clone();
+                let html = resp.text().await?;
+                break (code, headers, html, current.clone());
+            }
+        }
+    };
+
+    // Links are resolved against the FINAL URL (where the document actually lives).
+    let links = extract_links(&final_url, &html);
+    let links_detailed = extract_links_detailed(&final_url, &html);
+
+    // If there was no redirect, expose an empty chain (length-1 chains are noise).
+    let redirect_chain = if chain.len() > 1 { chain } else { Vec::new() };
 
     Ok(HttpProbeResult {
-        status,
+        status: final_status,
         headers,
         html,
         links,
+        links_detailed,
+        redirect_chain,
+        first_status,
+        final_url,
     })
 }
 
@@ -81,6 +174,64 @@ fn extract_links(base_url: &str, html: &str) -> Vec<String> {
         }
     }
     links
+}
+
+/// Parse the HTML and return every `<a href>` as a `LinkInfo`: absolute target,
+/// trimmed anchor text, `rel` attribute (if any) and whether the target is on
+/// the same host as the page.
+///
+/// Unlike `extract_links`, this keeps duplicates and preserves document order
+/// (one entry per anchor). Fully synchronous so no `scraper` type escapes.
+fn extract_links_detailed(base_url: &str, html: &str) -> Vec<LinkInfo> {
+    let base = match Url::parse(base_url) {
+        Ok(u) => u,
+        Err(_) => return Vec::new(),
+    };
+    let base_host = base.host_str().map(|h| h.to_ascii_lowercase());
+
+    let document = Html::parse_document(html);
+    let selector = match Selector::parse("a[href]") {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut out: Vec<LinkInfo> = Vec::new();
+    for el in document.select(&selector) {
+        let href = match el.value().attr("href") {
+            Some(h) => h,
+            None => continue,
+        };
+        let target = match resolve_url(&base, href) {
+            Some(t) => t,
+            None => continue,
+        };
+
+        // Anchor text: concatenated text nodes, whitespace-collapsed and trimmed.
+        let anchor: String = el.text().collect::<Vec<_>>().join(" ");
+        let anchor = anchor.split_whitespace().collect::<Vec<_>>().join(" ");
+
+        let rel = el
+            .value()
+            .attr("rel")
+            .map(|r| r.trim().to_string())
+            .filter(|r| !r.is_empty());
+
+        // internal == same host as the page (case-insensitive).
+        let internal = match (&base_host, Url::parse(&target).ok().and_then(|u| {
+            u.host_str().map(|h| h.to_ascii_lowercase())
+        })) {
+            (Some(bh), Some(th)) => *bh == th,
+            _ => false,
+        };
+
+        out.push(LinkInfo {
+            target,
+            anchor,
+            rel,
+            internal,
+        });
+    }
+    out
 }
 
 /// A static asset URL with the resource kind inferred from the tag it came from.

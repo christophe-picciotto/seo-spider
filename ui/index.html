@@ -3,192 +3,199 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Crawl Audit</title>
+  <title>SEO Spider</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
 
-  <header class="app-header">
-    <h1>Crawl Audit</h1>
-    <span class="version">v2.0</span>
-    <span class="net-info" id="net-info" title="IP publique sortante + reverse DNS">
-      <span class="net-dot"></span>
-      <span id="net-info-text">IP…</span>
-    </span>
-  </header>
+  <!-- =====================================================================
+       LAYOUT FACON SCREAMING FROG
+       app
+        |- topbar      : URL + Demarrer/Vider + cases + reglages repliables
+        |- tabsbar     : onglets horizontaux avec compteurs
+        |- workspace   : [ grille principale ] [ sidebar Overview ]
+        |- detail      : panneau de detail (au clic sur une ligne)
+        |- statusbar   : progression / file / debit / poids total
+       ===================================================================== -->
+  <div class="app">
 
-  <main>
-    <!-- Formulaire de configuration -->
-    <section class="config-panel">
-      <form id="crawl-form" autocomplete="off">
-        <div class="field field--url">
-          <label for="seed-url">URL de départ</label>
-          <input type="url" id="seed-url" name="seed_url" placeholder="https://example.com" required />
-        </div>
+    <!-- ----- 1) BARRE DU HAUT ------------------------------------------- -->
+    <header class="topbar">
+      <form id="crawl-form" class="topbar-main" autocomplete="off">
+        <input
+          type="url" id="seed-url" name="seed_url"
+          class="url-input" placeholder="https://exemple.com" required />
+        <button type="submit" id="btn-start" class="btn btn--primary">Demarrer</button>
+        <button type="button" id="btn-stop"  class="btn btn--danger" disabled>Stop</button>
+        <button type="button" id="btn-clear" class="btn">Vider</button>
 
-        <div class="field">
-          <label for="max-pages">Pages max</label>
-          <input type="number" id="max-pages" name="max_pages" value="100" min="1" max="10000" />
-        </div>
+        <label class="topbar-check" title="Crawler tout le site, sans limite de pages">
+          <input type="checkbox" id="opt-unlimited" checked />
+          <span>Tout le site</span>
+        </label>
+        <label class="topbar-check" title="Respecter les regles du fichier robots.txt">
+          <input type="checkbox" id="opt-robots" checked />
+          <span>Respecter robots.txt</span>
+        </label>
 
-        <div class="field">
-          <label for="max-depth">Profondeur max</label>
-          <input type="number" id="max-depth" name="max_depth" value="3" min="1" max="20" />
-        </div>
+        <button type="button" id="btn-toggle-settings" class="btn btn--ghost btn--sm" aria-expanded="false">
+          Reglages
+        </button>
 
-        <div class="field">
-          <label for="rps">Req / sec</label>
-          <div class="field-row">
-            <input type="number" id="rps" name="requests_per_second" value="2" min="1" max="50" step="1" />
-            <label class="check-inline" title="Délais aléatoires entre requêtes, comme un humain">
-              <input type="checkbox" id="random-rps" />
-              <span>&#127922; aléatoire</span>
-            </label>
-          </div>
-        </div>
-
-        <div class="field">
-          <label for="repetitions">Répétitions</label>
-          <div class="field-row">
-            <input type="number" id="repetitions" name="repetitions" value="1" min="1" max="1000" />
-            <div class="presets" id="rep-presets">
-              <button type="button" data-rep="5">5</button>
-              <button type="button" data-rep="10">10</button>
-              <button type="button" data-rep="50">50</button>
-              <button type="button" data-rep="100">100</button>
-            </div>
-          </div>
-        </div>
-
-        <div class="field field--check">
-          <label class="check-label">
-            <input type="checkbox" id="force-chrome" name="force_chrome" />
-            <span class="check-text">Forcer Chrome</span>
-          </label>
-          <label class="check-label">
-            <input type="checkbox" id="random-ua" name="random_user_agent" />
-            <span class="check-text">UA aléatoire</span>
-          </label>
-        </div>
-
-        <div class="actions">
-          <button type="submit" id="btn-start" class="btn btn--primary">
-            <span class="btn-icon">&#9654;</span> Crawler
-          </button>
-          <button type="button" id="btn-stop" class="btn btn--danger" disabled>
-            <span class="btn-icon">&#9632;</span> Stop
-          </button>
-          <button type="button" id="btn-reset" class="btn btn--ghost">
-            <span class="btn-icon">&#8635;</span> Réinitialiser
-          </button>
-        </div>
+        <!-- Info reseau (IP publique + reverse DNS) poussee a droite -->
+        <span class="net-info" id="net-info" title="IP publique sortante + reverse DNS">
+          <span class="net-dot"></span>
+          <span id="net-info-text">IP...</span>
+        </span>
       </form>
-    </section>
 
-    <!-- Barre de progression -->
-    <section class="progress-section" id="progress-section" hidden>
-      <div class="progress-bar-track">
-        <div class="progress-bar-fill" id="progress-bar"></div>
-      </div>
-      <p class="progress-text" id="progress-text">En attente...</p>
-    </section>
-
-    <!-- Tableau de bord agrege (multi-run) -->
-    <section class="multi-grid" id="multi-section" hidden>
-      <div class="multi-card">
-        <div class="multi-label">Runs effectués</div>
-        <div class="multi-value" id="m-runs">0 / 0</div>
-      </div>
-      <div class="multi-card">
-        <div class="multi-label">Bande passante cumulée</div>
-        <div class="multi-value" id="m-bandwidth">0 Ko</div>
-      </div>
-      <div class="multi-card">
-        <div class="multi-label">Pages cumulées</div>
-        <div class="multi-value" id="m-pages">0</div>
-      </div>
-      <div class="multi-card">
-        <div class="multi-label">Moyenne / run</div>
-        <div class="multi-value" id="m-avg">0 Ko</div>
-      </div>
-    </section>
-
-    <!-- Totaux du run courant -->
-    <section class="totals-grid" id="totals-section">
-      <div class="total-card">
-        <div class="total-label">Pages</div>
-        <div class="total-value" id="tot-pages">0</div>
-      </div>
-      <div class="total-card">
-        <div class="total-label">Bande passante</div>
-        <div class="total-value" id="tot-bandwidth">0 Ko</div>
-      </div>
-      <div class="total-card">
-        <div class="total-label">Requetes dynamiques</div>
-        <div class="total-value" id="tot-dynamic">0</div>
-      </div>
-      <div class="total-card">
-        <div class="total-label">Cache MISS</div>
-        <div class="total-value" id="tot-miss">0</div>
-      </div>
-      <div class="total-card total-card--wide">
-        <div class="total-label">Technologies detectees</div>
-        <div class="total-value total-value--techs" id="tot-techs">—</div>
-      </div>
-    </section>
-
-    <!-- Tableau des resultats (run courant) -->
-    <section class="results-section">
-      <table class="results-table" id="results-table">
-        <thead>
-          <tr>
-            <th class="col-url"    data-sort-key="url">URL</th>
-            <th class="col-techno" data-sort-key="techno">Techno</th>
-            <th class="col-weight" data-sort-key="weight">Poids total</th>
-            <th class="col-images" data-sort-key="imgBytes">Images</th>
-            <th class="col-req"    data-sort-key="reqCount">Requetes</th>
-            <th class="col-dyn"    data-sort-key="dynReq">dont dyn.</th>
-            <th class="col-miss"   data-sort-key="cacheMiss">Cache MISS</th>
-            <th class="col-probe"  data-sort-key="probe">Sonde</th>
-            <th class="col-bar"></th>
-          </tr>
-        </thead>
-        <tbody id="results-body">
-          <tr class="empty-row">
-            <td colspan="9">Lancez un crawl pour voir les resultats ici.</td>
-          </tr>
-        </tbody>
-      </table>
-    </section>
-
-    <!-- Historique persistant -->
-    <section class="history-section">
-      <div class="history-head">
-        <h2>Historique des crawls</h2>
-        <div class="history-actions">
-          <span class="history-path" id="history-path"></span>
-          <button type="button" id="btn-open-folder" class="btn-link">&#128193; Ouvrir le dossier</button>
-          <button type="button" id="btn-clear-history" class="btn-link">Vider l'historique</button>
+      <!-- Volet de reglages repliable -->
+      <div class="settings-drawer" id="settings-drawer" hidden>
+        <div class="setting">
+          <label for="max-pages">Pages max</label>
+          <input type="number" id="max-pages" value="500" min="1" max="1000000" disabled />
+        </div>
+        <div class="setting">
+          <label for="max-depth">Profondeur max</label>
+          <input type="number" id="max-depth" value="10" min="1" max="50" />
+        </div>
+        <div class="setting">
+          <label for="rps">Req / sec</label>
+          <input type="number" id="rps" value="5" min="1" max="50" step="1" />
+        </div>
+        <label class="setting setting--check" title="Delais aleatoires entre requetes (comportement humain)">
+          <input type="checkbox" id="random-rps" />
+          <span>Debit aleatoire</span>
+        </label>
+        <label class="setting setting--check">
+          <input type="checkbox" id="force-chrome" />
+          <span>Forcer Chrome</span>
+        </label>
+        <label class="setting setting--check">
+          <input type="checkbox" id="random-ua" />
+          <span>UA aleatoire</span>
+        </label>
+        <div class="setting">
+          <label for="repetitions">Repetitions (bande passante)</label>
+          <input type="number" id="repetitions" value="1" min="1" max="1000" />
         </div>
       </div>
-      <table class="history-table" id="history-table">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>URL</th>
-            <th>Runs</th>
-            <th>Pages</th>
-            <th>Bande passante</th>
-            <th>Techno</th>
-            <th>Options</th>
-          </tr>
-        </thead>
-        <tbody id="history-body">
-          <tr class="empty-row"><td colspan="7">Aucun crawl enregistré.</td></tr>
-        </tbody>
-      </table>
+    </header>
+
+    <!-- ----- 2) BARRE D'ONGLETS ----------------------------------------- -->
+    <nav class="tabsbar" id="tabsbar" role="tablist">
+      <button type="button" class="tab is-active" data-tab="internal" role="tab">
+        Internal <span class="tab-count" data-count="internal">0</span>
+      </button>
+      <button type="button" class="tab" data-tab="response" role="tab">
+        Response Codes <span class="tab-count" data-count="response">0</span>
+      </button>
+      <button type="button" class="tab" data-tab="titles" role="tab">
+        Page Titles <span class="tab-count" data-count="titles">0</span>
+      </button>
+      <button type="button" class="tab" data-tab="meta" role="tab">
+        Meta Description <span class="tab-count" data-count="meta">0</span>
+      </button>
+      <button type="button" class="tab" data-tab="h1" role="tab">
+        H1 <span class="tab-count" data-count="h1">0</span>
+      </button>
+      <button type="button" class="tab" data-tab="images" role="tab">
+        Images <span class="tab-count" data-count="images">0</span>
+      </button>
+      <button type="button" class="tab" data-tab="canonical" role="tab">
+        Canonicals <span class="tab-count" data-count="canonical">0</span>
+      </button>
+      <button type="button" class="tab" data-tab="directives" role="tab">
+        Directives <span class="tab-count" data-count="directives">0</span>
+      </button>
+      <button type="button" class="tab" data-tab="hreflang" role="tab">
+        Hreflang <span class="tab-count" data-count="hreflang">0</span>
+      </button>
+      <button type="button" class="tab" data-tab="schema" role="tab">
+        Structured Data <span class="tab-count" data-count="schema">0</span>
+      </button>
+      <button type="button" class="tab" data-tab="links" role="tab">
+        Liens <span class="tab-count" data-count="links">0</span>
+      </button>
+      <button type="button" class="tab" data-tab="issues" role="tab">
+        Problemes <span class="tab-count" data-count="issues">0</span>
+      </button>
+      <button type="button" class="tab" data-tab="bandwidth" role="tab">
+        Bande passante <span class="tab-count" data-count="bandwidth">0</span>
+      </button>
+    </nav>
+
+    <!-- ----- Barre d'outils de la grille (filtre + filtres sev + export) - -->
+    <div class="gridtools">
+      <input type="search" id="grid-search" class="grid-search"
+             placeholder="Filtrer par URL..." autocomplete="off" />
+
+      <!-- Filtres de severite : visibles seulement sur l'onglet Problemes -->
+      <div class="sev-filters" id="sev-filters" hidden>
+        <button type="button" class="sev-filter is-active" data-sev="all">Tous <span data-sevcount="all">0</span></button>
+        <button type="button" class="sev-filter" data-sev="critical">Critiques <span data-sevcount="critical">0</span></button>
+        <button type="button" class="sev-filter" data-sev="warning">Avert. <span data-sevcount="warning">0</span></button>
+        <button type="button" class="sev-filter" data-sev="opportunity">Opport. <span data-sevcount="opportunity">0</span></button>
+      </div>
+
+      <span class="active-filter" id="active-filter" hidden>
+        Filtre : <strong id="active-filter-label"></strong>
+        <button type="button" id="active-filter-clear" title="Retirer le filtre">x</button>
+      </span>
+
+      <span class="gridtools-spacer"></span>
+      <button type="button" id="btn-export-csv" class="btn btn--ghost btn--sm">Export CSV</button>
+    </div>
+
+    <!-- ----- 3) + 4) ESPACE DE TRAVAIL : grille + sidebar Overview ------- -->
+    <div class="workspace">
+      <!-- GRILLE DENSE plein largeur -->
+      <main class="gridwrap">
+        <table class="grid" id="grid">
+          <thead id="grid-head"></thead>
+          <tbody id="grid-body"></tbody>
+        </table>
+        <div class="grid-empty" id="grid-empty">Lancez un crawl pour voir les resultats ici.</div>
+      </main>
+
+      <!-- SIDEBAR DROITE : arborescence Overview avec compteurs -->
+      <aside class="overview" id="overview">
+        <div class="overview-head">Overview</div>
+        <div class="overview-tree" id="overview-tree"></div>
+      </aside>
+    </div>
+
+    <!-- ----- 5) PANNEAU DE DETAIL (au clic sur une ligne) --------------- -->
+    <section class="detail" id="detail" hidden>
+      <div class="detail-head">
+        <div class="detail-tabs" id="detail-tabs">
+          <button type="button" class="dtab is-active" data-dtab="inlinks">Inlinks <span id="dt-inlinks-count">0</span></button>
+          <button type="button" class="dtab" data-dtab="outlinks">Outlinks <span id="dt-outlinks-count">0</span></button>
+          <button type="button" class="dtab" data-dtab="serp">SERP Snippet</button>
+          <button type="button" class="dtab" data-dtab="info">Infos / En-tetes</button>
+          <button type="button" class="dtab" data-dtab="source">Source</button>
+        </div>
+        <button type="button" class="detail-close" id="detail-close" title="Fermer">x</button>
+      </div>
+      <div class="detail-body" id="detail-body"></div>
     </section>
-  </main>
+
+    <!-- ----- 6) BARRE DE STATUT ----------------------------------------- -->
+    <footer class="statusbar">
+      <div class="statusbar-progress">
+        <div class="statusbar-progress-fill" id="status-fill"></div>
+      </div>
+      <span class="status-item" id="status-state">En attente</span>
+      <span class="status-sep"></span>
+      <span class="status-item">Pages : <strong id="status-done">0</strong> / <span id="status-total">0</span></span>
+      <span class="status-item">File : <strong id="status-queued">0</strong></span>
+      <span class="status-item">Debit : <strong id="status-rate">0</strong> p/s</span>
+      <span class="status-item">Poids total : <strong id="status-bytes">0 o</strong></span>
+      <span class="status-sep"></span>
+      <span class="status-item status-item--multi" id="status-multi" hidden></span>
+    </footer>
+
+  </div>
 
   <script src="main.js"></script>
 </body>

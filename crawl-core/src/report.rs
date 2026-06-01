@@ -15,6 +15,58 @@ pub struct TypeStat {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Hreflang {
+    pub lang: String,
+    pub href: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SeoData {
+    pub title: Option<String>,
+    pub title_len: usize,
+    pub meta_description: Option<String>,
+    pub meta_description_len: usize,
+    pub h1: Vec<String>,
+    pub h1_count: usize,
+    pub h2: Vec<String>,
+    pub canonical: Option<String>,
+    pub meta_robots: Option<String>,
+    pub noindex: bool,
+    pub nofollow: bool,
+    pub indexable: bool,
+    pub lang: Option<String>,
+    pub viewport: Option<String>,
+    pub charset: Option<String>,
+    pub word_count: usize,
+    pub text_ratio: f32,
+    pub og: HashMap<String, String>,
+    pub twitter: HashMap<String, String>,
+    pub images_total: u32,
+    pub images_missing_alt: u32,
+    pub internal_links: u32,
+    pub external_links: u32,
+    pub hreflang: Vec<Hreflang>,
+    pub structured_data_types: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Issue {
+    pub url: String,
+    pub severity: String,  // "critical" | "warning" | "opportunity" | "info"
+    pub category: String,  // "Titres" | "Meta description" | "H1" | "Images" | "Canonical" | "Directives" | "Hreflang" | "Reponse"
+    pub message: String,
+}
+
+/// A single outgoing link discovered on a page.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LinkInfo {
+    pub target: String,
+    pub anchor: String,
+    pub rel: Option<String>,
+    pub internal: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PageReport {
     pub url: String,
     pub status: u16,
@@ -28,6 +80,25 @@ pub struct PageReport {
     pub images: Vec<AssetReport>,
     pub measured_with: String,       // "http" | "chrome"
     pub error: Option<String>,
+    #[serde(default)]
+    pub seo: Option<SeoData>,
+    #[serde(default)]
+    pub issues: Vec<Issue>,
+    #[serde(default)]
+    pub content_type: Option<String>,
+    #[serde(default)]
+    pub response_time_ms: u64,
+    #[serde(default)]
+    pub redirect_to: Option<String>,
+    #[serde(default)]
+    pub redirect_chain: Vec<String>,
+    #[serde(default)]
+    pub outlinks: Vec<LinkInfo>,
+}
+
+/// Default value helper for serde (`respect_robots` defaults to true).
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,6 +116,10 @@ pub struct CrawlConfig {
     /// "humain") au lieu du debit fixe `requests_per_second`.
     #[serde(default)]
     pub random_delay: bool,
+    #[serde(default)]
+    pub unlimited: bool,
+    #[serde(default = "default_true")]
+    pub respect_robots: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

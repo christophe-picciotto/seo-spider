@@ -141,6 +141,7 @@ async fn build_http_report(
         images,
         measured_with: "http".to_string(),
         error: None,
+        ..Default::default()
     }
 }
 
@@ -165,6 +166,9 @@ where
     //     (Aucun cookie store n'est active : chaque requete part d'un etat vierge.) ---
     let client = reqwest::Client::builder()
         .user_agent(USER_AGENT)
+        // Redirects are followed manually in `http_probe::probe` so the full
+        // chain (and the first 3xx code) is observable.
+        .redirect(reqwest::redirect::Policy::none())
         .build()?;
 
     // --- Graine pour la rotation de user-agents (si activee). ---
@@ -203,9 +207,54 @@ where
     };
     let mut done: usize = 0;
 
+    // --- robots.txt : telecharge + parse une fois pour tout le crawl si demande.
+    //     (Echec reseau / fichier absent -> Robots::empty() = tout autorise.) ---
+    let robots = if config.respect_robots {
+        crate::robots::fetch(&client, &config.seed_url, USER_AGENT).await
+    } else {
+        crate::robots::Robots::empty()
+    };
+
     while let Some((url, depth)) = queue.pop_front() {
-        if done >= config.max_pages {
+        if !config.unlimited && done >= config.max_pages {
             break;
+        }
+
+        // Respect de robots.txt : si le path est interdit, on emet un rapport
+        // "bloque" et on passe a l'URL suivante (sans la sonder ni l'enfiler).
+        if config.respect_robots {
+            let path = Url::parse(&url)
+                .ok()
+                .map(|u| {
+                    let mut p = u.path().to_string();
+                    if let Some(q) = u.query() {
+                        p.push('?');
+                        p.push_str(q);
+                    }
+                    p
+                })
+                .unwrap_or_else(|| url.clone());
+            if !robots.allowed(&path) {
+                // Marque comme visite pour ne pas re-evaluer en boucle.
+                visited.insert(url.clone());
+                let report = PageReport {
+                    url: url.clone(),
+                    status: 0,
+                    measured_with: "http".to_string(),
+                    error: Some("Bloque par robots.txt".to_string()),
+                    ..Default::default()
+                };
+                on_page(report.clone());
+                done += 1;
+                merge_into_summary(&mut summary, &report);
+                on_progress(CrawlProgress {
+                    done,
+                    queued: queue.len(),
+                    current_url: url.clone(),
+                    total_bytes_so_far: summary.total_bytes,
+                });
+                continue;
+            }
         }
 
         // Deja vu ? On marque AVANT traitement pour ne pas re-enfiler en boucle.
@@ -237,6 +286,8 @@ where
         let page_client = match &profile {
             Some(p) => reqwest::Client::builder()
                 .user_agent(p.ua)
+                // Same manual-redirect policy as the global client.
+                .redirect(reqwest::redirect::Policy::none())
                 .build()
                 .unwrap_or_else(|_| client.clone()),
             None => client.clone(),
@@ -260,6 +311,7 @@ where
                     images: Vec::new(),
                     measured_with: "http".to_string(),
                     error: Some(format!("sonde HTTP echouee: {e}")),
+                    ..Default::default()
                 };
                 on_page(report.clone());
                 done += 1;
@@ -314,7 +366,7 @@ where
 
         // Repli HTTP statique : pas de mesure navigateur (non demandee, navigateur
         // indisponible, ou mesure echouee). Une seule sonde d'assets, jamais deux.
-        let report: PageReport = match report {
+        let mut report: PageReport = match report {
             Some(r) => r,
             None => {
                 let mut http_report = build_http_report(
@@ -333,6 +385,30 @@ where
                 http_report
             }
         };
+
+        if report.seo.is_none() {
+            report.seo = Some(crate::seo::extract_seo(&probe.html, &url, seed_host.as_deref()));
+        }
+
+        // Liens sortants (avec ancre + rel) detectes sur la page.
+        report.outlinks = probe.links_detailed.clone();
+
+        // Chaine de redirection (si la sonde HTTP en a traverse une).
+        //   - redirect_chain : URLs traversees (vide si pas de redirection) ;
+        //   - redirect_to    : URL finale, si differente de l'URL demandee ;
+        //   - status         : code de la 1ere reponse 3xx en cas de redirection,
+        //                       sinon le statut de la reponse finale.
+        if !probe.redirect_chain.is_empty() {
+            report.redirect_chain = probe.redirect_chain.clone();
+            if probe.final_url != url {
+                report.redirect_to = Some(probe.final_url.clone());
+            }
+            if let Some(first) = probe.first_status {
+                report.status = first;
+            }
+        }
+
+        report.issues = crate::seo::analyze(&report);
 
         // 4. Notifications + agregation.
         on_page(report.clone());
