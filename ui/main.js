@@ -2570,7 +2570,11 @@
     var seen = {}, opts = [];
     for (var i = 0; i < history.length; i++) {
       var u = history[i] && history[i].url;
-      if (u && !seen[u]) { seen[u] = 1; opts.push('<option value="' + esc(u) + '"></option>'); }
+      if (!u) continue;
+      var k = normUrl(u);                 // dedup par URL normalisee : un site ne s'affiche qu'une fois
+      if (seen[k]) continue;
+      seen[k] = 1;
+      opts.push('<option value="' + esc(u) + '"></option>');
     }
     dl.innerHTML = opts.join("");
   }
