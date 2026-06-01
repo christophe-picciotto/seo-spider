@@ -204,6 +204,7 @@ where
         total_requests: 0,
         total_dynamic_requests: 0,
         tech_detected: Vec::new(),
+        sitemap_urls: Vec::new(),
     };
     let mut done: usize = 0;
 
@@ -462,6 +463,9 @@ where
 
     // --- Dedup final des technos (ordre de premiere apparition). ---
     summary.tech_detected = dedup_keep_order(summary.tech_detected);
+
+    // --- Sitemaps : recupere la liste des URLs declarees dans le(s) sitemap(s). ---
+    summary.sitemap_urls = crate::sitemap::fetch(&client, &config.seed_url).await;
 
     Ok(summary)
 }

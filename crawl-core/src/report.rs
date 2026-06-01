@@ -53,6 +53,8 @@ pub struct SeoData {
     pub canonicalised: bool,            // canonical pointe vers une AUTRE url (page non-indexable)
     pub structured_data_valid: bool,
     pub structured_data_errors: Vec<String>,
+    #[serde(default)]
+    pub simhash: String,                // empreinte 64 bits en HEX (16 chars) du contenu visible, pour near-duplicates
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -164,4 +166,6 @@ pub struct CrawlSummary {
     pub total_requests: u32,
     pub total_dynamic_requests: u32,
     pub tech_detected: Vec<String>,
+    #[serde(default)]
+    pub sitemap_urls: Vec<String>,
 }

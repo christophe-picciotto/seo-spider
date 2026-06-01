@@ -191,6 +191,51 @@ fn validate_ld_block(value: &serde_json::Value) -> Option<String> {
     }
 }
 
+/// 64-bit FNV-1a hash of a single token. Deterministic and stable across
+/// runs and platforms (no random seed), so two crawls of the same page yield
+/// the same fingerprint.
+fn fnv1a64(token: &str) -> u64 {
+    const FNV_OFFSET: u64 = 0xcbf29ce484222325;
+    const FNV_PRIME: u64 = 0x100000001b3;
+    let mut hash = FNV_OFFSET;
+    for byte in token.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    hash
+}
+
+/// Compute a 64-bit SimHash fingerprint of visible text, returned as a
+/// zero-padded 16-char hex string. Classic Charikar SimHash: lowercase-tokenize
+/// on whitespace, hash each token (FNV-1a 64), keep 64 signed accumulators
+/// (+1 where the token-hash bit is 1, -1 where it is 0), then set the output
+/// bit when its accumulator is positive. Near-identical pages produce hashes
+/// with a small Hamming distance; the UI does the bit-distance comparison.
+fn simhash64(text: &str) -> String {
+    let mut acc = [0i64; 64];
+    for token in text.split_whitespace() {
+        let token = token.to_lowercase();
+        if token.is_empty() {
+            continue;
+        }
+        let h = fnv1a64(&token);
+        for (i, slot) in acc.iter_mut().enumerate() {
+            if (h >> i) & 1 == 1 {
+                *slot += 1;
+            } else {
+                *slot -= 1;
+            }
+        }
+    }
+    let mut fingerprint: u64 = 0;
+    for (i, slot) in acc.iter().enumerate() {
+        if *slot > 0 {
+            fingerprint |= 1u64 << i;
+        }
+    }
+    format!("{:016x}", fingerprint)
+}
+
 /// Extract SEO-relevant data from an HTML document.
 ///
 /// `page_url` is the absolute URL the HTML was fetched from (used to resolve
@@ -477,6 +522,9 @@ pub fn extract_seo(html: &str, page_url: &str, seed_host: Option<&str>) -> SeoDa
     } else {
         visible_text.split_whitespace().count()
     };
+
+    // Near-duplicate fingerprint over the same visible text used for word_count.
+    data.simhash = simhash64(&visible_text);
 
     let html_len = html.len();
     data.text_ratio = if html_len == 0 {

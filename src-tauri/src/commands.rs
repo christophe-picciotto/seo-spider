@@ -85,6 +85,7 @@ pub async fn start_crawl(
                     total_requests: 0,
                     total_dynamic_requests: 0,
                     tech_detected: Vec::new(),
+                    sitemap_urls: Vec::new(),
                 };
                 let _ = app_done.emit("crawl:error", e.to_string());
                 let _ = app_done.emit("crawl:done", empty);

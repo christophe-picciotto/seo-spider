@@ -266,6 +266,54 @@ a:hover { text-decoration: underline; }
   width: 16px; height: 16px; line-height: 14px; border-radius: 3px; cursor: pointer; font-weight: 700;
 }
 
+/* ----- Selecteur de vue Sitemap (Vague 3) : visible sur l'onglet Sitemap --- */
+.sitemap-views {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--text-muted);
+}
+.sitemap-views[hidden] { display: none; }
+.mini-select {
+  height: 25px; padding: 0 6px;
+  font-size: 12px; font-family: var(--font);
+  border: 1px solid var(--border); border-radius: 3px; background: #fff; color: var(--text);
+  cursor: pointer;
+}
+.mini-select:focus { outline: none; border-color: var(--accent); }
+
+/* ----- Menus deroulants (Export en masse / Rapports) — Vague 3 ------------ */
+.menu { position: relative; display: inline-block; }
+.menu-btn { font-weight: 500; }
+.menu.is-open .menu-btn { background: #fff; border-color: var(--accent); color: var(--text); }
+.menu-list {
+  display: none;
+  position: absolute;
+  top: calc(100% + 3px);
+  right: 0;
+  z-index: 20;
+  min-width: 200px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 4px 14px rgba(0,0,0,.14);
+}
+.menu.is-open .menu-list { display: block; }
+.menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: var(--font);
+  color: var(--text);
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.menu-item:hover { background: var(--row-hover); color: var(--accent-dark); }
+
 /* =========================================================================
    3) + 4) ESPACE DE TRAVAIL : grille (gauche) + Overview (droite)
    ========================================================================= */
@@ -389,6 +437,19 @@ a:hover { text-decoration: underline; }
   pointer-events: none;
 }
 .grid-empty[hidden] { display: none; }
+
+/* Bandeau d'information contextuel en tete de grille (Vague 3) */
+.grid-banner {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--redir);
+  background: var(--redir-bg);
+  border-bottom: 1px solid #e6cfa0;
+}
+.grid-banner[hidden] { display: none; }
 
 /* ----- SIDEBAR OVERVIEW -------------------------------------------------- */
 .overview {

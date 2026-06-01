@@ -107,6 +107,66 @@
   }
 
   // =========================================================================
+  // VAGUE 3 — Near-duplicates (empreinte simhash 64 bits)
+  // -------------------------------------------------------------------------
+  // Chaque page expose seo.simhash : une chaine HEXADECIMALE de 16 caracteres
+  // representant une empreinte de 64 bits du contenu visible. Deux pages au
+  // contenu tres proche ont des simhash dont peu de bits different.
+  //
+  // PRINCIPE de la DISTANCE DE HAMMING :
+  //   distance = nombre de bits qui different entre les deux empreintes
+  //            = popcount( simhashA XOR simhashB )   (sur 64 bits)
+  // On la calcule via BigInt : BigInt("0x"+hex) donne l'entier 64 bits exact
+  // (les nombres JS classiques perdent en precision au-dela de 53 bits).
+  //   - XOR bit a bit : (a ^ b) met a 1 chaque bit qui differe ;
+  //   - popcount : on compte ces bits a 1 en consommant l'entier 16 bits par
+  //     16 bits (masque 0xFFFF) avec une table de comptage precalculee, ce qui
+  //     evite une boucle sur 64 bits a chaque comparaison.
+  // Seuil : distance <= NEAR_DUP_BITS bits => pages considerees quasi-dupliquees.
+  // =========================================================================
+  var NEAR_DUP_BITS = 6;          // <= 6 bits de difference = quasi-duplique
+  var NEAR_DUP_MAX_PAGES = 2000;  // au-dela, on saute le calcul O(n^2) (cf. note UI)
+
+  // Table de popcount sur 16 bits (65536 entrees) : POPCNT16[x] = nb de bits a 1.
+  // Construite une seule fois ; rend popcountBig() quasi O(1) par comparaison.
+  var POPCNT16 = (function () {
+    var t = new Uint8Array(65536);
+    for (var i = 1; i < 65536; i++) t[i] = t[i >> 1] + (i & 1);
+    return t;
+  })();
+
+  // popcount d'un BigInt 64 bits : on decoupe en 4 tranches de 16 bits.
+  function popcountBig(x) {
+    var n = 0;
+    // Number(x & 0xFFFFn) est sur dans [0..65535] -> indexation directe.
+    n += POPCNT16[Number(x & 0xFFFFn)];
+    n += POPCNT16[Number((x >> 16n) & 0xFFFFn)];
+    n += POPCNT16[Number((x >> 32n) & 0xFFFFn)];
+    n += POPCNT16[Number((x >> 48n) & 0xFFFFn)];
+    return n;
+  }
+
+  // simhash hex (16 chars) d'une page, ou "" si absent/invalide.
+  function simhashOf(p) {
+    var s = seoOf(p);
+    var h = s && s.simhash ? String(s.simhash).trim().toLowerCase() : "";
+    // On exige une chaine hexa non nulle (un simhash "0000...0" signale un
+    // contenu vide cote backend : on l'ignore pour ne pas tout regrouper).
+    if (!h || !/^[0-9a-f]{1,16}$/.test(h)) return "";
+    if (/^0+$/.test(h)) return "";
+    return h;
+  }
+
+  // Convertit un simhash hex en BigInt 64 bits (prefixe 0x).
+  function simhashBig(hex) { return BigInt("0x" + hex); }
+
+  // Renvoie la liste (memorisee) des URLs quasi-dupliquees a la page p.
+  function nearDupOf(p) {
+    var arr = S.nearDup[normUrl(p.url)];
+    return Array.isArray(arr) ? arr : [];
+  }
+
+  // =========================================================================
   // Etat global
   // =========================================================================
   var S = {
@@ -118,6 +178,7 @@
     activeTab: "internal",
     search: "",
     sevFilter: "all",
+    sitemapView: "all",                 // Vague 3 : "all" | "notin" (onglet Sitemap)
     sort: { key: null, dir: null },     // tri de la grille (par onglet courant)
 
     // Filtre pousse par la sidebar Overview : { predicate(p)->bool, label } ou null
@@ -133,6 +194,25 @@
     // Cartes de doublons (Vague 2) : valeur normalisee -> nombre de pages.
     // Reconstruites une fois par cycle de rendu (evite O(n^2) par ligne).
     dupMaps: { title: {}, meta: {}, h1: {} },
+
+    // ----- Vague 3 -----
+    // Near-duplicates : normUrl(page) -> [urls quasi-dupliquees] (distance de
+    // Hamming <= NEAR_DUP_BITS sur le simhash 64 bits). Reconstruit une fois par
+    // cycle de rendu, en O(n^2) BORNE (cf. NEAR_DUP_MAX_PAGES).
+    nearDup: {},
+    nearDupSkipped: false,         // vrai si trop de pages -> calcul desactive
+
+    // Hreflang reciproque : normUrl(page) -> { declared:[langs], missingBack:[urls] }
+    // missingBack = pages cibles crawlees qui ne declarent PAS de retour vers nous.
+    hreflangRecip: {},
+    // Issues hreflang derivees cote JS (categorie "Hreflang"), reconstruites a
+    // chaque cycle et FUSIONNEES a la lecture (jamais poussees dans S.issues
+    // pour ne pas doublonner ni polluer l'agregat backend).
+    hreflangIssues: [],
+
+    // Sitemap (recu via crawl:done) : liste brute + Set normalise pour les jointures.
+    sitemapUrls: [],               // URLs telles que declarees dans le sitemap
+    sitemapSet: {},                // normUrl(sitemapUrl) -> true (appartenance O(1))
 
     // Mesure de bande passante (run courant + agregats multi-run)
     bw: { totalBytes: 0, maxWeight: 0 },
@@ -389,6 +469,36 @@
       }
     },
 
+    // ----- Contenu (Vague 3) : near-duplicates -----
+    // Colonnes : Adresse, Mots, Near-dup (Oui + nombre de pages similaires).
+    // La detection repose sur seo.simhash + distance de Hamming (cf. rebuildNearDup).
+    content: {
+      kind: "pages",
+      columns: [
+        { key: "url",     label: "Adresse" },
+        { key: "words",   label: "Mots", num: true },
+        { key: "neardup", label: "Near-dup", num: true }
+      ],
+      row: function (p) {
+        var s = seoOf(p);
+        var words = s ? (s.word_count || 0) : 0;
+        var sims = nearDupOf(p);                 // URLs quasi-dupliquees (memorise)
+        var n = sims.length;
+        var ndHtml = n
+          ? '<span class="state-pill state-pill--warn">Oui (' + n + ')</span>'
+          : '<span class="muted">—</span>';
+        return [
+          { html: urlCellHtml(p.url), text: p.url || "", sort: p.url || "" },
+          { html: '<span class="col-num">' + words + '</span>', text: String(words), sort: words },
+          // tri par nombre de similaires (desc = les plus dupliquees en tete) ;
+          // le texte CSV liste les URLs similaires pour exploitation hors-ligne.
+          { html: ndHtml, text: n ? (n + " : " + sims.join(" | ")) : "0", sort: n }
+        ];
+      },
+      // Surligne la ligne si la page a au moins une quasi-dupliquee.
+      rowClass: function (p) { return nearDupOf(p).length ? "row--alert" : ""; }
+    },
+
     // ----- Images (par page) -----
     images: {
       kind: "pages",
@@ -470,12 +580,17 @@
       }
     },
 
-    // ----- Hreflang -----
+    // ----- Hreflang (Vague 3 : + colonne Reciproque) -----
+    // Reciproque = OK si toutes les cibles hreflang crawlees pointent en retour
+    // vers cette page ; Manquant si au moins une cible crawlee n'a pas de lien
+    // retour ; "—" si la page ne declare aucun hreflang. Calcul cote JS dans
+    // rebuildHreflangRecip() (S.hreflangRecip).
     hreflang: {
       kind: "pages",
       columns: [
-        { key: "url", label: "Adresse" },
-        { key: "hl",  label: "Hreflang (lang -> href)" }
+        { key: "url",   label: "Adresse" },
+        { key: "hl",    label: "Hreflang (lang -> href)" },
+        { key: "recip", label: "Reciproque" }
       ],
       row: function (p) {
         var s = seoOf(p);
@@ -488,11 +603,26 @@
           }).join(" ");
           text = hl.map(function (h) { return h.lang + " -> " + h.href; }).join(" | ");
         }
+        // Etat de reciprocite.
+        var r = S.hreflangRecip[normUrl(p.url)];
+        var recipHtml, recipText, recipSort;
+        if (!hl.length) { recipHtml = '<span class="muted">—</span>'; recipText = ""; recipSort = -1; }
+        else if (r && r.missingBack && r.missingBack.length) {
+          recipHtml = '<span class="state-pill state-pill--warn" title="' +
+                      esc(r.missingBack.join(" | ")) + '">Manquant (' + r.missingBack.length + ')</span>';
+          recipText = "Manquant : " + r.missingBack.join(" | ");
+          recipSort = 1;
+        } else {
+          recipHtml = pill("ok", "OK"); recipText = "OK"; recipSort = 0;
+        }
         return [
           { html: urlCellHtml(p.url), text: p.url || "", sort: p.url || "" },
-          { html: html, text: text, sort: hl.length }
+          { html: html, text: text, sort: hl.length },
+          { html: recipHtml, text: recipText, sort: recipSort }
         ];
-      }
+      },
+      // Surligne la ligne si un lien retour hreflang manque.
+      rowClass: function (p) { return hasHreflangMissingBack(p) ? "row--alert" : ""; }
     },
 
     // ----- Pagination (Vague 2) : rel=prev / rel=next -----
@@ -607,6 +737,47 @@
           { html: urlCellHtml(it.url), text: it.url || "", sort: it.url || "" },
           { html: esc(it.message || ""), text: it.message || "", sort: it.message || "" }
         ];
+      }
+    },
+
+    // ----- Sitemap (Vague 3) -----
+    // Source dediee (kind "sitemap") : voir sitemapItems(). Deux vues commutables
+    // via le sous-filtre S.sitemapView :
+    //   "all"    : toutes les URLs du sitemap + statut Crawlee / Orpheline ;
+    //   "notin"  : pages crawlees ABSENTES du sitemap (couverture inverse).
+    sitemap: {
+      kind: "sitemap",
+      columns: [
+        { key: "url",    label: "Adresse" },
+        { key: "status", label: "Etat" },
+        { key: "code",   label: "Code HTTP", num: true }
+      ],
+      row: function (it) {
+        // it : { url, inSitemap, crawled, status }
+        var stHtml, stText, stSort;
+        if (it.kind === "orphan") {
+          // Dans le sitemap mais jamais atteinte par le crawl.
+          stHtml = '<span class="state-pill state-pill--warn" title="Declaree dans le sitemap mais non atteinte par le crawl">Orpheline</span>';
+          stText = "Orpheline (sitemap, non crawlee)"; stSort = 1;
+        } else if (it.kind === "notin") {
+          // Crawlee mais absente du sitemap.
+          stHtml = '<span class="state-pill state-pill--muted" title="Page atteinte par le crawl mais absente du sitemap">Hors sitemap</span>';
+          stText = "Hors sitemap"; stSort = 2;
+        } else {
+          // Dans le sitemap ET crawlee.
+          stHtml = pill("ok", "Crawlee"); stText = "Crawlee"; stSort = 0;
+        }
+        var codeHtml = it.crawled
+          ? '<span class="http-code ' + httpClass(it.status) + '">' + esc(it.status || 0) + '</span>'
+          : '<span class="muted">—</span>';
+        return [
+          { html: urlCellHtml(it.url), text: it.url || "", sort: it.url || "" },
+          { html: stHtml, text: stText, sort: stSort },
+          { html: codeHtml, text: it.crawled ? String(it.status || 0) : "", sort: it.status || 0 }
+        ];
+      },
+      rowClass: function (it) {
+        return (it.kind === "orphan") ? "row--alert" : "";
       }
     },
 
@@ -756,6 +927,8 @@
       if (!S.dirty) return;
       S.dirty = false;
       rebuildDupMaps();      // cartes de doublons fraiches pour grille + overview
+      rebuildNearDup();      // Vague 3 : near-duplicates (Hamming sur simhash)
+      rebuildHreflangRecip();// Vague 3 : reciprocite hreflang (lien retour)
       renderTabCounts();
       renderOverview();
       renderGrid();
@@ -803,10 +976,49 @@
     return out;
   }
 
+  // Lignes de l'onglet Sitemap (Vague 3) selon la vue S.sitemapView :
+  //   "all"   : chaque URL declaree dans le sitemap, marquee Crawlee/Orpheline ;
+  //   "notin" : pages crawlees absentes du sitemap.
+  // Filtre de recherche d'URL applique dans les deux cas.
+  function sitemapItems() {
+    var q = S.search ? S.search.toLowerCase() : "";
+    var out = [];
+    if (S.sitemapView === "notin") {
+      // Couverture inverse : pages crawlees qui ne figurent pas dans le sitemap.
+      for (var i = 0; i < S.pages.length; i++) {
+        var p = S.pages[i];
+        var key = normUrl(p.url);
+        if (S.sitemapSet[key]) continue;                 // presente -> on ignore
+        if (q && (p.url || "").toLowerCase().indexOf(q) === -1) continue;
+        out.push({ url: p.url, inSitemap: false, crawled: true,
+                   status: p.status || 0, kind: "notin" });
+      }
+      return out;
+    }
+    // Vue "all" : on parcourt les URLs du sitemap.
+    for (var s = 0; s < S.sitemapUrls.length; s++) {
+      var u = S.sitemapUrls[s];
+      if (!u) continue;
+      if (q && u.toLowerCase().indexOf(q) === -1) continue;
+      var pg = S.byUrl[normUrl(u)];                       // page crawlee correspondante
+      out.push({
+        url: u,
+        inSitemap: true,
+        crawled: !!pg,
+        status: pg ? (pg.status || 0) : 0,
+        kind: pg ? "crawled" : "orphan"
+      });
+    }
+    return out;
+  }
+
   // Issues filtrees par recherche d'URL + filtre de severite.
+  // Fusionne les issues backend (S.issues) avec les issues hreflang derivees
+  // cote JS (S.hreflangIssues, categorie "Hreflang") — cf. rebuildHreflangRecip.
   function issuesFiltered() {
     var q = S.search ? S.search.toLowerCase() : "";
-    return S.issues.filter(function (it) {
+    var all = S.issues.concat(S.hreflangIssues);
+    return all.filter(function (it) {
       if (S.sevFilter !== "all" && it.severity !== S.sevFilter) return false;
       if (q && (it.url || "").toLowerCase().indexOf(q) === -1) return false;
       return true;
@@ -819,6 +1031,7 @@
     if (!def) return [];
     if (def.kind === "links") return allLinks();
     if (def.kind === "issues") return issuesFiltered();
+    if (def.kind === "sitemap") return sitemapItems();
     return pagesFiltered();
   }
 
@@ -830,6 +1043,20 @@
     var head = $("grid-head");
     var body = $("grid-body");
     if (!def || !head || !body) return;
+
+    // Bandeau d'information contextuel. Cas Vague 3 : sur l'onglet Contenu, si le
+    // calcul des near-duplicates a ete saute (trop de pages), on le signale —
+    // sinon l'absence de near-dup serait trompeuse.
+    var banner = $("grid-banner");
+    if (banner) {
+      if (S.activeTab === "content" && S.nearDupSkipped) {
+        banner.hidden = false;
+        banner.textContent = "Detection des near-duplicates desactivee : plus de " +
+          NEAR_DUP_MAX_PAGES + " pages (le calcul O(n^2) serait trop couteux).";
+      } else {
+        banner.hidden = true;
+      }
+    }
 
     // --- En-tete (colonnes triables au clic) ---
     var hh = "<tr>";
@@ -868,7 +1095,8 @@
     // --- Construction HTML (une seule affectation innerHTML = perf) ---
     var rows = "";
     var selKey = S.selectedUrl ? normUrl(S.selectedUrl) : null;
-    var hasRowClass = def.kind === "pages" && typeof def.rowClass === "function";
+    // rowClass : applique pour les onglets "pages" ET "sitemap" (surlignage alerte).
+    var hasRowClass = (def.kind === "pages" || def.kind === "sitemap") && typeof def.rowClass === "function";
     for (var r = 0; r < mapped.length; r++) {
       var cells = mapped[r].cells;
       var item = mapped[r].item;
@@ -891,9 +1119,20 @@
       if (mapped.length) { empty.hidden = true; }
       else {
         empty.hidden = false;
-        empty.textContent = S.pages.length
-          ? "Aucune ligne ne correspond au filtre."
-          : "Lancez un crawl pour voir les resultats ici.";
+        if (def.kind === "sitemap") {
+          // Distingue "pas de sitemap du tout" de "vue/filtre sans resultat".
+          if (S.sitemapView === "all" && !S.sitemapUrls.length) {
+            empty.textContent = S.pages.length
+              ? "Aucun sitemap trouve pour ce site."
+              : "Lancez un crawl pour analyser le sitemap.";
+          } else {
+            empty.textContent = "Aucune URL ne correspond a cette vue.";
+          }
+        } else {
+          empty.textContent = S.pages.length
+            ? "Aucune ligne ne correspond au filtre."
+            : "Lancez un crawl pour voir les resultats ici.";
+        }
       }
     }
   }
@@ -919,6 +1158,7 @@
       titles: nPages,
       meta: nPages,
       h1: nPages,
+      content: nPages,
       images: nPages,
       canonical: nPages,
       directives: nPages,
@@ -926,8 +1166,11 @@
       pagination: nPagination,
       schema: nPages,
       bandwidth: nPages,
+      // Sitemap : compteur = nombre d'URLs declarees dans le sitemap.
+      sitemap: S.sitemapUrls.length,
       links: S.pages.reduce(function (s, p) { return s + (Array.isArray(p.outlinks) ? p.outlinks.length : 0); }, 0),
-      issues: S.issues.length
+      // Problemes : issues backend + issues hreflang derivees cote JS.
+      issues: S.issues.length + S.hreflangIssues.length
     };
     document.querySelectorAll(".tab-count").forEach(function (el) {
       var key = el.getAttribute("data-count");
@@ -965,6 +1208,9 @@
       { id: "h1Multiple", label: "Multiple", tone: "warn", pred: function (p) { var s = seoOf(p); return s && (s.h1_count || 0) > 1; } },
       { id: "h1Dup",      label: "Duplique", tone: "warn", pred: dupPred("h1", dupKeyH1) }
     ]},
+    { group: "Contenu", tab: "content", rows: [
+      { id: "nearDup", label: "Near-duplicates", tone: "warn", pred: function (p) { return nearDupOf(p).length > 0; } }
+    ]},
     { group: "Images", tab: "images", rows: [
       { id: "imgMissingAlt", label: "Sans alt", tone: "warn", pred: function (p) { var s = seoOf(p); return s && (s.images_missing_alt || 0) > 0; } }
     ]},
@@ -988,6 +1234,9 @@
     { group: "Securite", tab: "security", rows: [
       { id: "secMixed",   label: "Contenu mixte", tone: "err",  pred: function (p) { return mixedContentOf(p).length > 0; } },
       { id: "secHeaders", label: "En-tetes manquants", tone: "warn", pred: function (p) { return missingHeadersOf(p).length > 0; } }
+    ]},
+    { group: "Hreflang", tab: "hreflang", rows: [
+      { id: "hreflangNoBack", label: "Sans lien retour", tone: "warn", pred: function (p) { return hasHreflangMissingBack(p); } }
     ]}
   ];
 
@@ -1019,10 +1268,161 @@
     return function (p) { return isDup(mapKey, keyFn, p); };
   }
 
+  // -------------------------------------------------------------------------
+  // VAGUE 3 — (Re)construction de la carte des NEAR-DUPLICATES
+  // O(n^2) BORNE : pour chaque paire de pages portant un simhash valide, on
+  // calcule la distance de Hamming (popcount du XOR). Si <= NEAR_DUP_BITS, on
+  // enregistre la reciprocite (A->B et B->A). On precalcule une seule fois les
+  // BigInt par page pour ne pas reparser le hex a chaque comparaison.
+  // Garde-fou : au-dela de NEAR_DUP_MAX_PAGES pages avec simhash, on saute le
+  // calcul (le cout n^2 deviendrait prohibitif) et on leve un drapeau affiche
+  // dans l'UI.
+  // -------------------------------------------------------------------------
+  function rebuildNearDup() {
+    var map = {};
+    S.nearDupSkipped = false;
+
+    // 1) Collecte des pages ayant un simhash exploitable (+ BigInt precalcule).
+    var items = [];
+    for (var i = 0; i < S.pages.length; i++) {
+      var p = S.pages[i];
+      var hex = simhashOf(p);
+      if (!hex) continue;
+      items.push({ key: normUrl(p.url), big: simhashBig(hex) });
+    }
+
+    // 2) Garde-fou volumetrie : O(n^2) borne.
+    if (items.length > NEAR_DUP_MAX_PAGES) {
+      S.nearDup = {};
+      S.nearDupSkipped = true;
+      return;
+    }
+
+    // 3) Comparaison de toutes les paires (i<j) -> distance de Hamming.
+    for (var a = 0; a < items.length; a++) {
+      for (var b = a + 1; b < items.length; b++) {
+        var dist = popcountBig(items[a].big ^ items[b].big);   // XOR + popcount
+        if (dist <= NEAR_DUP_BITS) {
+          (map[items[a].key] || (map[items[a].key] = [])).push(items[b].key);
+          (map[items[b].key] || (map[items[b].key] = [])).push(items[a].key);
+        }
+      }
+    }
+    S.nearDup = map;
+  }
+
+  // -------------------------------------------------------------------------
+  // VAGUE 3 — (Re)construction de la carte HREFLANG RECIPROQUE
+  // Pour chaque page A qui declare un hreflang vers une URL B :
+  //   - si B est CRAWLEE (presente dans S.byUrl) ET que B ne declare PAS de
+  //     hreflang retour vers A  => "lien retour manquant" (probleme SEO).
+  //   - si B n'est pas crawlee, on ne peut pas conclure (ignore ici).
+  // On indexe d'abord, par page, l'ensemble des cibles hreflang declarees
+  // (normalisees), puis on teste la reciprocite en O(liens).
+  // Resultat : normUrl(A) -> { count, missingBack:[urls B sans retour] }.
+  // -------------------------------------------------------------------------
+  function rebuildHreflangRecip() {
+    var recip = {};
+
+    // 1) Index : normUrl(page) -> Set des cibles hreflang declarees (normalisees).
+    var declares = {};
+    for (var i = 0; i < S.pages.length; i++) {
+      var p = S.pages[i];
+      var s = seoOf(p);
+      var hl = s && Array.isArray(s.hreflang) ? s.hreflang : [];
+      if (!hl.length) continue;
+      var set = (declares[normUrl(p.url)] = {});
+      for (var k = 0; k < hl.length; k++) {
+        if (hl[k] && hl[k].href) set[normUrl(hl[k].href)] = true;
+      }
+    }
+
+    // 2) Test de reciprocite : pour A->B, B crawlee mais B ne pointe pas vers A.
+    for (var j = 0; j < S.pages.length; j++) {
+      var pa = S.pages[j];
+      var sa = seoOf(pa);
+      var hla = sa && Array.isArray(sa.hreflang) ? sa.hreflang : [];
+      if (!hla.length) continue;
+      var aKey = normUrl(pa.url);
+      var missing = [];
+      var seen = {};
+      for (var m = 0; m < hla.length; m++) {
+        var href = hla[m] && hla[m].href ? hla[m].href : "";
+        if (!href) continue;
+        var bKey = normUrl(href);
+        if (bKey === aKey) continue;            // auto-reference : ignoree
+        if (seen[bKey]) continue; seen[bKey] = true;
+        if (!S.byUrl[bKey]) continue;           // cible non crawlee : indecidable
+        var bDecl = declares[bKey];
+        if (!bDecl || !bDecl[aKey]) missing.push(href);  // pas de retour vers A
+      }
+      recip[aKey] = { count: hla.length, missingBack: missing };
+    }
+    S.hreflangRecip = recip;
+
+    // Derive les issues "Hreflang sans lien retour" (severite warning) pour
+    // l'onglet Problemes. Une issue par page concernee, message listant les
+    // cibles sans reciprocite. Recalculee a chaque cycle (pas d'accumulation).
+    var issues = [];
+    for (var u = 0; u < S.pages.length; u++) {
+      var pp = S.pages[u];
+      var rr = recip[normUrl(pp.url)];
+      if (rr && rr.missingBack && rr.missingBack.length) {
+        issues.push({
+          url: pp.url || "",
+          severity: "warning",
+          category: "Hreflang",
+          message: "Hreflang sans lien retour vers : " + rr.missingBack.join(", ")
+        });
+      }
+    }
+    S.hreflangIssues = issues;
+  }
+
+  // Vrai si la page p a au moins un hreflang sans lien retour reciproque.
+  function hasHreflangMissingBack(p) {
+    var r = S.hreflangRecip[normUrl(p.url)];
+    return !!(r && r.missingBack && r.missingBack.length);
+  }
+
   function countFor(pred) {
     var n = 0;
     for (var i = 0; i < S.pages.length; i++) if (pred(S.pages[i])) n++;
     return n;
+  }
+
+  // ----- Comptages SITEMAP (Vague 3) pour la sidebar Overview --------------
+  // Orphelines : URLs du sitemap non atteintes par le crawl.
+  function countSitemapOrphans() {
+    var n = 0;
+    for (var i = 0; i < S.sitemapUrls.length; i++) {
+      var u = S.sitemapUrls[i];
+      if (u && !S.byUrl[normUrl(u)]) n++;
+    }
+    return n;
+  }
+  // Hors sitemap : pages crawlees absentes du sitemap (uniquement si on a un sitemap).
+  function countNotInSitemap() {
+    if (!S.sitemapUrls.length) return 0;
+    var n = 0;
+    for (var i = 0; i < S.pages.length; i++) {
+      if (!S.sitemapSet[normUrl(S.pages[i].url)]) n++;
+    }
+    return n;
+  }
+
+  // Fabrique une ligne d'Overview pour le groupe Sitemap (data-sm = vue cible).
+  // "all"/"notin" basculent S.sitemapView ; "orphan" pointe la vue "all" (les
+  // orphelines y sont surlignees). is-active suit S.activeTab + S.sitemapView.
+  function smRow(view, label, n, tone) {
+    var toneCls = n > 0 && tone ? (" ov-" + tone) : "";
+    var targetView = (view === "notin") ? "notin" : "all";
+    var active = (S.activeTab === "sitemap" && S.sitemapView === targetView &&
+                  (view !== "orphan")) ? " is-active" : "";
+    return '<div class="ov-row' + toneCls + active + '" data-sm="' + view +
+           '" data-empty="' + (n ? 0 : 1) + '">' +
+           '<span class="ov-label">' + esc(label) + '</span>' +
+           '<span class="ov-count">' + n + '</span></div>';
   }
 
   function renderOverview() {
@@ -1044,12 +1444,28 @@
       }
       html += '</div>';
     }
+
+    // ----- Groupe SITEMAP (Vague 3) : rendu special (lignes data-sm) ---------
+    // Ses compteurs ne reposent pas sur des predicates de page (les orphelines
+    // ne sont pas dans S.pages), d'ou un rendu et un handler dedies.
+    var nOrphan = countSitemapOrphans();
+    var nNotIn  = countNotInSitemap();
+    var nSmTotal = S.sitemapUrls.length;
+    html += '<div class="ov-group"><div class="ov-group-title">Sitemap</div>';
+    html += smRow("all",   "URLs du sitemap", nSmTotal, nSmTotal ? "ok" : "");
+    html += smRow("orphan","Orphelines",      nOrphan, "warn");
+    html += smRow("notin", "Hors sitemap",    nNotIn,  "warn");
+    html += '</div>';
+
     tree.innerHTML = html;
 
-    // Compteurs des filtres de severite (onglet Problemes).
-    setSevCount("all", S.issues.length);
+    // Compteurs des filtres de severite (onglet Problemes). Les issues hreflang
+    // derivees cote JS sont toutes de severite "warning" : on les ajoute au
+    // total et au compteur "warning".
+    var nHreflangIss = S.hreflangIssues.length;
+    setSevCount("all", S.issues.length + nHreflangIss);
     setSevCount("critical", S.sevCounts.critical || 0);
-    setSevCount("warning", S.sevCounts.warning || 0);
+    setSevCount("warning", (S.sevCounts.warning || 0) + nHreflangIss);
     setSevCount("opportunity", S.sevCounts.opportunity || 0);
   }
 
@@ -1207,6 +1623,33 @@
     return errs.length ? errs.join("  |  ") : "Aucune";
   }
 
+  // --- Helpers panneau detail (Vague 3) ---
+  // Liste HTML des URLs quasi-dupliquees a la page p (liens cliquables), ou "—".
+  function nearDupHtml(p) {
+    var sims = nearDupOf(p);
+    if (!sims.length) return '<span class="muted">Aucune</span>';
+    // Les cles memorisees sont des URLs normalisees ; on retrouve l'URL d'origine
+    // via S.byUrl pour un affichage propre (sinon on retombe sur la cle).
+    var parts = sims.map(function (k) {
+      var pg = S.byUrl[k];
+      var u = pg && pg.url ? pg.url : k;
+      return urlCellHtml(u);
+    });
+    return sims.length + ' page(s) : ' + parts.join("  |  ");
+  }
+  // Texte de l'etat de reciprocite hreflang pour la page p.
+  function hreflangRecipHtml(p) {
+    var s = seoOf(p);
+    var hl = s && Array.isArray(s.hreflang) ? s.hreflang : [];
+    if (!hl.length) return '<span class="muted">—</span>';
+    var r = S.hreflangRecip[normUrl(p.url)];
+    if (r && r.missingBack && r.missingBack.length) {
+      var parts = r.missingBack.map(function (u) { return urlCellHtml(u); });
+      return '<span class="bool-yes">Lien retour manquant</span> : ' + parts.join("  |  ");
+    }
+    return '<span style="color:var(--ok);font-weight:600">OK (reciproque)</span>';
+  }
+
   // Vue "Infos / En-tetes" : liste cle/valeur.
   function renderInfo(p) {
     var s = seoOf(p);
@@ -1246,6 +1689,13 @@
       h += '<div class="kv-row"><div class="kv-key">' + esc(rows[i][0]) +
            '</div><div class="kv-val">' + esc(rows[i][1]) + '</div></div>';
     }
+    // Lignes Vague 3 a contenu HTML (liens vers pages similaires / hreflang) :
+    // injectees hors de la boucle car nearDupHtml/hreflangRecipHtml renvoient du
+    // HTML deja echappe en interne (urlCellHtml echappe l'URL).
+    h += '<div class="kv-row"><div class="kv-key">Near-duplicates</div>' +
+         '<div class="kv-val">' + nearDupHtml(p) + '</div></div>';
+    h += '<div class="kv-row"><div class="kv-key">Hreflang reciproque</div>' +
+         '<div class="kv-val">' + hreflangRecipHtml(p) + '</div></div>';
     h += "</div>";
     return h;
   }
@@ -1342,7 +1792,19 @@
       console.error("crawl:error", event.payload);
     }).then(function (u) { S.unlisteners.push(u); });
 
-    TAURI.event.listen("crawl:done", function () {
+    TAURI.event.listen("crawl:done", function (event) {
+      // Vague 3 : le payload de crawl:done est le CrawlSummary complet. On y
+      // recupere sitemap_urls pour alimenter l'onglet Sitemap. Les autres
+      // champs (pages/total_bytes...) sont deja recus en flux via crawl:page,
+      // on ne les reexploite donc pas ici (pas de double comptage).
+      var summary = (event && event.payload) ? event.payload : {};
+      var smap = Array.isArray(summary.sitemap_urls) ? summary.sitemap_urls : [];
+      S.sitemapUrls = smap;
+      S.sitemapSet = {};
+      for (var si = 0; si < smap.length; si++) {
+        if (smap[si]) S.sitemapSet[normUrl(smap[si])] = true;
+      }
+
       // Fin du run courant : on cumule dans l'agregat multi-run.
       S.multi.done       += 1;
       S.multi.totalBytes += S.bw.totalBytes;
@@ -1354,6 +1816,7 @@
       S.multi.lastTechs = Object.keys(techSet);
       S.multi.lastRows  = S.pages.slice();
       updateMultiStatus();
+      scheduleRender();   // rafraichit compteur + grille de l'onglet Sitemap
 
       if (!S.multi.stopRequested && S.multi.done < S.multi.target) {
         startRun();                       // run suivant (multi-run bande passante)
@@ -1429,6 +1892,12 @@
     S.sevCounts = { critical: 0, warning: 0, opportunity: 0, info: 0 };
     S.inlinksIndex = {};
     S.dupMaps = { title: {}, meta: {}, h1: {} };
+    S.nearDup = {};
+    S.nearDupSkipped = false;
+    S.hreflangRecip = {};
+    S.hreflangIssues = [];
+    S.sitemapUrls = [];
+    S.sitemapSet = {};
     S.bw = { totalBytes: 0, maxWeight: 0 };
     closeDetail();
     renderTabCounts();
@@ -1531,6 +2000,9 @@
     // Filtres de severite : visibles seulement sur l'onglet Problemes.
     var sevBox = $("sev-filters");
     if (sevBox) sevBox.hidden = (key !== "issues");
+    // Selecteur de vue Sitemap : visible seulement sur l'onglet Sitemap (Vague 3).
+    var smBox = $("sitemap-views");
+    if (smBox) smBox.hidden = (key !== "sitemap");
     renderGrid();
   }
 
@@ -1555,6 +2027,16 @@
     renderGrid();
   }
 
+  // Bascule sur l'onglet Sitemap avec la vue voulue (depuis la sidebar Overview).
+  //   "all"/"orphan" -> vue "all" (orphelines surlignees) ; "notin" -> vue "notin".
+  function selectSitemapView(view) {
+    clearCategoryFilter();                 // les filtres categorie ne s'appliquent pas ici
+    S.sitemapView = (view === "notin") ? "notin" : "all";
+    var sel = $("sitemap-view"); if (sel) sel.value = S.sitemapView;  // sync du selecteur
+    setActiveTab("sitemap");
+    renderOverview();
+  }
+
   // =========================================================================
   // EXPORT CSV (onglet actif, avec filtres appliques)
   // =========================================================================
@@ -1562,6 +2044,26 @@
     var v = value === null || value === undefined ? "" : String(value);
     if (/[",;\r\n]/.test(v)) return '"' + v.replace(/"/g, '""') + '"';
     return v;
+  }
+
+  // Helper generique d'export CSV (BOM UTF-8 pour Excel + RFC4180 via csvCell).
+  // header : tableau de libelles ; rows : tableau de tableaux de cellules brutes.
+  // filenameBase : suffixe horodate ajoute automatiquement. Reutilise par
+  // l'export par onglet ET par les exports en masse / rapports (Vague 3).
+  function downloadCsv(filenameBase, header, rows) {
+    var lines = [];
+    lines.push(header.map(function (c) { return csvCell(c); }).join(","));
+    for (var i = 0; i < rows.length; i++) {
+      lines.push(rows[i].map(function (c) { return csvCell(c); }).join(","));
+    }
+    var csv = "\ufeff" + lines.join("\r\n");   // BOM UTF-8
+    var blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    var stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    a.href = url; a.download = filenameBase + "-" + stamp + ".csv";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
   }
 
   function exportCsv() {
@@ -1583,19 +2085,136 @@
         });
       }
     }
-    var lines = [];
-    lines.push(def.columns.map(function (c) { return csvCell(c.label); }).join(","));
-    mapped.forEach(function (cells) {
-      lines.push(cells.map(function (c) { return csvCell(c.text); }).join(","));
+    // Reutilise le helper commun downloadCsv (BOM + RFC4180).
+    var header = def.columns.map(function (c) { return c.label; });
+    var rows = mapped.map(function (cells) {
+      return cells.map(function (c) { return c.text; });
     });
-    var csv = "﻿" + lines.join("\r\n");   // BOM UTF-8 pour Excel
-    var blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement("a");
-    var stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
-    a.href = url; a.download = "crawl-" + S.activeTab + "-" + stamp + ".csv";
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    downloadCsv("crawl-" + S.activeTab, header, rows);
+  }
+
+  // =========================================================================
+  // VAGUE 3 — EXPORTS EN MASSE (toutes pages confondues)
+  // Independants de l'onglet/filtre actif : balaient l'integralite de S.pages.
+  // =========================================================================
+
+  // Tous les liens sortants de toutes les pages : source,target,anchor,rel,interne.
+  function exportAllLinks() {
+    var rows = [];
+    for (var i = 0; i < S.pages.length; i++) {
+      var p = S.pages[i];
+      var outs = Array.isArray(p.outlinks) ? p.outlinks : [];
+      for (var k = 0; k < outs.length; k++) {
+        var l = outs[k]; if (!l) continue;
+        rows.push([ p.url || "", l.target || "", l.anchor || "",
+                    l.rel || "", l.internal ? "Interne" : "Externe" ]);
+      }
+    }
+    downloadCsv("liens-tous", ["source", "target", "anchor", "rel", "interne"], rows);
+  }
+
+  // Toutes les images de toutes les pages : page,src,kind,octets.
+  // NB : cote backend chaque image est un AssetReport { url, bytes, kind } ; on
+  // expose 'url' sous l'en-tete 'src' (la source de l'image).
+  function exportAllImages() {
+    var rows = [];
+    for (var i = 0; i < S.pages.length; i++) {
+      var p = S.pages[i];
+      var imgs = Array.isArray(p.images) ? p.images : [];
+      for (var k = 0; k < imgs.length; k++) {
+        var im = imgs[k]; if (!im) continue;
+        rows.push([ p.url || "", im.url || "", im.kind || "", String(im.bytes || 0) ]);
+      }
+    }
+    downloadCsv("images-toutes", ["page", "src", "kind", "octets"], rows);
+  }
+
+  // Tous les problemes (issues backend + hreflang JS) : severite,categorie,adresse,message.
+  function exportAllIssues() {
+    var rows = S.issues.concat(S.hreflangIssues).map(function (it) {
+      return [ sevLabel(it.severity), it.category || "", it.url || "", it.message || "" ];
+    });
+    downloadCsv("problemes-tous", ["severite", "categorie", "adresse", "message"], rows);
+  }
+
+  // =========================================================================
+  // VAGUE 3 — RAPPORTS DE SYNTHESE (CSV cibles)
+  // =========================================================================
+
+  // Chaines de redirection : pages avec redirect_chain non vide.
+  // Colonnes : url, chaine (jointe par " -> "), destination finale.
+  function reportRedirectChains() {
+    var rows = [];
+    for (var i = 0; i < S.pages.length; i++) {
+      var p = S.pages[i];
+      var chain = Array.isArray(p.redirect_chain) ? p.redirect_chain : [];
+      if (!chain.length) continue;
+      // Destination finale = dernier maillon de la chaine, ou redirect_to en repli.
+      var dest = chain.length ? chain[chain.length - 1] : (p.redirect_to || "");
+      rows.push([ p.url || "", chain.join(" -> "), dest ]);
+    }
+    downloadCsv("rapport-redirections", ["url", "chaine", "destination"], rows);
+  }
+
+  // Canonicals : url, canonical, type (Self / Autre / Manquant).
+  function reportCanonicals() {
+    var rows = [];
+    for (var i = 0; i < S.pages.length; i++) {
+      var p = S.pages[i];
+      var s = seoOf(p);
+      var canon = s && s.canonical ? s.canonical : "";
+      var st = canonState(p.url, canon);   // { kind, label } : Self / Autre / Manquant
+      rows.push([ p.url || "", canon, st.label ]);
+    }
+    downloadCsv("rapport-canonicals", ["url", "canonical", "type"], rows);
+  }
+
+  // Pages non-indexables : url, raison (noindex / canonicalisee / bloquee).
+  // On ne liste que les pages effectivement NON indexables. La raison est
+  // deduite des signaux SEO : meta/x-robots noindex, canonical vers une autre
+  // URL (canonicalised), ou statut HTTP non-2xx (bloquee/erreur).
+  function reportNonIndexable() {
+    var rows = [];
+    for (var i = 0; i < S.pages.length; i++) {
+      var p = S.pages[i];
+      var s = seoOf(p);
+      var indexable = s ? !!s.indexable : false;
+      if (indexable) continue;             // page indexable : exclue du rapport
+      var reasons = [];
+      if (s && s.noindex) reasons.push("noindex");
+      if (s && s.canonicalised) reasons.push("canonicalisee");
+      var code = p.status || 0;
+      if (code < 200 || code >= 300) reasons.push("bloquee (HTTP " + code + ")");
+      if (!s) reasons.push("non-HTML / erreur");
+      if (!reasons.length) reasons.push("non indexable");
+      rows.push([ p.url || "", reasons.join(" ; ") ]);
+    }
+    downloadCsv("rapport-non-indexables", ["url", "raison"], rows);
+  }
+
+  // Contenu mixte : url, ressources http (jointes par " | ").
+  function reportMixedContent() {
+    var rows = [];
+    for (var i = 0; i < S.pages.length; i++) {
+      var p = S.pages[i];
+      var mixed = mixedContentOf(p);
+      if (!mixed.length) continue;
+      rows.push([ p.url || "", mixed.join(" | ") ]);
+    }
+    downloadCsv("rapport-contenu-mixte", ["url", "ressources http"], rows);
+  }
+
+  // Aiguillage des actions des deux menus (data-export / data-report).
+  function runBulkExport(action) {
+    if (action === "links")  exportAllLinks();
+    else if (action === "images") exportAllImages();
+    else if (action === "issues") exportAllIssues();
+  }
+  function runReport(action) {
+    if (action === "redirects") reportRedirectChains();
+    else if (action === "canonicals") reportCanonicals();
+    else if (action === "nonindex")   reportNonIndexable();
+    else if (action === "mixed")      reportMixedContent();
   }
 
   // =========================================================================
@@ -1645,6 +2264,31 @@
   }
 
   // =========================================================================
+  // MENUS DEROULANTS (Export en masse / Rapports) — Vague 3
+  // Petit composant maison : bouton .menu-btn qui bascule .is-open sur le
+  // conteneur .menu. Un seul menu ouvert a la fois ; clic exterieur = fermeture.
+  // =========================================================================
+  function closeMenus() {
+    document.querySelectorAll(".menu.is-open").forEach(function (m) { m.classList.remove("is-open"); });
+  }
+  function setupMenu(menuId) {
+    var menu = $(menuId);
+    if (!menu) return;
+    var btn = menu.querySelector(".menu-btn");
+    if (!btn) return;
+    btn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var willOpen = !menu.classList.contains("is-open");
+      closeMenus();                       // referme les autres menus
+      if (willOpen) menu.classList.add("is-open");
+    });
+  }
+  // Clic n'importe ou ailleurs : referme tous les menus ouverts.
+  document.addEventListener("click", function (e) {
+    if (!e.target.closest(".menu")) closeMenus();
+  });
+
+  // =========================================================================
   // BRANCHEMENT DES CONTROLES (delegation d'evenements)
   // =========================================================================
   function setupControls() {
@@ -1652,6 +2296,35 @@
     $("btn-stop").addEventListener("click", onStop);
     $("btn-clear").addEventListener("click", onClear);
     $("btn-export-csv").addEventListener("click", exportCsv);
+
+    // ----- Menus deroulants Vague 3 : Export en masse + Rapports -----
+    // Ouverture/fermeture au clic sur le bouton ; fermeture au clic ailleurs.
+    setupMenu("menu-bulk");
+    setupMenu("menu-report");
+    // Selection d'une entree dans le menu Export en masse.
+    var bulkList = $("menu-bulk-list");
+    if (bulkList) bulkList.addEventListener("click", function (e) {
+      var it = e.target.closest("[data-export]");
+      if (!it) return;
+      runBulkExport(it.getAttribute("data-export"));
+      closeMenus();
+    });
+    // Selection d'une entree dans le menu Rapports.
+    var reportList = $("menu-report-list");
+    if (reportList) reportList.addEventListener("click", function (e) {
+      var it = e.target.closest("[data-report]");
+      if (!it) return;
+      runReport(it.getAttribute("data-report"));
+      closeMenus();
+    });
+
+    // Selecteur de vue de l'onglet Sitemap (Toutes / Hors sitemap).
+    var smSel = $("sitemap-view");
+    if (smSel) smSel.addEventListener("change", function () {
+      S.sitemapView = this.value === "notin" ? "notin" : "all";
+      renderGrid();
+      renderOverview();
+    });
 
     // Case "Tout le site" : grise le champ "Pages max".
     var unlim = $("opt-unlimited");
@@ -1728,6 +2401,9 @@
     $("overview-tree").addEventListener("click", function (e) {
       var row = e.target.closest(".ov-row");
       if (!row) return;
+      // Lignes speciales du groupe Sitemap (data-sm) : basculent l'onglet/vue.
+      var sm = row.getAttribute("data-sm");
+      if (sm) { selectSitemapView(sm); return; }
       var catId = row.getAttribute("data-cat");
       if (S.catId === catId) clearCategoryFilter();    // re-clic = retire le filtre
       else applyCategoryFilter(catId);

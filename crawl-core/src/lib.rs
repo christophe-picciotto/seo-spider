@@ -10,5 +10,6 @@ pub mod useragents;
 pub mod robots;
 pub mod security;
 pub mod urlcheck;
+pub mod sitemap;
 
 pub use report::*;

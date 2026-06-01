@@ -105,6 +105,9 @@
       <button type="button" class="tab" data-tab="h1" role="tab">
         H1 <span class="tab-count" data-count="h1">0</span>
       </button>
+      <button type="button" class="tab" data-tab="content" role="tab">
+        Contenu <span class="tab-count" data-count="content">0</span>
+      </button>
       <button type="button" class="tab" data-tab="images" role="tab">
         Images <span class="tab-count" data-count="images">0</span>
       </button>
@@ -129,6 +132,9 @@
       <button type="button" class="tab" data-tab="issues" role="tab">
         Problemes <span class="tab-count" data-count="issues">0</span>
       </button>
+      <button type="button" class="tab" data-tab="sitemap" role="tab">
+        Sitemap <span class="tab-count" data-count="sitemap">0</span>
+      </button>
       <button type="button" class="tab" data-tab="bandwidth" role="tab">
         Bande passante <span class="tab-count" data-count="bandwidth">0</span>
       </button>
@@ -152,7 +158,38 @@
         <button type="button" id="active-filter-clear" title="Retirer le filtre">x</button>
       </span>
 
+      <!-- Selecteur de vue : visible seulement sur l'onglet Sitemap -->
+      <span class="sitemap-views" id="sitemap-views" hidden>
+        <label for="sitemap-view">Vue</label>
+        <select id="sitemap-view" class="mini-select">
+          <option value="all">Toutes les URLs du sitemap</option>
+          <option value="notin">Pages hors sitemap</option>
+        </select>
+      </span>
+
       <span class="gridtools-spacer"></span>
+
+      <!-- Menu Export en masse (toutes pages, hors filtre courant) -->
+      <div class="menu" id="menu-bulk">
+        <button type="button" class="btn btn--ghost btn--sm menu-btn">Export en masse &#9662;</button>
+        <div class="menu-list" id="menu-bulk-list">
+          <button type="button" class="menu-item" data-export="links">Tous les liens</button>
+          <button type="button" class="menu-item" data-export="images">Toutes les images</button>
+          <button type="button" class="menu-item" data-export="issues">Tous les problemes</button>
+        </div>
+      </div>
+
+      <!-- Menu Rapports de synthese -->
+      <div class="menu" id="menu-report">
+        <button type="button" class="btn btn--ghost btn--sm menu-btn">Rapports &#9662;</button>
+        <div class="menu-list" id="menu-report-list">
+          <button type="button" class="menu-item" data-report="redirects">Chaines de redirection</button>
+          <button type="button" class="menu-item" data-report="canonicals">Canonicals</button>
+          <button type="button" class="menu-item" data-report="nonindex">Pages non-indexables</button>
+          <button type="button" class="menu-item" data-report="mixed">Contenu mixte</button>
+        </div>
+      </div>
+
       <button type="button" id="btn-export-csv" class="btn btn--ghost btn--sm">Export CSV</button>
     </div>
 
@@ -160,6 +197,8 @@
     <div class="workspace">
       <!-- GRILLE DENSE plein largeur -->
       <main class="gridwrap">
+        <!-- Bandeau d'information contextuel (ex: near-dup desactive si trop de pages) -->
+        <div class="grid-banner" id="grid-banner" hidden></div>
         <table class="grid" id="grid">
           <thead id="grid-head"></thead>
           <tbody id="grid-body"></tbody>
