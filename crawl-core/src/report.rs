@@ -158,6 +158,16 @@ pub struct CrawlConfig {
     pub respect_robots: bool,
     #[serde(default = "default_threads")]
     pub threads: usize,   // nb de workers paralleles
+    /// Si true, AUCUN plafond de debit : `requests_per_second` est ignore et la
+    /// vitesse n'est plus bornee que par `threads` et le temps de reponse du
+    /// serveur.
+    ///
+    /// Sans ca, le rate-limiter est un bucket GLOBAL partage par tous les
+    /// workers : le debit reste colle a `requests_per_second` quel que soit le
+    /// nombre de threads (avec 5 rps et 80 ms de reponse, UN SEUL worker suffit
+    /// a saturer le quota — les autres attendent).
+    #[serde(default)]
+    pub no_rate_limit: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -166,6 +176,13 @@ pub struct CrawlProgress {
     pub queued: usize,
     pub current_url: String,
     pub total_bytes_so_far: u64,
+    /// Workers reellement en train de traiter une page a cet instant.
+    ///
+    /// Permet de VOIR si les threads configures servent : si ce nombre reste
+    /// bien en dessous de `config.threads`, c'est que le goulot est ailleurs
+    /// (plafond de debit, file vide, ou mesures Chrome serialisees).
+    #[serde(default)]
+    pub active_workers: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

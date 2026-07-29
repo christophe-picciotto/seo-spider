@@ -62,6 +62,15 @@ pub async fn start_crawl(
     state: State<'_, CrawlState>,
     config: CrawlConfig,
 ) -> Result<(), String> {
+    // Seed nettoyee de son fragment (`#...`) AVANT tout : `SharedState::new` fait
+    // le meme nettoyage, donc sans ca la comparaison de reprise ligne ~73
+    // (`existing.seed_url == config.seed_url`) opposerait une seed normalisee a
+    // une seed brute et ne matcherait jamais.
+    let config = CrawlConfig {
+        seed_url: crawl_core::crawler::strip_fragment(&config.seed_url),
+        ..config
+    };
+
     // --- Choix : reprise d'un etat existant, ou nouvel etat. ---
     let is_resume: bool;
     let shared: Arc<SharedState> = {

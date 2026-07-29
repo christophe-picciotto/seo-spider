@@ -55,11 +55,24 @@ const USER_AGENT: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) \
      Chrome/145.0.0.0 Safari/537.36";
 
+/// Debit utilise quand `config.no_rate_limit` est vrai : assez haut pour que le
+/// bucket ne bloque jamais, sans valeur extreme qui ferait deborder les calculs
+/// d'intervalle de `governor`.
+const NO_LIMIT_RPS: u32 = 100_000;
+
 /// Frameworks dont la presence declenche la mesure NAVIGATEUR (rendu/hydratation
 /// cote client : la mesure HTTP statique sous-estimerait la bande passante reelle).
-const JS_FRAMEWORKS: [&str; 7] = [
-    "Next.js", "Nuxt", "Gatsby", "SvelteKit", "Remix", "React", "Vue",
-];
+///
+/// **React et Vue en ont ete RETIRES volontairement.** Leur detection
+/// (`techno.rs`) se declenche sur un simple `data-reactroot` / `#root` + bundle,
+/// ce qui matche un WordPress avec Gutenberg ou un Astro avec une seule ile
+/// React. Or la mesure Chrome est SERIALISEE (un seul navigateur derriere un
+/// Mutex) : un seul faux positif faisait tomber tout le crawl a une page a la
+/// fois, threads et debit ignores.
+///
+/// Restent les meta-frameworks, ou le rendu client est structurel. Pour une SPA
+/// React/Vue pure, utiliser la case "Forcer Chrome" (`config.force_chrome`).
+const JS_FRAMEWORKS: [&str; 5] = ["Next.js", "Nuxt", "Gatsby", "SvelteKit", "Remix"];
 
 /// Vrai si l'une des technos detectees correspond a un framework JS connu.
 fn needs_chrome(tech: &[String]) -> bool {
@@ -118,6 +131,10 @@ pub struct SharedState {
     pub browser: Mutex<Option<chromiumoxide::Browser>>,
     /// `JoinHandle` de la task du navigateur (pour l'abandonner en fin de crawl).
     pub browser_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// Poids des assets statiques deja mesures (`url -> octets`), partage par
+    /// tous les workers : le CSS/JS commun a tout le site n'est telecharge
+    /// qu'UNE fois pour l'ensemble du crawl. Cf. [`crate::http_probe::AssetCache`].
+    pub asset_cache: crate::http_probe::AssetCache,
     /// Compteur pour la rotation de user-agents (partage entre workers).
     pub ua_counter: AtomicU64,
     /// Compteur pour les delais aleatoires (partage entre workers).
@@ -126,9 +143,30 @@ pub struct SharedState {
     pub ua_seed_base: u64,
 }
 
+/// Retire le fragment (`#...`) d'une URL de depart.
+///
+/// Le fragment n'est jamais envoye au serveur : le garder dans la seed la
+/// rendrait differente (au sens de `visited`) des liens extraits du HTML, qui
+/// eux sont nettoyes par `http_probe`. Coller `https://site.fr/#accueil` dans
+/// la barre d'URL crawlerait donc l'accueil DEUX fois.
+pub fn strip_fragment(raw: &str) -> String {
+    match Url::parse(raw) {
+        Ok(mut u) => {
+            u.set_fragment(None);
+            u.into()
+        }
+        // URL non parsable : on la laisse telle quelle (le crawl echouera plus
+        // loin avec un message explicite, comme avant).
+        Err(_) => raw.to_string(),
+    }
+}
+
 impl SharedState {
     /// Cree un etat NEUF amorce avec la seed (file = [seed @ depth 0]).
     pub fn new(seed_url: &str) -> Self {
+        let seed_url = strip_fragment(seed_url);
+        let seed_url = seed_url.as_str();
+
         let ua_seed_base: u64 = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_nanos() as u64)
@@ -155,6 +193,7 @@ impl SharedState {
             }),
             browser: Mutex::new(None),
             browser_handle: Mutex::new(None),
+            asset_cache: Mutex::new(std::collections::HashMap::new()),
             ua_counter: AtomicU64::new(0),
             delay_counter: AtomicU64::new(0),
             ua_seed_base,
@@ -196,6 +235,7 @@ async fn build_http_report(
     headers: &reqwest::header::HeaderMap,
     html: &str,
     tech: Vec<String>,
+    asset_cache: &crate::http_probe::AssetCache,
 ) -> PageReport {
     // Octets du document principal : Content-Length si annonce, sinon taille du HTML.
     let doc_bytes: u64 = header_lower(headers, "content-length")
@@ -204,7 +244,7 @@ async fn build_http_report(
 
     // Assets statiques (images, scripts, CSS, fonts) telecharges en parallele.
     let (images_all, mut by_type, assets_bytes): (Vec<AssetReport>, _, u64) =
-        crate::http_probe::measure_static_assets(client, url, html).await;
+        crate::http_probe::measure_static_assets(client, url, html, asset_cache).await;
 
     // Ne garder que les images pour le champ `images` du rapport.
     let images: Vec<AssetReport> = images_all
@@ -317,7 +357,22 @@ where
         .build()?;
 
     // --- Rate-limiter (governor 0.7) PARTAGE. On clamp a >= 1 req/s. ---
-    let rps = config.requests_per_second.max(1);
+    //
+    // ATTENTION : c'est un bucket GLOBAL (`RateLimiter::direct`), pas un quota
+    // par worker. Tant qu'il est actif, le debit du crawl entier est plafonne a
+    // `requests_per_second` et le reglage "Threads" n'a plus AUCUN effet des que
+    // `threads > rps * temps_de_reponse` (avec 5 rps et 80 ms de reponse, il
+    // suffit de 0,4 worker pour saturer le quota).
+    //
+    // `no_rate_limit` leve ce plafond : on garde la meme mecanique (aucune
+    // signature ne change) mais avec un quota assez grand pour que
+    // `until_ready()` rende la main immediatement. La vitesse est alors bornee
+    // par `threads` et le serveur cible, comme dans Screaming Frog.
+    let rps = if config.no_rate_limit {
+        NO_LIMIT_RPS
+    } else {
+        config.requests_per_second.max(1)
+    };
     let quota = Quota::per_second(NonZeroU32::new(rps).unwrap());
     let limiter = Arc::new(RateLimiter::direct(quota));
 
@@ -531,10 +586,14 @@ async fn process_one_page<P, G>(
         P: Fn(CrawlProgress) + Send + Sync + 'static,
         G: Fn(PageReport) + Send + Sync + 'static,
     {
+        // UN SEUL clone : celui du callback frontend. `merge_into_summary` prend
+        // desormais le rapport PAR VALEUR et le `push` sans le recloner (chaque
+        // PageReport porte outlinks + JSON-LD brut + assets : le second clone
+        // coutait cher et grossissait avec la page).
         on_page(report.clone());
         let (total_bytes, queued) = {
             let mut summary = state.summary.lock().await;
-            merge_into_summary(&mut summary, &report);
+            merge_into_summary(&mut summary, report);
             let tb = summary.total_bytes;
             drop(summary);
             let queued = state.queue.lock().await.len();
@@ -546,6 +605,10 @@ async fn process_one_page<P, G>(
             queued,
             current_url: url.to_string(),
             total_bytes_so_far: total_bytes,
+            // Le worker courant est encore compte actif (il ne se decremente
+            // qu'au retour de `process_one_page`), ce qui est bien ce qu'on veut
+            // afficher : le nombre de workers en train de travailler.
+            active_workers: state.active.load(Ordering::SeqCst),
         });
     }
 
@@ -700,6 +763,7 @@ async fn process_one_page<P, G>(
                 &probe.headers,
                 &probe.html,
                 tech.clone(),
+                &state.asset_cache,
             )
             .await;
             // Si on visait Chrome mais qu'on a du se replier, on documente pourquoi.
@@ -774,7 +838,10 @@ async fn process_one_page<P, G>(
 }
 
 /// Cumule un `PageReport` dans le resume (pages, totaux, technos).
-fn merge_into_summary(summary: &mut CrawlSummary, report: &PageReport) {
+///
+/// Prend le rapport PAR VALEUR : les agregats sont lus d'abord, puis le rapport
+/// est deplace dans `summary.pages` sans clone supplementaire.
+fn merge_into_summary(summary: &mut CrawlSummary, report: PageReport) {
     summary.total_bytes = summary.total_bytes.saturating_add(report.total_bytes);
     summary.total_requests = summary.total_requests.saturating_add(report.request_count);
     summary.total_dynamic_requests = summary
@@ -785,7 +852,7 @@ fn merge_into_summary(summary: &mut CrawlSummary, report: &PageReport) {
             summary.tech_detected.push(t.clone());
         }
     }
-    summary.pages.push(report.clone());
+    summary.pages.push(report);
 }
 
 /// Deduplique un `Vec<String>` en conservant l'ordre de premiere apparition.

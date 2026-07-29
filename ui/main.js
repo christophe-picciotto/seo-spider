@@ -1930,6 +1930,15 @@
       setText("status-rate", rate.toFixed(1));
     }
 
+    // Workers REELLEMENT occupes / threads configures.
+    // Diagnostic : si ce compteur reste bien en dessous du nombre de threads,
+    // ajouter des threads ne servira a rien — le goulot est ailleurs (plafond
+    // de debit encore actif, file vide, ou mesures Chrome serialisees).
+    if (prog && typeof prog.active_workers === "number") {
+      setText("status-workers", prog.active_workers);
+    }
+    setText("status-threads", (S.multi.config && S.multi.config.threads) || 0);
+
     // Temps de reponse moyen par page (ms) sur les pages mesurees (Vague 4+).
     var rts = S.pages.filter(function (p) { return p && p.response_time_ms; });
     var avgMs = rts.length ? Math.round(rts.reduce(function (a, p) { return a + p.response_time_ms; }, 0) / rts.length) : 0;
@@ -2160,6 +2169,8 @@
         max_pages: S.multi.config.max_pages,
         max_depth: S.multi.config.max_depth,
         rps: S.multi.config.requests_per_second,
+        no_rate_limit: S.multi.config.no_rate_limit,
+        threads: S.multi.config.threads,
         unlimited: S.multi.config.unlimited,
         respect_robots: S.multi.config.respect_robots,
         force_chrome: S.multi.config.force_chrome,
@@ -2267,9 +2278,14 @@
       same_domain_only: true,
       requests_per_second: rps,
       threads: threads,                           // <-- VAGUE 4 (B) : envoye au backend
+      // Leve le plafond de debit : sans ca le bucket est GLOBAL et le crawl
+      // reste colle a `rps` quel que soit le nombre de threads.
+      no_rate_limit: $("no-rate-limit").checked,
       force_chrome: $("force-chrome").checked,
       random_user_agent: $("random-ua").checked,
-      random_delay: $("random-rps").checked,
+      // Le delai aleatoire (0,5-4,5 s par page et par worker) annulerait le
+      // benefice du debit illimite : les deux s'excluent.
+      random_delay: $("no-rate-limit").checked ? false : $("random-rps").checked,
       unlimited: unlimited,                       // <-- envoye au backend
       respect_robots: $("opt-robots").checked     // <-- envoye au backend
     };
@@ -2818,9 +2834,22 @@
     unlim.addEventListener("change", syncUnlimited);
     syncUnlimited();
 
-    // Case "Debit aleatoire" : grise le champ "Req/sec".
+    // Cases "Debit illimite" / "Debit aleatoire" : les deux pilotent le meme
+    // reglage (la cadence) et s'excluent mutuellement.
+    //   - illimite  : plus de plafond du tout -> "Req/sec" ET "Debit aleatoire"
+    //                 n'ont plus de sens, on les grise ;
+    //   - aleatoire : delai tire au sort par page -> "Req/sec" est ignore.
     var randRps = $("random-rps");
-    randRps.addEventListener("change", function () { $("rps").disabled = randRps.checked; });
+    var noLimit = $("no-rate-limit");
+    function syncRate() {
+      var free = noLimit.checked;
+      randRps.disabled = free;
+      $("rps").disabled = free || randRps.checked;
+      noLimit.disabled = randRps.checked;
+    }
+    randRps.addEventListener("change", syncRate);
+    noLimit.addEventListener("change", syncRate);
+    syncRate();
 
     initSaveDir();   // #E : champ dossier des projets
     initColResize();   // #F : colonnes redimensionnables

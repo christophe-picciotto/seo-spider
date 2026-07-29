@@ -9,6 +9,18 @@ use crate::report::{AssetReport, LinkInfo, TypeStat};
 /// Number of asset downloads run concurrently.
 const ASSET_CONCURRENCY: usize = 8;
 
+/// Cache PARTAGE des poids d'assets deja mesures : `url -> octets`.
+///
+/// Un site partage son CSS, ses polices et ses bundles JS entre TOUTES ses
+/// pages. Sans ce cache, `measure_static_assets` retelechargeait chaque asset
+/// une fois par page : sur 500 pages avec 10 assets communs, 5 000 requetes et
+/// des centaines de Mo pour toujours le meme resultat — et le worker restait
+/// bloque dessus avant de pouvoir prendre la page suivante.
+///
+/// Le poids reste compte dans CHAQUE page (le rapport « poids de la page »
+/// mesure ce qu'un visiteur telecharge) : seule la requete reseau est evitee.
+pub type AssetCache = tokio::sync::Mutex<HashMap<String, u64>>;
+
 /// Maximum number of redirect hops followed before giving up.
 const MAX_REDIRECTS: usize = 10;
 
@@ -38,6 +50,11 @@ pub struct HttpProbeResult {
 }
 
 /// Resolve an `href`/`src` value against a base URL, keeping only http(s) URLs.
+///
+/// Le fragment (`#...`) est CONSERVE : cette fonction alimente aussi les
+/// RAPPORTS (outlinks, CSS, fonts), qui doivent refleter le `href` tel qu'il
+/// est ecrit dans le HTML. Pour la file de crawl, utiliser
+/// [`resolve_url_for_crawl`].
 fn resolve_url(base: &Url, raw: &str) -> Option<String> {
     let raw = raw.trim();
     if raw.is_empty() {
@@ -48,6 +65,24 @@ fn resolve_url(base: &Url, raw: &str) -> Option<String> {
         "http" | "https" => Some(joined.into()),
         _ => None,
     }
+}
+
+/// Idem [`resolve_url`], mais SANS le fragment.
+///
+/// Le `#...` n'est jamais transmis au serveur (RFC 3986 : le fragment est
+/// purement cote client), donc deux URLs qui ne different que par leur fragment
+/// designent la MEME ressource et renvoient le MEME HTML. Sans ce nettoyage,
+/// chaque ancre du HTML entre dans la file comme une page distincte :
+///   - `href="#top"` present sur toutes les pages -> le crawl DOUBLE ;
+///   - la page fantome porte les memes title/meta/H1/contenu que la vraie ->
+///     faux positifs en masse dans les rapports "doublons" et "near-duplicates".
+///
+/// C'est le comportement par defaut de Screaming Frog (option
+/// "Crawl Fragment Identifiers" decochee).
+fn resolve_url_for_crawl(base: &Url, raw: &str) -> Option<String> {
+    let mut joined = Url::parse(&resolve_url(base, raw)?).ok()?;
+    joined.set_fragment(None);
+    Some(joined.into())
 }
 
 /// Light HTTP probe: GET the target FOLLOWING redirects manually so the full
@@ -159,6 +194,10 @@ pub async fn probe(
 
 /// Parse the HTML and return the deduplicated list of absolute http(s) links.
 ///
+/// Alimente la FILE de crawl : les fragments sont retires (cf.
+/// [`resolve_url_for_crawl`]), donc les N ancres d'un menu s'effondrent en une
+/// seule entree via le `HashSet` ci-dessous.
+///
 /// Entirely synchronous: no `scraper` type escapes this function, so nothing
 /// non-`Send` is held across an `.await` in the caller.
 fn extract_links(base_url: &str, html: &str) -> Vec<String> {
@@ -177,7 +216,7 @@ fn extract_links(base_url: &str, html: &str) -> Vec<String> {
     let mut links: Vec<String> = Vec::new();
     for el in document.select(&selector) {
         if let Some(href) = el.value().attr("href") {
-            if let Some(abs) = resolve_url(&base, href) {
+            if let Some(abs) = resolve_url_for_crawl(&base, href) {
                 if seen.insert(abs.clone()) {
                     links.push(abs);
                 }
@@ -346,6 +385,7 @@ pub async fn measure_static_assets(
     client: &reqwest::Client,
     base_url: &str,
     html: &str,
+    cache: &AssetCache,
 ) -> (
     Vec<AssetReport>,
     std::collections::HashMap<String, TypeStat>,
@@ -355,11 +395,29 @@ pub async fn measure_static_assets(
     let asset_urls = extract_static_asset_urls(base_url, html);
 
     // Download each asset concurrently and measure its transferred size.
+    //
+    // Un asset deja mesure lors d'une page precedente est repris du cache sans
+    // requete reseau (cf. [`AssetCache`]).
     let reports: Vec<AssetReport> = stream::iter(asset_urls.into_iter())
         .map(|asset| {
             let client = client.clone();
             async move {
-                let bytes = fetch_asset_bytes(&client, &asset.url).await;
+                let bytes = match cache.lock().await.get(&asset.url) {
+                    Some(known) => Some(*known),
+                    None => None,
+                };
+                let bytes = match bytes {
+                    Some(b) => b,
+                    None => {
+                        // Lock relache pendant le telecharger : deux workers
+                        // peuvent demander le meme asset en meme temps (au pire
+                        // il est mesure deux fois, jamais N fois), mais aucun ne
+                        // bloque les autres sur une E/S reseau.
+                        let b = fetch_asset_bytes(&client, &asset.url).await;
+                        cache.lock().await.insert(asset.url.clone(), b);
+                        b
+                    }
+                };
                 AssetReport {
                     url: asset.url,
                     bytes,
@@ -406,5 +464,88 @@ async fn fetch_asset_bytes(client: &reqwest::Client, url: &str) -> u64 {
     match resp.bytes().await {
         Ok(b) => b.len() as u64,
         Err(_) => 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn base() -> Url {
+        Url::parse("https://site.fr/services/").unwrap()
+    }
+
+    /// Les RAPPORTS (outlinks) doivent refleter le `href` du HTML, fragment inclus.
+    #[test]
+    fn resolve_url_garde_le_fragment() {
+        assert_eq!(
+            resolve_url(&base(), "#contact").unwrap(),
+            "https://site.fr/services/#contact"
+        );
+        assert_eq!(
+            resolve_url(&base(), "/tarifs/#pro").unwrap(),
+            "https://site.fr/tarifs/#pro"
+        );
+    }
+
+    /// La FILE de crawl, elle, ne doit jamais voir de fragment : `#...` n'est pas
+    /// envoye au serveur, donc c'est la meme ressource.
+    #[test]
+    fn resolve_url_for_crawl_retire_le_fragment() {
+        assert_eq!(
+            resolve_url_for_crawl(&base(), "#contact").unwrap(),
+            "https://site.fr/services/"
+        );
+        assert_eq!(
+            resolve_url_for_crawl(&base(), "/tarifs/#pro").unwrap(),
+            "https://site.fr/tarifs/"
+        );
+        assert_eq!(
+            resolve_url_for_crawl(&base(), "#").unwrap(),
+            "https://site.fr/services/"
+        );
+        // La query, elle, DOIT survivre : elle change la ressource servie.
+        assert_eq!(
+            resolve_url_for_crawl(&base(), "?page=2#haut").unwrap(),
+            "https://site.fr/services/?page=2"
+        );
+        // Les schemes non-http restent rejetes.
+        assert!(resolve_url_for_crawl(&base(), "mailto:a@b.fr").is_none());
+        assert!(resolve_url_for_crawl(&base(), "javascript:void(0)").is_none());
+    }
+
+    /// REGRESSION : un menu d'ancres ne doit plus produire qu'UNE entree de file.
+    /// Avant le correctif, ce HTML enfilait 4 URLs et faisait crawler la page
+    /// courante 3 fois de plus (meme title/H1/meta -> faux doublons partout).
+    #[test]
+    fn extract_links_effondre_les_ancres_d_un_menu() {
+        // `r##"..."##` (double diese) obligatoire : `href="#haut"` contient la
+        // sequence `"#` qui refermerait un raw string `r#"..."#`.
+        let html = r##"
+            <a href="#haut">Haut</a>
+            <a href="#tarifs">Tarifs</a>
+            <a href="#contact">Contact</a>
+            <a href="/contact/">Nous contacter</a>
+        "##;
+        let links = extract_links("https://site.fr/services/", html);
+        assert_eq!(
+            links,
+            vec![
+                "https://site.fr/services/".to_string(),
+                "https://site.fr/contact/".to_string(),
+            ]
+        );
+    }
+
+    /// Deux ancres vers la MEME page cible = une seule entree de file.
+    #[test]
+    fn extract_links_dedoublonne_entre_pages() {
+        let html = r##"
+            <a href="/tarifs/#pro">Pro</a>
+            <a href="/tarifs/#particulier">Particulier</a>
+            <a href="/tarifs/">Tous les tarifs</a>
+        "##;
+        let links = extract_links("https://site.fr/", html);
+        assert_eq!(links, vec!["https://site.fr/tarifs/".to_string()]);
     }
 }
