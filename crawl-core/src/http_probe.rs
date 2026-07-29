@@ -553,6 +553,14 @@ async fn fetch_asset_bytes(client: &reqwest::Client, url: &str) -> AssetMeasure 
     let mut current = url.to_string();
 
     for _ in 0..=MAX_ASSET_REDIRECTS {
+        // Meme garde-fou que sur les pages, applique des le PREMIER fetch : un
+        // `<img src="http://192.168.1.1/x">` dans le HTML d'un site crawle
+        // partait jusqu'ici sans controle (seuls les hops de redirection
+        // etaient filtres).
+        if Url::parse(&current).map(|u| is_local_host(&u)).unwrap_or(false) {
+            return AssetMeasure::Broken;
+        }
+
         let resp = match client.get(&current).send().await {
             Ok(r) => r,
             // Reseau : rien ne dit que ca se reproduira.

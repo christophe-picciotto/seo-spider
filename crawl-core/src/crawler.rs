@@ -714,9 +714,13 @@ async fn process_one_page<P, G>(
         );
         let ms = 500 + (r % 4000); // 0,5 s a 4,5 s entre requetes
         tokio::time::sleep(Duration::from_millis(ms)).await;
-    } else {
-        limiter.until_ready().await;
     }
+    // Le quota s'applique TOUJOURS, delai aleatoire compris : c'est lui qui
+    // porte le `Crawl-delay` du serveur. Le mettre en `else` le rendait
+    // contournable — 5 workers en delai aleatoire montaient a ~2 req/s sur un
+    // site demandant 0,1 req/s. Les deux se cumulent : le plus contraignant
+    // gagne, et hors `Crawl-delay` le quota reste celui choisi par l'utilisateur.
+    limiter.until_ready().await;
 
     // Profil UA pour cette page (rotation pseudo-aleatoire si demandee).
     let profile = if config.random_user_agent {
@@ -883,6 +887,27 @@ async fn process_one_page<P, G>(
         // `insert` decide seul.
         let mut q = state.queue.lock().await;
         let mut queued = state.queued_set.lock().await;
+
+        // La DESTINATION d'une redirection est enfilee explicitement.
+        //
+        // Ne pas compter sur les ancres de la page pour l'y amener : une page
+        // sans lien vers elle-meme (one-pager sans ancre, page de contenu pur)
+        // ne serait alors JAMAIS crawlee en 200 et le rapport n'en garderait
+        // qu'une ligne 301 — l'onglet Sitemap la marquerait meme "orpheline".
+        // `queued_set` garantit une seule sonde pour tout le crawl, donc aucun
+        // trafic double. Profondeur INCHANGEE : c'est la meme ressource
+        // logique, une redirection ne coute pas un niveau.
+        if probe.final_url != url {
+            let same_host = !config.same_domain_only
+                || matches!(
+                    (host_of(&probe.final_url), seed_host.as_deref()),
+                    (Some(h), Some(seed)) if h == seed
+                );
+            if same_host && queued.insert(probe.final_url.clone()) {
+                q.push_back((probe.final_url.clone(), depth));
+            }
+        }
+
         for link in &probe.links {
             // Une page ne se REENFILE JAMAIS elle-meme, sous sa propre URL.
             //
