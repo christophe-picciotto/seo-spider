@@ -884,23 +884,26 @@ async fn process_one_page<P, G>(
         let mut q = state.queue.lock().await;
         let mut queued = state.queued_set.lock().await;
         for link in &probe.links {
-            // Une page ne se REENFILE JAMAIS elle-meme, ni sous l'URL demandee
-            // ni sous son URL finale apres redirection.
+            // Une page ne se REENFILE JAMAIS elle-meme, sous sa propre URL.
             //
-            // Les liens sont resolus contre l'URL FINALE, donc toute ancre
-            // `#...` de la page resout exactement vers `final_url`. Sur le motif
-            // tres courant `/contact` -> 301 -> `/contact/`, la page renvoyait
-            // ainsi sa propre forme finale dans la file et se faisait sonder une
-            // seconde fois : trafic double vers le serveur du client.
+            // Les liens sont resolus contre l'URL FINALE, donc sans redirection
+            // (`url == final_url`) toute ancre `#...` resout vers `url` et est
+            // filtree ici.
             //
-            // On filtre ICI plutot que de marquer `final_url` visitee : une
-            // AUTRE page reste libre de l'enfiler. `/contact` (301) et
-            // `/contact/` (200) sont deux URLs distinctes qui meritent chacune
-            // leur ligne — c'est ce qu'attend un audit de redirections, et
-            // marquer `final_url` visitee faisait DISPARAITRE la page canonique
-            // du rapport quand la forme redirigee etait depilee en premier,
-            // rendant deux crawls du meme site non comparables.
-            if *link == url || *link == probe.final_url {
+            // NE PAS filtrer aussi `final_url` : quand une redirection a ete
+            // traversee, c'est une URL DISTINCTE, qui doit etre enfilee une fois
+            // pour etre rapportee en 200. La filtrer supprimerait non pas un
+            // reenfilage redondant (`queued_set` s'en charge deja) mais le SEUL
+            // enfilage — sur un site dont les liens internes omettent le slash
+            // final (`/x` -> 301 -> `/x/`), le rapport ne contiendrait alors QUE
+            // des 301 et pas une seule page canonique.
+            //
+            // `/contact` (301) et `/contact/` (200) doivent rester deux lignes
+            // distinctes : c'est ce qu'attend un audit de redirections, et c'est
+            // ce que fait Screaming Frog. Une fois `/contact/` depilee, ses
+            // propres ancres resolvent vers elle-meme et retombent sur le filtre
+            // ci-dessus : aucune boucle possible.
+            if *link == url {
                 continue;
             }
             // Filtre same-domain : meme host que le seed.
