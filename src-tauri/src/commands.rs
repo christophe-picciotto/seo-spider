@@ -339,3 +339,129 @@ pub async fn pick_open_project(app: AppHandle) -> Result<Option<String>, String>
         });
     rx.await.map_err(|e| e.to_string())
 }
+
+/// Ouvre un selecteur de fichier (.txt / .csv) et renvoie la LISTE DES URLs
+/// qu'il contient — une par ligne. `None` si l'utilisateur annule.
+///
+/// Le parsing est fait cote Rust pour que le frontend recoive une liste deja
+/// propre et dedoublonnee :
+///   - lignes vides et commentaires (`#`) ignores ;
+///   - premiere colonne seulement si le fichier est un CSV (`,` ou `;`), ce qui
+///     permet de deposer un export tel quel sans le nettoyer a la main ;
+///   - `https://` ajoute quand le schema manque (`example.com` est accepte) ;
+///   - fragment retire et URL normalisee via le crate `url`, comme la seed d'un
+///     crawl normal — sinon deux lignes designant la meme ressource lanceraient
+///     deux crawls complets ;
+///   - doublons ecartes en conservant l'ordre du fichier.
+#[tauri::command]
+pub async fn pick_url_list(app: AppHandle) -> Result<Option<Vec<String>>, String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .add_filter("Liste d'URLs", &["txt", "csv", "list"])
+        .add_filter("Tous les fichiers", &["*"])
+        .pick_file(move |file| {
+            let content = file
+                .and_then(|f| f.into_path().ok())
+                .and_then(|p| std::fs::read_to_string(p).ok());
+            let _ = tx.send(content);
+        });
+
+    let content = match rx.await.map_err(|e| e.to_string())? {
+        Some(c) => c,
+        None => return Ok(None),
+    };
+    Ok(Some(parse_url_list(&content)))
+}
+
+/// Extrait les URLs d'un texte brut (une par ligne). Cf. [`pick_url_list`].
+fn parse_url_list(content: &str) -> Vec<String> {
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut out: Vec<String> = Vec::new();
+
+    for raw in content.lines() {
+        // Retire un BOM eventuel en tete de fichier (export Windows/Excel).
+        let line = raw.trim_start_matches('\u{feff}').trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        // CSV : on ne garde que la premiere colonne.
+        let first = line
+            .split([',', ';'])
+            .next()
+            .unwrap_or(line)
+            .trim()
+            .trim_matches('"')
+            .trim();
+        if first.is_empty() {
+            continue;
+        }
+        // Schema implicite : "example.com" -> "https://example.com".
+        let candidate = if first.contains("://") {
+            first.to_string()
+        } else {
+            format!("https://{first}")
+        };
+        // Normalisation identique a celle d'une seed (fragment retire).
+        let normalized = match url::Url::parse(&candidate) {
+            Ok(mut u) if matches!(u.scheme(), "http" | "https") && u.host().is_some() => {
+                // Un hote SANS POINT n'est pas un domaine public : c'est presque
+                // toujours un en-tete de colonne CSV ("URL", "Site", "Domaine"),
+                // que le complement de schema transforme en `https://url/` —
+                // une URL parfaitement valide, et un crawl fantome garanti.
+                if !u.host_str().unwrap_or("").contains('.') {
+                    continue;
+                }
+                u.set_fragment(None);
+                let s: String = u.into();
+                s
+            }
+            // Ligne inexploitable (texte libre, en-tete de colonne CSV...) :
+            // on l'ignore plutot que de lancer un crawl voue a l'echec.
+            _ => continue,
+        };
+        if seen.insert(normalized.clone()) {
+            out.push(normalized);
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_url_list;
+
+    #[test]
+    fn parse_liste_simple() {
+        let txt = "https://a.fr/\nhttps://b.fr/\n";
+        assert_eq!(parse_url_list(txt), vec!["https://a.fr/", "https://b.fr/"]);
+    }
+
+    /// Lignes vides, commentaires, espaces parasites et BOM : ignores.
+    #[test]
+    fn parse_ignore_le_bruit() {
+        let txt = "\u{feff}# mes sites\n\n  https://a.fr/  \n\n# commentaire\nhttps://b.fr/\n";
+        assert_eq!(parse_url_list(txt), vec!["https://a.fr/", "https://b.fr/"]);
+    }
+
+    /// CSV : seule la premiere colonne est lue, guillemets retires.
+    #[test]
+    fn parse_csv_premiere_colonne() {
+        let txt = "\"https://a.fr/\",Lyon,42\nhttps://b.fr/;Nice;7\n";
+        assert_eq!(parse_url_list(txt), vec!["https://a.fr/", "https://b.fr/"]);
+    }
+
+    /// Schema manquant -> https ; doublons et fragments -> une seule entree.
+    #[test]
+    fn parse_complete_et_dedoublonne() {
+        let txt = "example.com\nhttps://example.com/\nhttps://example.com/#top\nhttps://b.fr/\n";
+        assert_eq!(parse_url_list(txt), vec!["https://example.com/", "https://b.fr/"]);
+    }
+
+    /// Lignes inexploitables : ecartees sans faire echouer l'import.
+    #[test]
+    fn parse_ecarte_les_lignes_invalides() {
+        let txt = "URL;Ville\nftp://a.fr/\nhttps://ok.fr/\n";
+        assert_eq!(parse_url_list(txt), vec!["https://ok.fr/"]);
+    }
+}

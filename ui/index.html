@@ -29,6 +29,11 @@
         <button type="submit" id="btn-start" class="btn btn--primary">Demarrer</button>
         <button type="button" id="btn-stop"  class="btn btn--danger" disabled>Stop</button>
         <button type="button" id="btn-clear" class="btn">Vider</button>
+        <button type="button" id="btn-import" class="btn"
+                title="Importer un fichier .txt ou .csv contenant une URL par ligne. Chaque site sera crawle INTEGRALEMENT, l'un apres l'autre.">
+          Importer une liste
+        </button>
+        <span class="import-badge" id="import-badge" hidden></span>
 
         <label class="topbar-check" title="Crawler tout le site, sans limite de pages">
           <input type="checkbox" id="opt-unlimited" checked />
@@ -228,6 +233,10 @@
 
     <!-- ----- 5) PANNEAU DE DETAIL (au clic sur une ligne) --------------- -->
     <section class="detail" id="detail" hidden>
+      <!-- Poignee de redimensionnement : glisser pour agrandir le panneau,
+           double-clic pour revenir a la hauteur par defaut. -->
+      <div class="detail-resize" id="detail-resize"
+           title="Glisser pour redimensionner — double-clic pour reinitialiser"></div>
       <div class="detail-head">
         <div class="detail-tabs" id="detail-tabs">
           <button type="button" class="dtab is-active" data-dtab="inlinks">Inlinks <span id="dt-inlinks-count">0</span></button>

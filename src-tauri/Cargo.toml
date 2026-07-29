@@ -11,4 +11,7 @@ tauri-plugin-dialog = "2"
 crawl-core = { path = "../crawl-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Normalisation des URLs importees (meme crate/version que crawl-core, pour que
+# la seed d'une liste soit traitee exactement comme une seed saisie a la main).
+url = "2"
 tokio = { version = "1", features = ["full"] }

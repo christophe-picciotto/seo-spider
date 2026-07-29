@@ -1,0 +1,21 @@
+# Exemple de fichier a charger via "Importer une liste".
+#
+# Une URL par ligne. Chaque ligne devient la SEED d'un crawl COMPLET :
+# les sites sont crawles integralement, l'un apres l'autre.
+#
+# Ce que le parseur accepte :
+#   - lignes vides et commentaires (#)          -> ignores
+#   - schema manquant (exemple.fr)              -> https:// ajoute
+#   - fichier CSV (, ou ;)                      -> premiere colonne seulement
+#   - guillemets, espaces, BOM Windows/Excel    -> nettoyes
+#   - fragments (#ancre) et doublons            -> une seule entree
+#   - en-tete de colonne CSV ("URL", "Site")    -> ecarte (pas de point = pas un domaine)
+
+https://exemple-un.fr/
+https://exemple-deux.fr/
+
+# Le schema est optionnel :
+exemple-trois.fr
+
+# Un export CSV se depose tel quel, la 1re colonne suffit :
+# "https://exemple-quatre.fr/",Lyon,42

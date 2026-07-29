@@ -50,6 +50,10 @@
     if (url.length <= maxLen) return url;
     return url.slice(0, maxLen - 3) + "...";
   }
+  // Hote d'une URL, pour les libelles courts (ex. "Site 12/40 · exemple.fr").
+  function hostOf(url) {
+    try { return new URL(url).host; } catch (e) { return url || ""; }
+  }
   function probeLabel(probe) {
     if (!probe) return "—";
     if (probe === "http") return "HTTP";
@@ -1993,8 +1997,14 @@
     if (!el) return;
     if (S.multi.target > 1) {
       el.hidden = false;
-      el.textContent = "Run " + Math.min(S.multi.done + (S.running ? 1 : 0), S.multi.target) +
-                       "/" + S.multi.target + " — cumul " + fmtBytes(S.multi.totalBytes) +
+      var isList = !!(S.multi.seeds && S.multi.seeds.length);
+      var idx = Math.min(S.multi.done + (S.running ? 1 : 0), S.multi.target);
+      // En multi-sites, afficher AUSSI le site en cours : sur une liste de 40
+      // domaines, "Site 12/40" seul ne dit pas lequel est en train de tourner.
+      var label = isList
+        ? "Site " + idx + "/" + S.multi.target + " · " + hostOf(S.multi.config.seed_url)
+        : "Run " + idx + "/" + S.multi.target;
+      el.textContent = label + " — cumul " + fmtBytes(S.multi.totalBytes) +
                        " (" + S.multi.totalPages + " pages)";
     } else {
       el.hidden = true;
@@ -2081,8 +2091,13 @@
       updateMultiStatus();
       scheduleRender();   // rafraichit compteur + grille de l'onglet Sitemap
 
+      // MULTI-SITES : chaque site est enregistre DES QU'IL EST FINI, avant que
+      // `startRun()` ne bascule la seed vers le suivant. Un plantage en cours de
+      // liste ne fait donc plus perdre les sites deja crawles.
+      if (S.multi.seeds && S.multi.seeds.length) saveCurrentCrawl();
+
       if (!S.multi.stopRequested && S.multi.done < S.multi.target) {
-        startRun();                       // run suivant (multi-run bande passante)
+        startRun();                       // site suivant de la liste importee
       } else {
         finishSequence();
       }
@@ -2098,8 +2113,18 @@
   // MULTI-RUN : enchainement + cloture (logique de mesure PRESERVEE)
   // =========================================================================
   function startRun() {
-    // Nouveau run : on repart d'un jeu de donnees vide (mais on garde la config).
-    resetData();
+    // MULTI-SITES : la seed du run courant vient de la liste importee, et on
+    // n'efface PAS les donnees — les pages de tous les sites s'accumulent dans
+    // la meme grille (c'est l'interet d'un audit de reseau). Chaque site est
+    // neanmoins enregistre SEPAREMENT dans son propre fichier projet, d'ou le
+    // curseur `pagesOffset` qui delimite ses pages dans `S.pages`.
+    if (S.multi.seeds && S.multi.seeds.length) {
+      S.multi.config.seed_url = S.multi.seeds[S.multi.done] || S.multi.config.seed_url;
+      S.multi.pagesOffset = S.pages.length;
+    } else {
+      // Run unique : on repart d'un jeu de donnees vide (mais on garde la config).
+      resetData();
+    }
     S.running = true;
     S.paused = false;
     updateButtons();
@@ -2148,10 +2173,17 @@
   function saveCurrentCrawl(showPath) {
     var seed = S.multi.config && S.multi.config.seed_url;
     if (!TAURI || !seed || !S.pages.length) return;
+    // MULTI-SITES : n'enregistrer que les pages DU SITE COURANT, pas la grille
+    // cumulee. Sans ce decoupage, le fichier projet de chaque site contiendrait
+    // aussi les pages de tous les sites precedents.
+    var pages = (S.multi.seeds && S.multi.seeds.length)
+      ? S.pages.slice(S.multi.pagesOffset || 0)
+      : S.pages.slice();
+    if (!pages.length) return;
     var crawlData = JSON.stringify({
       seed_url: seed,
       date: new Date().toISOString(),
-      pages: S.pages.slice(),
+      pages: pages,
       sitemap_urls: S.sitemapUrls || []
     });
     TAURI.core.invoke("save_crawl", { id: seed, json: crawlData, dir: saveDirArg() })
@@ -2166,7 +2198,10 @@
     updateButtons();
     var fill = $("status-fill");
     if (fill) fill.style.width = "100%";
-    setStatusState("Termine — " + S.multi.done + " run(s), " + S.multi.totalPages + " page(s).");
+    var isList = !!(S.multi.seeds && S.multi.seeds.length);
+    setStatusState(isList
+      ? "Termine — " + S.multi.done + " site(s), " + S.multi.totalPages + " page(s)."
+      : "Termine — " + S.multi.done + " run(s), " + S.multi.totalPages + " page(s).");
     // Plus aucun worker ne tourne : le dernier `crawl:progress` a ete emis par
     // le dernier worker ALORS QU'IL etait encore compte actif (voulu en cours de
     // crawl, mensonger une fois termine).
@@ -2176,7 +2211,12 @@
     // Une entree d'historique par sequence.
     addHistoryEntry({
       date: new Date().toISOString(),
-      url: S.multi.config.seed_url || "",
+      // En multi-sites, la seed courante est le DERNIER site de la liste :
+      // l'historique afficherait "https://dernier-site.fr" pour une serie de 40.
+      url: isList
+        ? S.multi.seeds.length + " sites (" + hostOf(S.multi.seeds[0]) + "…)"
+        : (S.multi.config.seed_url || ""),
+      seeds: isList ? S.multi.seeds.slice() : undefined,
       runs: S.multi.done,
       pages: S.multi.totalPages,
       bytes: S.multi.totalBytes,
@@ -2197,7 +2237,11 @@
       pagesData: (S.multi.lastRows || []).slice(0, 5000)   // pour la consultation
     });
 
-    saveCurrentCrawl(true);   // B : enregistre le crawl complet (ecrase l'ancien du meme site)
+    // B : enregistre le crawl complet (ecrase l'ancien du meme site).
+    // En multi-sites, chaque site a DEJA ete enregistre a la fin de son propre
+    // crawl (dans le handler `crawl:done`) : re-sauver ici ne ferait que
+    // reecrire a l'identique le dernier de la liste.
+    if (!isList) saveCurrentCrawl(true);
   }
 
   // Vide UNIQUEMENT les donnees du run courant (pages, index, issues, bw).
@@ -2315,6 +2359,150 @@
     };
   }
 
+  // =========================================================================
+  // IMPORT D'UNE LISTE D'URLs (mode multi-sites)
+  //
+  // Chaque ligne du fichier devient la SEED d'un crawl complet. Les sites sont
+  // enchaines l'un apres l'autre (`S.multi.target` = nombre d'URLs) et leurs
+  // pages s'accumulent dans la meme grille, tout en etant enregistrees dans un
+  // fichier projet PAR SITE (cf. `saveCurrentCrawl` et `S.multi.pagesOffset`).
+  // =========================================================================
+  var IMPORT = { urls: [] };
+
+  function renderImportBadge() {
+    var b = $("import-badge");
+    if (!b) return;
+    if (!IMPORT.urls.length) { b.hidden = true; b.innerHTML = ""; return; }
+    b.hidden = false;
+    b.innerHTML = IMPORT.urls.length + " site" + (IMPORT.urls.length > 1 ? "s" : "") +
+                  ' <span class="x" title="Retirer la liste">×</span>';
+    b.querySelector(".x").addEventListener("click", function () {
+      IMPORT.urls = [];
+      renderImportBadge();
+      setStatusState("Liste retiree.");
+    });
+  }
+
+  function onImportList() {
+    if (!TAURI) return;
+    TAURI.core.invoke("pick_url_list").then(function (urls) {
+      if (!urls) return;                       // dialogue annule
+      if (!urls.length) {
+        setStatusState("Aucune URL exploitable dans ce fichier.");
+        return;
+      }
+      IMPORT.urls = urls;
+      renderImportBadge();
+      // Montre la 1re URL dans la barre : l'utilisateur voit ce qui va partir.
+      var se = $("seed-url"); if (se) se.value = urls[0];
+      setStatusState(urls.length + " URL(s) importee(s) — cliquez sur Crawler pour lancer la serie.");
+    }).catch(function (err) {
+      setStatusState("Import impossible : " + (err || "erreur inconnue"));
+      console.error("pick_url_list error:", err);
+    });
+  }
+
+  // Demarre la serie de crawls sur la liste importee.
+  function startSiteList() {
+    var config = readConfig();
+    config.seed_url = IMPORT.urls[0];
+
+    S.multi = {
+      target: IMPORT.urls.length, done: 0,
+      totalBytes: 0, totalPages: 0, totalDynamic: 0, totalMiss: 0,
+      stopRequested: false, running: true,
+      config: config, lastTechs: [], lastRows: [],
+      seeds: IMPORT.urls.slice(),   // <- active le mode multi-sites
+      pagesOffset: 0
+    };
+
+    // Nouvelle serie : grille vierge et filtres remis a zero.
+    S.search = ""; var se = $("grid-search"); if (se) se.value = "";
+    clearCategoryFilter();
+    resetData();
+    S.multi.pagesOffset = 0;
+
+    // Meme sequence de demarrage que le crawl simple : desabonnement d'abord
+    // (sinon les listeners s'empilent et chaque page serait ingeree N fois),
+    // puis vidage de l'etat backend pour ne pas "reprendre" par erreur une file
+    // reprenable. `clear_crawl` est async : on chaine pour eviter la course.
+    unsubscribeEvents();
+    subscribeEvents();
+    Promise.resolve(TAURI.core.invoke("clear_crawl").catch(function () {}))
+      .then(function () { startRun(); });
+  }
+
+  // =========================================================================
+  // PANNEAU DE DETAIL REDIMENSIONNABLE
+  //
+  // Le panneau etait fige a 240 px : sur une page a 30 inlinks, on n'en voyait
+  // que 8 et il fallait faire defiler dans une lucarne. On le redimensionne en
+  // glissant sa bordure superieure ; la hauteur est persistee.
+  // =========================================================================
+  var DETAIL_DEFAULT_H = 240;
+
+  function applyDetailHeight(px) {
+    var d = $("detail");
+    if (!d) return;
+    // Bornes : jamais plus haut que 85% de la fenetre (la grille doit rester
+    // visible), jamais plus bas que 120 px (les onglets doivent tenir).
+    var maxH = Math.round(window.innerHeight * 0.85);
+    var h = Math.max(120, Math.min(maxH, Math.round(px)));
+    d.style.flexBasis = h + "px";
+    return h;
+  }
+
+  function initDetailResize() {
+    var grip = $("detail-resize");
+    var panel = $("detail");
+    if (!grip || !panel) return;
+
+    // Hauteur memorisee de la session precedente.
+    if (PREFS.detailHeight) applyDetailHeight(PREFS.detailHeight);
+
+    var startY = 0, startH = 0, dragging = false;
+
+    function onMove(e) {
+      if (!dragging) return;
+      // La poignee est EN HAUT du panneau : tirer vers le haut (deltaY negatif)
+      // doit AGRANDIR, d'ou la soustraction.
+      var h = applyDetailHeight(startH - (e.clientY - startY));
+      PREFS.detailHeight = h;
+    }
+    function onUp() {
+      if (!dragging) return;
+      dragging = false;
+      grip.classList.remove("is-dragging");
+      document.body.classList.remove("is-resizing-detail");
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      persistPrefs();          // une seule ecriture, a la fin du glisser
+    }
+
+    grip.addEventListener("mousedown", function (e) {
+      e.preventDefault();
+      dragging = true;
+      startY = e.clientY;
+      startH = panel.getBoundingClientRect().height;
+      grip.classList.add("is-dragging");
+      document.body.classList.add("is-resizing-detail");
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+
+    // Double-clic : retour a la hauteur par defaut.
+    grip.addEventListener("dblclick", function () {
+      PREFS.detailHeight = applyDetailHeight(DETAIL_DEFAULT_H);
+      persistPrefs();
+    });
+
+    // Fenetre retrecie : re-borner pour ne pas garder un panneau plus grand
+    // que l'ecran (la grille deviendrait inatteignable).
+    window.addEventListener("resize", function () {
+      if (PREFS.detailHeight) applyDetailHeight(PREFS.detailHeight);
+    });
+  }
+
   function onSubmit(evt) {
     evt.preventDefault();
     if (!TAURI) { alert("Interface Tauri non disponible. Lancez l'application via Tauri."); return; }
@@ -2324,6 +2512,14 @@
     // (ou est vide), le bouton "Reprendre" REPREND la file existante cote backend
     // SANS vider les donnees ni reinitialiser la sequence. Si l'URL a change, on
     // considere que l'utilisateur veut un NOUVEAU crawl.
+    // LISTE IMPORTEE : elle prime sur la barre d'URL. On court-circuite le
+    // dialogue "Nouveau / Revoir" (il n'a pas de sens pour 40 sites) et on
+    // enchaine directement les crawls.
+    if (IMPORT.urls.length && !S.paused) {
+      startSiteList();
+      return;
+    }
+
     var typedUrl = $("seed-url").value.trim();
     if (S.paused) {
       var pausedSeed = (S.multi.config && S.multi.config.seed_url) || "";
@@ -2887,6 +3083,7 @@
     $("crawl-form").addEventListener("submit", onSubmit);
     $("btn-stop").addEventListener("click", onStop);
     $("btn-clear").addEventListener("click", onClear);
+    $("btn-import").addEventListener("click", onImportList);
     $("btn-export-csv").addEventListener("click", exportCsv);
 
     // ----- Menus deroulants Vague 3 : Export en masse + Rapports -----
@@ -3018,6 +3215,7 @@
 
     initSaveDir();   // #E : champ dossier des projets
     initColResize();   // #F : colonnes redimensionnables
+    initDetailResize();   // panneau de detail redimensionnable (hauteur persistee)
 
     // Volet de reglages repliable.
     var toggle = $("btn-toggle-settings");

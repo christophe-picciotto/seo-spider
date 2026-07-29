@@ -23,6 +23,7 @@ fn main() {
             commands::open_crawls_folder,
             commands::pick_folder,
             commands::pick_open_project,
+            commands::pick_url_list,
             commands::history_location,
             commands::open_history_folder
         ])

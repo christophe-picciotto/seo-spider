@@ -178,6 +178,21 @@ a:hover { text-decoration: underline; }
   cursor: pointer; width: 118px;
 }
 .setting input.is-locked:hover { border-color: var(--accent); color: var(--text); }
+/* Badge "N sites importes" a cote du bouton d'import. */
+.import-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 24px; padding: 0 9px;
+  font-size: 11px; font-family: var(--font-mono);
+  color: #b91c1c; background: #fee2e2;
+  border: 1px solid #fca5a5; border-radius: 12px;
+  white-space: nowrap;
+}
+.import-badge[hidden] { display: none; }
+.import-badge .x {
+  cursor: pointer; font-weight: 700; opacity: .65; padding: 0 2px;
+}
+.import-badge .x:hover { opacity: 1; }
+
 .setting--check { flex-direction: row; align-items: center; gap: 5px; padding-bottom: 4px; }
 .setting--check span { font-size: 12px; text-transform: none; letter-spacing: 0; color: var(--text); }
 
@@ -527,13 +542,29 @@ a:hover { text-decoration: underline; }
 .detail {
   flex: 0 0 240px;
   min-height: 120px;
-  max-height: 45vh;
+  /* 85vh (et non 45vh) : le panneau doit pouvoir occuper presque tout l'ecran
+     quand on consulte une longue liste d'inlinks. La grille reste accessible,
+     la poignee permettant de revenir en arriere a tout moment. */
+  max-height: 85vh;
   display: flex;
   flex-direction: column;
   border-top: 2px solid var(--border);
   background: var(--surface);
 }
 .detail[hidden] { display: none; }
+/* Poignee de redimensionnement vertical, posee sur la bordure superieure. */
+.detail-resize {
+  flex: 0 0 auto;
+  height: 7px;
+  margin-top: -4px;          /* chevauche la bordure : zone de clic confortable */
+  cursor: ns-resize;
+  background: transparent;
+  transition: background .12s;
+}
+.detail-resize:hover,
+.detail-resize.is-dragging { background: var(--accent); }
+/* Pendant le glisser : pas de selection de texte parasite dans la page. */
+body.is-resizing-detail { user-select: none; cursor: ns-resize; }
 .detail-head {
   flex: 0 0 auto;
   display: flex;
