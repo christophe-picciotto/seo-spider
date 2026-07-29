@@ -15,12 +15,22 @@
 /// `allow == true` means an `Allow:` directive and `false` a `Disallow:`.
 pub struct Robots {
     pub rules: Vec<(bool, String)>,
+    /// Valeur de `Crawl-delay` en secondes, si le serveur en declare une.
+    ///
+    /// C'est une DEMANDE EXPLICITE du serveur crawle sur la cadence a tenir.
+    /// Elle prime sur les reglages de l'utilisateur (y compris "Debit
+    /// illimite") : cocher "Respecter robots.txt" doit signifier respecter
+    /// robots.txt en ENTIER, pas seulement les `Disallow`.
+    pub crawl_delay: Option<f64>,
 }
 
 impl Robots {
     /// An empty rule set (allows everything).
     pub fn empty() -> Self {
-        Robots { rules: Vec::new() }
+        Robots {
+            rules: Vec::new(),
+            crawl_delay: None,
+        }
     }
 
     /// Parse the textual content of a robots.txt for the given user-agent.
@@ -46,6 +56,9 @@ impl Robots {
         let mut current_agents: Vec<String> = Vec::new();
         let mut current_rules: Vec<(bool, String)> = Vec::new();
         let mut seen_directive = false;
+
+        // Cadence demandee par le serveur (`Crawl-delay`), tous groupes confondus.
+        let mut crawl_delay: Option<f64> = None;
 
         // Flush the current group into the star/specific buckets.
         fn flush(
@@ -112,7 +125,20 @@ impl Robots {
                     seen_directive = true;
                     current_rules.push((true, value));
                 }
-                // Sitemap, Crawl-delay, Host, etc. are ignored here.
+                // Cadence demandee par le serveur. On retient la valeur la plus
+                // PRUDENTE rencontree (le plus grand delai), sans se limiter au
+                // groupe d'UA courant : mieux vaut trop attendre que saturer.
+                "crawl-delay" => {
+                    if let Ok(d) = value.trim().parse::<f64>() {
+                        if d.is_finite() && d > 0.0 {
+                            crawl_delay = Some(match crawl_delay {
+                                Some(prev) if prev >= d => prev,
+                                _ => d,
+                            });
+                        }
+                    }
+                }
+                // Sitemap, Host, etc. are ignored here.
                 _ => {}
             }
         }
@@ -129,7 +155,7 @@ impl Robots {
 
         // A specific group (matching our UA) overrides the wildcard group.
         let rules = if specific_len > 0 { specific_rules } else { star_rules };
-        Robots { rules }
+        Robots { rules, crawl_delay }
     }
 
     /// Whether `path` is allowed to be crawled.
@@ -205,5 +231,48 @@ pub async fn fetch(client: &reqwest::Client, seed_url: &str, ua: &str) -> Robots
     match resp.text().await {
         Ok(body) => Robots::parse(&body, ua),
         Err(_) => Robots::empty(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const UA: &str = "Mozilla/5.0 SeoSpider";
+
+    /// Le `Crawl-delay` doit etre lu : il PRIME sur les reglages utilisateur
+    /// (y compris "Debit illimite") des lors que "Respecter robots.txt" est
+    /// coche. L'ignorer exposait a saturer un mutualise chez un client.
+    #[test]
+    fn crawl_delay_est_lu() {
+        let r = Robots::parse("User-agent: *\nCrawl-delay: 10\nDisallow: /admin/", UA);
+        assert_eq!(r.crawl_delay, Some(10.0));
+        assert!(!r.allowed("/admin/"));
+        assert!(r.allowed("/contact/"));
+    }
+
+    /// Valeur decimale, et casse de directive indifferente.
+    #[test]
+    fn crawl_delay_decimal_et_casse() {
+        let r = Robots::parse("User-agent: *\nCRAWL-DELAY: 0.5", UA);
+        assert_eq!(r.crawl_delay, Some(0.5));
+    }
+
+    /// Plusieurs groupes : on retient le delai le plus PRUDENT (le plus grand).
+    #[test]
+    fn crawl_delay_retient_le_plus_prudent() {
+        let txt = "User-agent: Googlebot\nCrawl-delay: 1\n\nUser-agent: *\nCrawl-delay: 20";
+        assert_eq!(Robots::parse(txt, UA).crawl_delay, Some(20.0));
+    }
+
+    /// Absent, vide, non numerique, negatif ou nul -> pas de delai (et surtout
+    /// pas de panic ni de division par zero cote appelant).
+    #[test]
+    fn crawl_delay_absent_ou_invalide() {
+        assert_eq!(Robots::parse("User-agent: *\nDisallow:", UA).crawl_delay, None);
+        assert_eq!(Robots::parse("User-agent: *\nCrawl-delay: abc", UA).crawl_delay, None);
+        assert_eq!(Robots::parse("User-agent: *\nCrawl-delay: 0", UA).crawl_delay, None);
+        assert_eq!(Robots::parse("User-agent: *\nCrawl-delay: -5", UA).crawl_delay, None);
+        assert_eq!(Robots::empty().crawl_delay, None);
     }
 }

@@ -81,10 +81,19 @@ dans `crawler.rs` :
    les assets statiques (`img`, `script`, `link[rel=stylesheet]`, fonts preload)
    qu'on telecharge en parallele pour mesurer leur poids (`Content-Length` ou
    taille du corps). Rapide, peu couteux, suffisant pour un site statique.
+   Le poids de chaque asset est **mis en cache pour tout le crawl** : le CSS et
+   les bundles communs a tout le site ne sont telecharges qu'une fois (les
+   echecs, eux, ne sont jamais caches — cf. `AssetCache`).
 
 2. **Sonde navigateur (`chrome_probe`, Chrome DevTools Protocol)** — declenchee
-   quand un **framework JS** est detecte (Next.js, Nuxt, Gatsby, SvelteKit,
-   Remix, React, Vue) ou quand l'option **Forcer Chrome** est cochee.
+   quand un **meta-framework JS** est detecte (Next.js, Nuxt, Gatsby, SvelteKit,
+   Remix) ou quand l'option **Forcer Chrome** est cochee.
+   **React et Vue seuls ne la declenchent plus** : leur detection se satisfait
+   d'un `data-reactroot` ou d'un `#root` + bundle, ce qui matche un WordPress
+   avec Gutenberg ou un Astro portant une seule ile React. Comme la mesure
+   Chrome est **serialisee** (un seul navigateur derriere un Mutex), un tel faux
+   positif faisait tomber le crawl entier a une page a la fois. Pour une SPA
+   React/Vue pure, cocher **Forcer Chrome**.
    On pilote un Chrome headless via `chromiumoxide` : on ecoute le domaine
    `Network` du CDP **avant** de naviguer, et on lit `encoded_data_length`
    (`LoadingFinished`) qui donne la bande passante **reellement** transferee, y

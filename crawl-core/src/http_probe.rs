@@ -24,6 +24,25 @@ pub type AssetCache = tokio::sync::Mutex<HashMap<String, u64>>;
 /// Maximum number of redirect hops followed before giving up.
 const MAX_REDIRECTS: usize = 10;
 
+/// Sauts de redirection suivis pour un ASSET (CDN, http->https, fingerprint).
+const MAX_ASSET_REDIRECTS: usize = 5;
+
+/// Resultat d'une mesure d'asset. La distinction stable / passager decide de ce
+/// qui est CACHABLE, et elle seule :
+///   - `Ok` et `Broken` sont des verdicts du serveur, stables sur la duree d'un
+///     crawl -> mis en cache (mesurer 5 000 fois la meme 404 est du gaspillage) ;
+///   - `Transient` est un alea reseau -> jamais mis en cache, sinon un unique
+///     timeout amputerait le poids de toutes les pages suivantes, en silence.
+enum AssetMeasure {
+    /// Poids mesure (`Content-Length` ou taille du corps).
+    Ok(u64),
+    /// Asset durablement inaccessible : 4xx/5xx, boucle de redirection,
+    /// `Location` inexploitable, ou cible hors http(s) / locale.
+    Broken,
+    /// Echec passager : DNS, timeout, connexion coupee, corps tronque.
+    Transient,
+}
+
 pub struct HttpProbeResult {
     /// Status of the FINAL response (after following redirects). The first 3xx
     /// code of a redirect chain is exposed separately via `first_status`.
@@ -64,6 +83,33 @@ fn resolve_url(base: &Url, raw: &str) -> Option<String> {
     match joined.scheme() {
         "http" | "https" => Some(joined.into()),
         _ => None,
+    }
+}
+
+/// `true` si l'URL vise la machine locale ou un reseau prive/lien-local.
+///
+/// Sert de garde-fou sur les REDIRECTIONS, que `same_domain_only` ne couvre
+/// pas : sans ca, un redirecteur ouvert sur le site crawle amenerait la sonde a
+/// interroger les services de dev, la box ou le NAS de l'utilisateur.
+fn is_local_host(u: &Url) -> bool {
+    // `Url::host()` distingue deja Ipv4 / Ipv6 / Domain. NE PAS passer par
+    // `host_str()` : il rend l'IPv6 sous sa forme URL, crochets compris
+    // (`[::1]`), qui ne se parse pas en `IpAddr`.
+    match u.host() {
+        Some(url::Host::Ipv4(v4)) => {
+            // Prive (RFC 1918), loopback 127/8, lien-local 169.254/16 (dont
+            // 169.254.169.254, les metadonnees cloud), et 0.0.0.0.
+            v4.is_private() || v4.is_loopback() || v4.is_link_local() || v4.is_unspecified()
+        }
+        Some(url::Host::Ipv6(v6)) => v6.is_loopback() || v6.is_unspecified(),
+        Some(url::Host::Domain(d)) => {
+            let d = d.to_ascii_lowercase();
+            d == "localhost"
+                || d.ends_with(".local")
+                || d.ends_with(".localhost")
+                || d.ends_with(".internal")
+        }
+        None => false,
     }
 }
 
@@ -147,6 +193,19 @@ pub async fn probe(
                         let html = resp.text().await?;
                         break (code, headers, html, current.clone());
                     }
+                }
+
+                // On ne suit JAMAIS une redirection vers le reseau local.
+                //
+                // Le filtre `same_domain_only` ne s'applique qu'aux liens
+                // EXTRAITS, jamais a la cible d'une redirection. Un redirecteur
+                // ouvert sur le site crawle (`/go/?url=`, plugin de tracking)
+                // suffirait donc a faire requeter le reseau local de la
+                // machine — et la reponse serait stockee dans le fichier projet.
+                if is_local_host(&next) {
+                    let headers = resp.headers().clone();
+                    let _ = resp.bytes().await;
+                    break (code, headers, String::new(), current.clone());
                 }
 
                 if first_status.is_none() {
@@ -402,20 +461,42 @@ pub async fn measure_static_assets(
         .map(|asset| {
             let client = client.clone();
             async move {
-                let bytes = match cache.lock().await.get(&asset.url) {
-                    Some(known) => Some(*known),
-                    None => None,
-                };
-                let bytes = match bytes {
+                let known = cache.lock().await.get(&asset.url).copied();
+                let bytes = match known {
                     Some(b) => b,
                     None => {
-                        // Lock relache pendant le telecharger : deux workers
+                        // Lock relache pendant le telechargement : deux workers
                         // peuvent demander le meme asset en meme temps (au pire
                         // il est mesure deux fois, jamais N fois), mais aucun ne
                         // bloque les autres sur une E/S reseau.
-                        let b = fetch_asset_bytes(&client, &asset.url).await;
-                        cache.lock().await.insert(asset.url.clone(), b);
-                        b
+                        match fetch_asset_bytes(&client, &asset.url).await {
+                            // Succes : mesure fiable, on la partage.
+                            AssetMeasure::Ok(b) => {
+                                cache.lock().await.insert(asset.url.clone(), b);
+                                b
+                            }
+                            // CASSE (statut non-2xx apres redirections) : c'est
+                            // un verdict STABLE du serveur, pas un alea. On le
+                            // met en cache pour ne pas redemander 5 000 fois la
+                            // meme 404 (un logo supprime reste dans le header de
+                            // toutes les pages du template).
+                            AssetMeasure::Broken => {
+                                cache.lock().await.insert(asset.url.clone(), 0);
+                                0
+                            }
+                            // TRANSITOIRE (timeout, DNS, coupure) : on reporte 0
+                            // pour CETTE page et on ne met RIEN en cache — la
+                            // page suivante retentera.
+                            //
+                            // Mettre un echec passager en cache figerait une
+                            // mesure fausse pour tout le reste du crawl : un
+                            // seul timeout sur le CSS principal amputerait le
+                            // poids de TOUTES les pages, en silence. Un cache
+                            // change la portee d'une erreur — locale et
+                            // passagere sans lui, globale et definitive avec.
+                            // D'ou la distinction stable / passager.
+                            AssetMeasure::Transient => 0,
+                        }
                     }
                 };
                 AssetReport {
@@ -443,28 +524,69 @@ pub async fn measure_static_assets(
 
 /// Fetch a single asset and return its size in bytes (Content-Length when
 /// advertised, otherwise the length of the downloaded body). Errors yield 0.
-async fn fetch_asset_bytes(client: &reqwest::Client, url: &str) -> u64 {
-    let resp = match client.get(url).send().await {
-        Ok(r) => r,
-        Err(_) => return 0,
-    };
+async fn fetch_asset_bytes(client: &reqwest::Client, url: &str) -> AssetMeasure {
+    let mut current = url.to_string();
 
-    let content_length = resp
-        .headers()
-        .get(reqwest::header::CONTENT_LENGTH)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.trim().parse::<u64>().ok());
+    for _ in 0..=MAX_ASSET_REDIRECTS {
+        let resp = match client.get(&current).send().await {
+            Ok(r) => r,
+            // Reseau : rien ne dit que ca se reproduira.
+            Err(_) => return AssetMeasure::Transient,
+        };
+        let status = resp.status();
 
-    if let Some(len) = content_length {
-        // Drain the body so the connection can be reused by the pool.
-        let _ = resp.bytes().await;
-        return len;
+        // Redirection : le client de la sonde a `Policy::none()` (necessaire
+        // pour observer les chaines de redirection des PAGES), donc c'est a nous
+        // de suivre. Sans ca, un asset servi en 301 (CDN, http->https, version
+        // fingerprintee) etait compte comme "casse" et son poids reel jamais
+        // mesure.
+        if status.is_redirection() {
+            let loc = resp
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string());
+            let next = match loc.and_then(|l| Url::parse(&current).ok()?.join(&l).ok()) {
+                Some(u) => u,
+                // 3xx sans Location exploitable : verdict stable.
+                None => return AssetMeasure::Broken,
+            };
+            if !matches!(next.scheme(), "http" | "https") || is_local_host(&next) {
+                return AssetMeasure::Broken;
+            }
+            let _ = resp.bytes().await; // libere la connexion pour le pool
+            current = next.into();
+            continue;
+        }
+
+        // Statut non-2xx : le corps est une page d'erreur, pas l'asset. Le
+        // compter donnerait un poids plausible mais FAUX (une 404 HTML fait
+        // quelques Ko). C'est un verdict STABLE : cachable.
+        if !status.is_success() {
+            return AssetMeasure::Broken;
+        }
+
+        let content_length = resp
+            .headers()
+            .get(reqwest::header::CONTENT_LENGTH)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.trim().parse::<u64>().ok());
+
+        if let Some(len) = content_length {
+            // Drain the body so the connection can be reused by the pool.
+            let _ = resp.bytes().await;
+            return AssetMeasure::Ok(len);
+        }
+
+        return match resp.bytes().await {
+            Ok(b) => AssetMeasure::Ok(b.len() as u64),
+            // Corps tronque en cours de lecture : passager.
+            Err(_) => AssetMeasure::Transient,
+        };
     }
 
-    match resp.bytes().await {
-        Ok(b) => b.len() as u64,
-        Err(_) => 0,
-    }
+    // Trop de sauts : boucle de redirection, verdict stable.
+    AssetMeasure::Broken
 }
 
 #[cfg(test)]
@@ -547,5 +669,41 @@ mod tests {
         "##;
         let links = extract_links("https://site.fr/", html);
         assert_eq!(links, vec!["https://site.fr/tarifs/".to_string()]);
+    }
+}
+
+#[cfg(test)]
+mod tests_local_host {
+    use super::*;
+
+    fn local(u: &str) -> bool {
+        is_local_host(&Url::parse(u).unwrap())
+    }
+
+    /// Une redirection vers le reseau local ne doit jamais etre suivie :
+    /// `same_domain_only` ne couvre pas les cibles de redirection, donc un
+    /// redirecteur ouvert sur le site crawle suffirait a atteindre les services
+    /// de dev, la box ou le NAS de la machine.
+    #[test]
+    fn detecte_les_hotes_locaux() {
+        assert!(local("http://localhost:3000/"));
+        assert!(local("http://127.0.0.1/"));
+        assert!(local("http://127.0.0.53/"));
+        assert!(local("http://192.168.1.1/"));
+        assert!(local("http://10.0.0.5/"));
+        assert!(local("http://172.16.0.1/"));
+        assert!(local("http://169.254.169.254/latest/meta-data/"));
+        assert!(local("http://0.0.0.0/"));
+        assert!(local("http://nas.local/"));
+        assert!(local("http://[::1]/"));
+    }
+
+    /// Les hotes publics restent evidemment suivis.
+    #[test]
+    fn laisse_passer_les_hotes_publics() {
+        assert!(!local("https://site.fr/"));
+        assert!(!local("https://172.32.0.1/"));   // hors plage privee 172.16/12
+        assert!(!local("https://11.0.0.1/"));     // hors plage privee 10/8
+        assert!(!local("https://192.169.1.1/"));  // hors plage privee 192.168/16
     }
 }

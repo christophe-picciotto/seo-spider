@@ -60,6 +60,17 @@ const USER_AGENT: &str =
 /// d'intervalle de `governor`.
 const NO_LIMIT_RPS: u32 = 100_000;
 
+/// Plafond ABSOLU de pages, applique MEME en mode "Tout le site" (`unlimited`).
+///
+/// Garde-fou memoire : chaque page est stockee DEUX fois integralement (cote
+/// Rust dans `summary.pages`, jamais purge, et cote JS dans `S.pages`), et un
+/// `PageReport` porte ses outlinks, ses H2, ses images et le JSON-LD BRUT de la
+/// page — de l'ordre de 50 a 150 Ko. Sur un site a facettes
+/// (`?couleur=X&taille=Y`) ou a calendrier, le nombre d'URLs distinctes est
+/// quasi infini : sans ce plafond, l'app finit tuee par l'OOM killer et le
+/// crawl est INTEGRALEMENT perdu (la sauvegarde n'a lieu qu'a la fin).
+const HARD_MAX_PAGES: usize = 50_000;
+
 /// Frameworks dont la presence declenche la mesure NAVIGATEUR (rendu/hydratation
 /// cote client : la mesure HTTP statique sous-estimerait la bande passante reelle).
 ///
@@ -368,24 +379,32 @@ where
     // signature ne change) mais avec un quota assez grand pour que
     // `until_ready()` rende la main immediatement. La vitesse est alors bornee
     // par `threads` et le serveur cible, comme dans Screaming Frog.
-    let rps = if config.no_rate_limit {
-        NO_LIMIT_RPS
-    } else {
-        config.requests_per_second.max(1)
-    };
-    let quota = Quota::per_second(NonZeroU32::new(rps).unwrap());
-    let limiter = Arc::new(RateLimiter::direct(quota));
-
     // --- Host de reference pour le filtre same_domain_only. ---
     let seed_host = host_of(&config.seed_url);
 
     // --- robots.txt : telecharge + parse une fois pour tout le crawl si demande.
-    //     (Echec reseau / fichier absent -> Robots::empty() = tout autorise.) ---
+    //     (Echec reseau / fichier absent -> Robots::empty() = tout autorise.)
+    //     Recupere AVANT de construire le limiteur : son `Crawl-delay` en fixe
+    //     la cadence. ---
     let robots = if config.respect_robots {
         crate::robots::fetch(&client, &config.seed_url, USER_AGENT).await
     } else {
         crate::robots::Robots::empty()
     };
+
+    // Le `Crawl-delay` du serveur PRIME sur les reglages, "Debit illimite"
+    // compris : cocher "Respecter robots.txt" doit vouloir dire respecter
+    // robots.txt en entier, pas seulement ses `Disallow`. Sans ca, un site
+    // mutualise declarant `Crawl-delay: 10` recevrait jusqu'a `threads`
+    // requetes simultanees — saturation, bannissement d'IP ou WAF, sur le site
+    // d'un client, alors que l'utilisateur croit le menager.
+    let rps = match robots.crawl_delay {
+        Some(d) if d > 0.0 => ((1.0 / d).ceil() as u32).max(1),
+        _ if config.no_rate_limit => NO_LIMIT_RPS,
+        _ => config.requests_per_second.max(1),
+    };
+    let quota = Quota::per_second(NonZeroU32::new(rps).unwrap());
+    let limiter = Arc::new(RateLimiter::direct(quota));
 
     // --- Conteneurs partages (Arc) clones dans chaque worker. ---
     let client = Arc::new(client);
@@ -492,7 +511,9 @@ async fn worker_loop<P, G>(
         }
 
         // Limite globale de pages atteinte : plus rien a faire.
-        if !config.unlimited && state.done.load(Ordering::SeqCst) >= config.max_pages {
+        // `HARD_MAX_PAGES` s'applique MEME en mode illimite (garde-fou memoire).
+        let done_now = state.done.load(Ordering::SeqCst);
+        if done_now >= HARD_MAX_PAGES || (!config.unlimited && done_now >= config.max_pages) {
             return;
         }
 
@@ -510,7 +531,7 @@ async fn worker_loop<P, G>(
             // pages en cours de traitement (reservees). Tant que ce total atteint
             // `max_pages`, on ne depile plus rien (evite le sur-crawl en parallele).
             let reserved = state.done.load(Ordering::SeqCst) + state.active.load(Ordering::SeqCst);
-            if !config.unlimited && reserved >= config.max_pages {
+            if reserved >= HARD_MAX_PAGES || (!config.unlimited && reserved >= config.max_pages) {
                 None
             } else {
                 match q.pop_front() {
@@ -612,6 +633,18 @@ async fn process_one_page<P, G>(
         });
     }
 
+    // Deja vu ? On marque AVANT TOUT traitement, controle robots inclus.
+    //
+    // Cette garde etait AUTREFOIS placee apres le controle robots : une URL
+    // interdite enfilee N fois (la file n'est pas dedoublonnee contre
+    // elle-meme) etait re-emise N fois, car le controle robots ne consulte pas
+    // `visited`. `done` etant incremente a chaque emission et pilotant la borne
+    // `max_pages`, le crawl s'arretait prematurement en croyant avoir traite
+    // des pages fantomes.
+    if !state.visited.lock().await.insert(url.clone()) {
+        return;
+    }
+
     // Respect de robots.txt : si le path est interdit, on emet un rapport
     // "bloque" et on s'arrete la pour cette URL (sans la sonder ni l'enfiler).
     if config.respect_robots {
@@ -627,8 +660,7 @@ async fn process_one_page<P, G>(
             })
             .unwrap_or_else(|| url.clone());
         if !robots.allowed(&path) {
-            // Marque comme visite pour ne pas re-evaluer en boucle.
-            state.visited.lock().await.insert(url.clone());
+            // (deja marque visite ci-dessus : une seule emission par URL)
             let report = PageReport {
                 url: url.clone(),
                 status: 0,
@@ -639,11 +671,6 @@ async fn process_one_page<P, G>(
             emit_report(state, on_page, on_progress, report, &url).await;
             return;
         }
-    }
-
-    // Deja vu ? On marque AVANT traitement pour ne pas re-traiter en boucle.
-    if !state.visited.lock().await.insert(url.clone()) {
-        return;
     }
 
     // Respect du rythme : delai aleatoire "humain" si demande, sinon rate-limit fixe.
@@ -707,6 +734,19 @@ async fn process_one_page<P, G>(
             return;
         }
     };
+
+    // Redirection traversee : l'URL FINALE est marquee visitee elle aussi.
+    //
+    // `visited` ne contenait que l'URL DEMANDEE, alors que les liens sont
+    // resolus contre l'URL finale (`http_probe::probe`). Sur le motif tres
+    // courant `/contact` -> 301 -> `/contact/`, la page renvoyait donc dans la
+    // file sa propre URL finale (via n'importe quelle ancre, ou via un menu
+    // pointant la forme avec slash) et se faisait sonder une SECONDE fois :
+    // trafic double vers le serveur du client, invisible dans l'UI qui fusionne
+    // les deux entrees via `normUrl`.
+    if probe.final_url != url {
+        state.visited.lock().await.insert(probe.final_url.clone());
+    }
 
     // 2. Detection de techno (headers + HTML).
     let tech = crate::techno::detect(&probe.headers, &probe.html);
@@ -865,4 +905,57 @@ fn dedup_keep_order(items: Vec<String>) -> Vec<String> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// La seed doit etre nettoyee de son fragment, sinon elle ne correspond plus
+    /// aux liens extraits du HTML (eux aussi nettoyes) et l'accueil serait
+    /// crawle deux fois. Invariant dont depend aussi la reprise de crawl, qui
+    /// compare `existing.seed_url == config.seed_url` (`commands.rs`).
+    #[test]
+    fn strip_fragment_nettoie_la_seed() {
+        assert_eq!(strip_fragment("https://site.fr/#accueil"), "https://site.fr/");
+        assert_eq!(
+            strip_fragment("https://site.fr/page/?a=1#bas"),
+            "https://site.fr/page/?a=1"
+        );
+        // Deja propre : inchangee (au detail pres de la normalisation `Url`).
+        assert_eq!(strip_fragment("https://site.fr/page/"), "https://site.fr/page/");
+        // Non parsable : passthrough, l'erreur sera signalee plus loin.
+        assert_eq!(strip_fragment("pas une url"), "pas une url");
+    }
+
+    /// `SharedState::new` doit appliquer la MEME normalisation que
+    /// `commands.rs`, sinon la comparaison de reprise ne matcherait jamais.
+    #[test]
+    fn shared_state_normalise_la_seed() {
+        let seed = "https://site.fr/#accueil";
+        let state = SharedState::new(seed);
+        assert_eq!(state.seed_url, strip_fragment(seed));
+        assert_eq!(state.seed_url, "https://site.fr/");
+    }
+
+    /// Verrouille le choix volontaire : React/Vue seuls ne doivent PLUS
+    /// declencher la mesure Chrome (qui est serialisee et effondrait le crawl
+    /// sur un WordPress+Gutenberg ou un Astro a ile React), mais les
+    /// meta-frameworks SSR, si.
+    #[test]
+    fn needs_chrome_ignore_react_et_vue() {
+        assert!(!needs_chrome(&["React".to_string()]));
+        assert!(!needs_chrome(&["Vue".to_string()]));
+        assert!(!needs_chrome(&["WordPress".to_string(), "React".to_string()]));
+
+        assert!(needs_chrome(&["Next.js".to_string()]));
+        assert!(needs_chrome(&["Nuxt".to_string()]));
+        assert!(needs_chrome(&["Gatsby".to_string()]));
+        assert!(needs_chrome(&["SvelteKit".to_string()]));
+        assert!(needs_chrome(&["Remix".to_string()]));
+
+        // Un meta-framework accompagne de React declenche quand meme Chrome.
+        assert!(needs_chrome(&["React".to_string(), "Next.js".to_string()]));
+        assert!(!needs_chrome(&[]));
+    }
 }

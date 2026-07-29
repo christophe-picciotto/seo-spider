@@ -2048,7 +2048,15 @@
       // crawl backend qui s'est termine de lui-meme apres le stop_crawl. On
       // recupere le sitemap (ci-dessus) mais on NE cloture PAS la sequence et on
       // NE quitte PAS l'etat pause : l'affichage reste fige, "Reprendre" actif.
-      if (S.paused) { scheduleRender(); return; }
+      if (S.paused) {
+        // Seul point ou le backend GARANTIT que tous les workers sont sortis.
+        // Le reset fait dans `onStop()` est reecrit par les `crawl:progress`
+        // tardifs : au clic Stop, jusqu'a `threads` pages sont encore en vol et
+        // chacune emet sa progression (active_workers = N…1) APRES lui.
+        setText("status-workers", 0);
+        scheduleRender();
+        return;
+      }
 
       // Fin du run courant : on cumule dans l'agregat multi-run.
       // rebuildAggregates() tourne normalement dans le rAF (asynchrone) ; on le
@@ -2153,6 +2161,10 @@
     var fill = $("status-fill");
     if (fill) fill.style.width = "100%";
     setStatusState("Termine — " + S.multi.done + " run(s), " + S.multi.totalPages + " page(s).");
+    // Plus aucun worker ne tourne : le dernier `crawl:progress` a ete emis par
+    // le dernier worker ALORS QU'IL etait encore compte actif (voulu en cours de
+    // crawl, mensonger une fois termine).
+    setText("status-workers", 0);
     updateMultiStatus();
 
     // Une entree d'historique par sequence.
@@ -2361,6 +2373,9 @@
     S.paused = true;                        // -> "Reprendre" disponible
     updateButtons();
     setStatusState("En pause — " + S.pages.length + " page(s) collectee(s).");
+    // Les workers finissent leur page courante puis sortent : le compteur ne
+    // doit pas rester fige sur la derniere valeur observee en plein crawl.
+    setText("status-workers", 0);
     saveCurrentCrawl();   // B : enregistre aussi a la pause (reprise / consultation ensuite)
   }
 
@@ -2389,6 +2404,7 @@
     setText("status-done", 0); setText("status-total", 0);
     setText("status-queued", 0); setText("status-rate", 0);
     setText("status-bytes", "0 o");
+    setText("status-workers", 0); setText("status-threads", 0);
     updateMultiStatus();
     S.paused = false;                  // VAGUE 4 (C) : retour a l'etat idle
     updateButtons();
@@ -2841,14 +2857,21 @@
     //   - aleatoire : delai tire au sort par page -> "Req/sec" est ignore.
     var randRps = $("random-rps");
     var noLimit = $("no-rate-limit");
+    var forceChrome = $("force-chrome");
     function syncRate() {
       var free = noLimit.checked;
       randRps.disabled = free;
       $("rps").disabled = free || randRps.checked;
-      noLimit.disabled = randRps.checked;
+      // "Debit illimite" ne tient pas sa promesse avec "Forcer Chrome" : les
+      // mesures Chrome sont SERIALISEES (un seul navigateur derriere un Mutex,
+      // tenu pendant une tempo fixe de 1,5 s par page). Le debit plafonnerait a
+      // ~0,66 page/s quel que soit le nombre de threads.
+      noLimit.disabled = randRps.checked || forceChrome.checked;
+      if (noLimit.disabled) noLimit.checked = false;
     }
     randRps.addEventListener("change", syncRate);
     noLimit.addEventListener("change", syncRate);
+    forceChrome.addEventListener("change", syncRate);
     syncRate();
 
     initSaveDir();   // #E : champ dossier des projets
