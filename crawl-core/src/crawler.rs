@@ -62,14 +62,28 @@ const NO_LIMIT_RPS: u32 = 100_000;
 
 /// Plafond ABSOLU de pages, applique MEME en mode "Tout le site" (`unlimited`).
 ///
-/// Garde-fou memoire : chaque page est stockee DEUX fois integralement (cote
-/// Rust dans `summary.pages`, jamais purge, et cote JS dans `S.pages`), et un
-/// `PageReport` porte ses outlinks, ses H2, ses images et le JSON-LD BRUT de la
-/// page — de l'ordre de 50 a 150 Ko. Sur un site a facettes
-/// (`?couleur=X&taille=Y`) ou a calendrier, le nombre d'URLs distinctes est
-/// quasi infini : sans ce plafond, l'app finit tuee par l'OOM killer et le
-/// crawl est INTEGRALEMENT perdu (la sauvegarde n'a lieu qu'a la fin).
-const HARD_MAX_PAGES: usize = 50_000;
+/// Ce n'est PAS une limite de capacite : c'est un garde-fou contre les pieges a
+/// crawler. Sur un site a facettes (`?couleur=X&taille=Y`) ou a calendrier, le
+/// nombre d'URLs distinctes est quasi infini — sans plafond le crawl ne
+/// s'arrete jamais de lui-meme, l'app finit tuee par l'OOM killer, et le crawl
+/// est INTEGRALEMENT perdu puisque la sauvegarde n'a lieu qu'a la fin.
+///
+/// Le risque memoire est reel car chaque page est stockee DEUX fois
+/// integralement (cote Rust dans `summary.pages`, jamais purge, et cote JS dans
+/// `S.pages`), un `PageReport` portant ses outlinks, ses H2, ses images et le
+/// JSON-LD brut.
+///
+/// **Valeur calibree sur des crawls REELS** (et non sur une estimation) :
+/// 11,5 a 15,0 Ko par page en JSON serialise, mesures sur trois projets
+/// enregistres dont un de 4 035 pages (59 Mo). A 200 000 pages : ~3 Go de JSON,
+/// soit de l'ordre de 6 a 8 Go en memoire une fois compte le double stockage et
+/// l'overhead des objets. Aucun crawl legitime n'approche ce volume ; un piege
+/// a crawler, si.
+///
+/// Le vrai correctif reste a faire : sauvegarde incrementale (pour qu'un
+/// plantage ne coute plus le crawl entier) puis stockage disque facon
+/// "Database Storage Mode" de Screaming Frog. Cf. AUDIT-SCREAMING-FROG.md.
+const HARD_MAX_PAGES: usize = 200_000;
 
 /// Frameworks dont la presence declenche la mesure NAVIGATEUR (rendu/hydratation
 /// cote client : la mesure HTTP statique sous-estimerait la bande passante reelle).
