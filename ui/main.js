@@ -20,6 +20,12 @@
 
   var TAURI = window.__TAURI__;
 
+  // Plafond ABSOLU de pages applique par le backend, meme en mode "Tout le
+  // site". DOIT rester aligne sur `HARD_MAX_PAGES` (crawl-core/src/crawler.rs) :
+  // cette valeur n'est qu'un LIBELLE, elle ne limite rien cote UI.
+  var MAX_PAGES_HARD = 200000;
+  var MAX_PAGES_HARD_LABEL = MAX_PAGES_HARD.toLocaleString("fr-FR");
+
   // =========================================================================
   // Utilitaires de formatage
   // =========================================================================
@@ -2277,7 +2283,13 @@
   function readConfig() {
     var unlimited = $("opt-unlimited").checked;
     var seedUrl  = $("seed-url").value.trim();
-    var maxPages = parseInt($("max-pages").value, 10) || 500;
+    // En mode "Tout le site" le champ est verrouille et affiche "∞ (max ...)" :
+    // sa `value` n'est plus un nombre. On lit alors la derniere valeur saisie
+    // (`data-last`). De toute facon `unlimited` fait ignorer `max_pages` cote
+    // backend — mais on evite d'envoyer un NaN silencieusement retombe a 500.
+    var mpEl = $("max-pages");
+    var mpRaw = (mpEl.type === "number") ? mpEl.value : mpEl.dataset.last;
+    var maxPages = parseInt(mpRaw, 10) || 500;
     var maxDepth = parseInt($("max-depth").value, 10) || 10;
     var rps      = Math.max(1, Math.round(parseFloat($("rps").value) || 5));
     // VAGUE 4 (B) : nombre de pages traitees en parallele (threads du crawler).
@@ -2843,10 +2855,58 @@
       renderOverview();
     });
 
-    // Case "Tout le site" : grise le champ "Pages max".
+    // Case "Tout le site" : le champ "Pages max" affiche alors le plafond
+    // REELLEMENT actif au lieu d'une valeur grisee sans effet.
+    //
+    // Un champ `disabled` affichant "500" alors que la limite est de 200 000
+    // ment deux fois : il montre une valeur qui ne s'applique pas, et il cache
+    // celle qui s'applique. On le passe donc en VERROUILLE (readonly + style
+    // grise) : il affiche le vrai plafond, et un clic rend la main.
+    //
+    // `readonly` et non `disabled` : un input desactive ne recoit AUCUN
+    // evenement souris, le clic serait impossible.
     var unlim = $("opt-unlimited");
     var maxPages = $("max-pages");
-    function syncUnlimited() { maxPages.disabled = unlim.checked; }
+
+    function lockMaxPages() {
+      // Memorise la derniere valeur saisie pour la restituer au declic.
+      if (maxPages.type === "number" && maxPages.value) {
+        maxPages.dataset.last = maxPages.value;
+      }
+      maxPages.type = "text";                 // "number" n'accepte pas de texte
+      maxPages.value = "∞ (max " + MAX_PAGES_HARD_LABEL + ")";
+      maxPages.readOnly = true;
+      maxPages.classList.add("is-locked");
+      maxPages.title =
+        "Tout le site : aucune limite de pages. Un garde-fou interne arrete le " +
+        "crawl a " + MAX_PAGES_HARD_LABEL + " pages (protection contre les sites " +
+        "a facettes ou a calendrier, ou le nombre d'URLs est quasi infini).\n" +
+        "Cliquez pour fixer vous-meme une limite.";
+    }
+
+    function unlockMaxPages() {
+      maxPages.type = "number";
+      maxPages.value = maxPages.dataset.last || "500";
+      maxPages.readOnly = false;
+      maxPages.classList.remove("is-locked");
+      maxPages.title = "Nombre maximal de pages a crawler.";
+    }
+
+    function syncUnlimited() {
+      if (unlim.checked) lockMaxPages(); else unlockMaxPages();
+    }
+
+    // Clic sur le champ verrouille : on decoche "Tout le site" et on rend la
+    // main, curseur pret a saisir.
+    maxPages.addEventListener("mousedown", function (e) {
+      if (!unlim.checked) return;
+      e.preventDefault();
+      unlim.checked = false;
+      syncUnlimited();
+      maxPages.focus();
+      maxPages.select();
+    });
+
     unlim.addEventListener("change", syncUnlimited);
     syncUnlimited();
 

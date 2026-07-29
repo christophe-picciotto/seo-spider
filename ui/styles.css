@@ -163,12 +163,21 @@ a:hover { text-decoration: underline; }
 .settings-drawer[hidden] { display: none; }
 .setting { display: flex; flex-direction: column; gap: 3px; }
 .setting label { font-size: 10px; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); }
-.setting input[type="number"] {
+.setting input[type="number"],
+.setting input.setting-num {
   width: 90px; height: 24px; padding: 0 6px;
   font-size: 12px; font-family: var(--font-mono);
   border: 1px solid var(--border); border-radius: 3px; background: #fff;
 }
 .setting input[type="number"]:disabled { background: #eef0f2; color: var(--text-soft); }
+/* Champ VERROUILLE (pas desactive) : grise comme un champ inactif, mais reste
+   cliquable — un input `disabled` ne recoit aucun evenement souris, donc on ne
+   pourrait pas proposer "clique pour modifier". */
+.setting input.is-locked {
+  background: #eef0f2; color: var(--text-soft);
+  cursor: pointer; width: 118px;
+}
+.setting input.is-locked:hover { border-color: var(--accent); color: var(--text); }
 .setting--check { flex-direction: row; align-items: center; gap: 5px; padding-bottom: 4px; }
 .setting--check span { font-size: 12px; text-transform: none; letter-spacing: 0; color: var(--text); }
 
