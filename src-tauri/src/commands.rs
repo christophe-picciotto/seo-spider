@@ -107,14 +107,25 @@ pub async fn start_crawl(
     let app_done = app.clone();
 
     tauri::async_runtime::spawn(async move {
-        // Sitemap recupere AU DEBUT (robots.txt + /sitemap.xml) et emis tout de
-        // suite, pour que l'onglet Sitemap se remplisse sans attendre la fin.
-        let sitemap_urls: Vec<String> = if do_sitemap {
-            let urls = crawl_core::sitemap::fetch_default(&seed).await;
-            let _ = app_sitemap.emit("crawl:sitemap", urls.clone());
-            urls
+        // Sitemap recupere EN PARALLELE du crawl (et non avant lui).
+        //
+        // Il etait `await` ici, donc le crawl ne demarrait qu'une fois le
+        // sitemap recupere ou en timeout. Sur un domaine dont le DNS ne resout
+        // pas, cela retardait de plusieurs secondes le simple constat que le
+        // site est mort — et, en mode multi-sites, le passage au suivant. Les
+        // workers restaient inactifs pendant ce temps.
+        //
+        // Le resultat est recupere juste avant d'emettre `crawl:done` : il a
+        // largement eu le temps d'arriver, et l'onglet Sitemap se remplit des
+        // reception via l'evenement `crawl:sitemap`.
+        let sitemap_task = if do_sitemap {
+            Some(tauri::async_runtime::spawn(async move {
+                let urls = crawl_core::sitemap::fetch_default(&seed).await;
+                let _ = app_sitemap.emit("crawl:sitemap", urls.clone());
+                urls
+            }))
         } else {
-            Vec::new()
+            None
         };
 
         // Closure progression -> evenement "crawl:progress".
@@ -128,7 +139,17 @@ pub async fn start_crawl(
         };
 
         // Lancement (ou reprise) du crawl sur l'etat partage.
-        match crawl_core::crawler::run_shared(shared, config, on_progress, on_page).await {
+        let crawl_result = crawl_core::crawler::run_shared(shared, config, on_progress, on_page).await;
+
+        // Le sitemap tournait en parallele : on le recupere maintenant. Une
+        // task qui panique ou qui est annulee ne doit pas faire echouer le
+        // crawl, d'ou le repli sur une liste vide.
+        let sitemap_urls: Vec<String> = match sitemap_task {
+            Some(h) => h.await.unwrap_or_default(),
+            None => Vec::new(),
+        };
+
+        match crawl_result {
             Ok(mut summary) => {
                 // On emet toujours le resume (fin naturelle OU pause) afin que l'UI
                 // sorte de l'etat "en cours". En cas de pause, le resume est partiel

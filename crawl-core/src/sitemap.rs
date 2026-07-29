@@ -247,10 +247,15 @@ fn strip_prefix_ci<'a>(s: &'a str, prefix_lower: &str) -> Option<&'a str> {
 
 /// Variante autonome : cree son propre client HTTP. Pratique pour un appel
 /// HORS crawl (ex. au demarrage cote Tauri, pour remplir l'onglet Sitemap tout
-/// de suite). Suit jusqu'a 5 redirections, timeout 15 s.
+/// de suite). Suit jusqu'a 5 redirections.
+///
+/// `connect_timeout` court (8 s, aligne sur `crawler::CONNECT_TIMEOUT`) : ce
+/// fetch precede le crawl, donc sur un domaine dont le DNS ne resout pas il
+/// retarde d'autant le passage au site suivant en mode multi-sites.
 pub async fn fetch_default(seed_url: &str) -> Vec<String> {
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::limited(5))
+        .connect_timeout(std::time::Duration::from_secs(8))
         .timeout(std::time::Duration::from_secs(15))
         .build()
         .unwrap_or_default();

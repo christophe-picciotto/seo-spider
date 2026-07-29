@@ -60,6 +60,24 @@ const USER_AGENT: &str =
 /// d'intervalle de `governor`.
 const NO_LIMIT_RPS: u32 = 100_000;
 
+/// Delai maximal pour ETABLIR la connexion (resolution DNS + TCP + TLS).
+///
+/// CRITIQUE en mode multi-sites : sans ce plafond, un domaine dont le DNS ne
+/// resout pas bloque jusqu'au timeout du systeme (30-40 s), et ce TROIS fois
+/// par site (sitemap, robots.txt, puis la seed). Sur une liste de 150 domaines
+/// dont beaucoup sont morts, l'import passait ses heures a attendre.
+///
+/// 8 s est tres large : un serveur vivant repond au connect en moins d'une
+/// seconde, meme charge.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
+
+/// Delai maximal pour une requete COMPLETE (connexion + reponse + corps).
+///
+/// Plus genereux que `CONNECT_TIMEOUT` : une page lourde sur un mutualise
+/// fatigue peut legitimement mettre plusieurs secondes a rendre son HTML. On
+/// coupe ce qui ne repondra jamais, pas ce qui est lent.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// Plafond ABSOLU de pages, applique MEME en mode "Tout le site" (`unlimited`).
 ///
 /// Ce n'est PAS une limite de capacite : c'est un garde-fou contre les pieges a
@@ -398,6 +416,8 @@ where
         // Redirects are followed manually in `http_probe::probe` so the full
         // chain (and the first 3xx code) is observable.
         .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(CONNECT_TIMEOUT)
+        .timeout(REQUEST_TIMEOUT)
         .build()?;
 
     // --- Rate-limiter (governor 0.7) PARTAGE. On clamp a >= 1 req/s. ---
@@ -752,8 +772,12 @@ async fn process_one_page<P, G>(
     let page_client = match &profile {
         Some(p) => reqwest::Client::builder()
             .user_agent(p.ua)
-            // Same manual-redirect policy as the global client.
+            // Same manual-redirect policy AND same timeouts as the global
+            // client : sans ca, la rotation d'UA reintroduirait l'attente
+            // illimitee sur un hote injoignable.
             .redirect(reqwest::redirect::Policy::none())
+            .connect_timeout(CONNECT_TIMEOUT)
+            .timeout(REQUEST_TIMEOUT)
             .build()
             .unwrap_or_else(|_| client.clone()),
         None => client.clone(),
