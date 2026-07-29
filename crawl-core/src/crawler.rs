@@ -128,6 +128,19 @@ pub struct SharedState {
     pub queue: Mutex<VecDeque<(String, usize)>>,
     /// URLs deja prises en charge (marquees AVANT traitement, anti-boucle).
     pub visited: Mutex<HashSet<String>>,
+    /// URLs deja ENFILEES au moins une fois (seed comprise) — dedoublonnage de
+    /// la file contre elle-meme.
+    ///
+    /// `visited` ne se remplit qu'au DEPILAGE : entre le moment ou une URL entre
+    /// dans la file et celui ou un worker la traite, chaque page qui la
+    /// reference la reenfilait. Sur un site de 5 000 pages a menu commun, la
+    /// file croissait en O(pages x liens) au lieu de O(URLs distinctes) et la
+    /// meme page etait re-sondee plusieurs fois.
+    ///
+    /// C'est un SUR-ENSEMBLE de `visited` (toute URL depilee a forcement ete
+    /// enfilee), donc il suffit seul a decider de l'enfilage : voir la
+    /// reinjection dans `process_one_page`.
+    pub queued_set: Mutex<HashSet<String>>,
     /// Nombre de pages terminees (emises).
     pub done: AtomicUsize,
     /// Nombre de workers en train de traiter une page (detection de fin).
@@ -186,10 +199,16 @@ impl SharedState {
         let mut queue = VecDeque::new();
         queue.push_back((seed_url.to_string(), 0usize));
 
+        // La seed entre dans la file SANS passer par la reinjection : elle doit
+        // etre inscrite ici, sinon un lien vers l'accueil la reenfilerait.
+        let mut queued = HashSet::new();
+        queued.insert(seed_url.to_string());
+
         SharedState {
             seed_url: seed_url.to_string(),
             queue: Mutex::new(queue),
             visited: Mutex::new(HashSet::new()),
+            queued_set: Mutex::new(queued),
             done: AtomicUsize::new(0),
             active: AtomicUsize::new(0),
             stop: AtomicBool::new(false),
@@ -398,10 +417,22 @@ where
     // mutualise declarant `Crawl-delay: 10` recevrait jusqu'a `threads`
     // requetes simultanees — saturation, bannissement d'IP ou WAF, sur le site
     // d'un client, alors que l'utilisateur croit le menager.
+    // Le `Crawl-delay` est un PLAFOND, jamais un plancher : on prend le `min`
+    // avec le reglage utilisateur.
+    //
+    // Le prendre seul ACCELERERAIT un utilisateur prudent : regle a 2 rps sur un
+    // mutualise fragile, un `Crawl-delay: 0.1` (= 10 rps tolerees) l'aurait fait
+    // passer a 10 rps — le correctif anti-nuisance aurait cree la nuisance qu'il
+    // visait. Le `min` borne aussi le cast `as u32` : un `Crawl-delay`
+    // minuscule saturerait sinon vers `u32::MAX`.
+    let user_rps = if config.no_rate_limit {
+        NO_LIMIT_RPS
+    } else {
+        config.requests_per_second.max(1)
+    };
     let rps = match robots.crawl_delay {
-        Some(d) if d > 0.0 => ((1.0 / d).ceil() as u32).max(1),
-        _ if config.no_rate_limit => NO_LIMIT_RPS,
-        _ => config.requests_per_second.max(1),
+        Some(d) if d > 0.0 => user_rps.min(((1.0 / d).ceil() as u32).max(1)),
+        _ => user_rps,
     };
     let quota = Quota::per_second(NonZeroU32::new(rps).unwrap());
     let limiter = Arc::new(RateLimiter::direct(quota));
@@ -735,19 +766,6 @@ async fn process_one_page<P, G>(
         }
     };
 
-    // Redirection traversee : l'URL FINALE est marquee visitee elle aussi.
-    //
-    // `visited` ne contenait que l'URL DEMANDEE, alors que les liens sont
-    // resolus contre l'URL finale (`http_probe::probe`). Sur le motif tres
-    // courant `/contact` -> 301 -> `/contact/`, la page renvoyait donc dans la
-    // file sa propre URL finale (via n'importe quelle ancre, ou via un menu
-    // pointant la forme avec slash) et se faisait sonder une SECONDE fois :
-    // trafic double vers le serveur du client, invisible dans l'UI qui fusionne
-    // les deux entrees via `normUrl`.
-    if probe.final_url != url {
-        state.visited.lock().await.insert(probe.final_url.clone());
-    }
-
     // 2. Detection de techno (headers + HTML).
     let tech = crate::techno::detect(&probe.headers, &probe.html);
 
@@ -856,9 +874,35 @@ async fn process_one_page<P, G>(
     // 4. Reinjection des liens internes AVANT d'emettre (pour que `queued` soit a
     //    jour dans la progression). On respecte la profondeur restante.
     if depth < config.max_depth {
+        // ORDRE DES VERROUS : `queue` puis `queued_set`, jamais l'inverse.
+        // C'est le seul imbriquement de verrous du crawler — le conserver tel
+        // quel garantit l'absence de cycle, donc de deadlock.
+        //
+        // `visited` n'est PLUS consulte ici : `queued_set` en est un
+        // sur-ensemble (toute URL depilee a d'abord ete enfilee), donc son
+        // `insert` decide seul.
         let mut q = state.queue.lock().await;
-        let visited = state.visited.lock().await;
+        let mut queued = state.queued_set.lock().await;
         for link in &probe.links {
+            // Une page ne se REENFILE JAMAIS elle-meme, ni sous l'URL demandee
+            // ni sous son URL finale apres redirection.
+            //
+            // Les liens sont resolus contre l'URL FINALE, donc toute ancre
+            // `#...` de la page resout exactement vers `final_url`. Sur le motif
+            // tres courant `/contact` -> 301 -> `/contact/`, la page renvoyait
+            // ainsi sa propre forme finale dans la file et se faisait sonder une
+            // seconde fois : trafic double vers le serveur du client.
+            //
+            // On filtre ICI plutot que de marquer `final_url` visitee : une
+            // AUTRE page reste libre de l'enfiler. `/contact` (301) et
+            // `/contact/` (200) sont deux URLs distinctes qui meritent chacune
+            // leur ligne — c'est ce qu'attend un audit de redirections, et
+            // marquer `final_url` visitee faisait DISPARAITRE la page canonique
+            // du rapport quand la forme redirigee etait depilee en premier,
+            // rendant deux crawls du meme site non comparables.
+            if *link == url || *link == probe.final_url {
+                continue;
+            }
             // Filtre same-domain : meme host que le seed.
             if config.same_domain_only {
                 match (host_of(link), seed_host.as_deref()) {
@@ -867,7 +911,10 @@ async fn process_one_page<P, G>(
                     _ => continue,
                 }
             }
-            if !visited.contains(link) {
+            // `insert` renvoie false si l'URL a DEJA ete enfilee (par cette page
+            // ou par n'importe quelle autre) : une URL n'entre dans la file
+            // qu'UNE seule fois pour tout le crawl.
+            if queued.insert(link.clone()) {
                 q.push_back((link.clone(), depth + 1));
             }
         }

@@ -2867,7 +2867,12 @@
       // tenu pendant une tempo fixe de 1,5 s par page). Le debit plafonnerait a
       // ~0,66 page/s quel que soit le nombre de threads.
       noLimit.disabled = randRps.checked || forceChrome.checked;
-      if (noLimit.disabled) noLimit.checked = false;
+      // On ne DECOCHE que pour Chrome (ou l'illimite est intenable, cf. verrou
+      // serialise). Decocher aussi sur "Debit aleatoire" ferait perdre le
+      // reglage silencieusement : cocher puis decocher "aleatoire" laisserait
+      // l'utilisateur persuade d'etre en illimite alors qu'il serait retombe a
+      // `rps`.
+      if (forceChrome.checked) noLimit.checked = false;
     }
     randRps.addEventListener("change", syncRate);
     noLimit.addEventListener("change", syncRate);

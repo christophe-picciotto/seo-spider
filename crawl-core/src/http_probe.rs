@@ -86,6 +86,22 @@ fn resolve_url(base: &Url, raw: &str) -> Option<String> {
     }
 }
 
+/// `true` si l'IPv4 appartient a un reseau non routable sur Internet.
+///
+/// Couvre le prive RFC 1918 (10/8, 172.16/12, 192.168/16), le loopback 127/8,
+/// le lien-local 169.254/16 (dont 169.254.169.254, les metadonnees cloud),
+/// `0.0.0.0`, et le CGNAT 100.64/10 — cette derniere plage est celle de
+/// **Tailscale**, tres courante sur un poste de dev et non couverte par
+/// `is_private()`.
+fn is_local_v4(v4: std::net::Ipv4Addr) -> bool {
+    let o = v4.octets();
+    v4.is_private()
+        || v4.is_loopback()
+        || v4.is_link_local()
+        || v4.is_unspecified()
+        || (o[0] == 100 && (64..128).contains(&o[1]))
+}
+
 /// `true` si l'URL vise la machine locale ou un reseau prive/lien-local.
 ///
 /// Sert de garde-fou sur les REDIRECTIONS, que `same_domain_only` ne couvre
@@ -96,12 +112,21 @@ fn is_local_host(u: &Url) -> bool {
     // `host_str()` : il rend l'IPv6 sous sa forme URL, crochets compris
     // (`[::1]`), qui ne se parse pas en `IpAddr`.
     match u.host() {
-        Some(url::Host::Ipv4(v4)) => {
-            // Prive (RFC 1918), loopback 127/8, lien-local 169.254/16 (dont
-            // 169.254.169.254, les metadonnees cloud), et 0.0.0.0.
-            v4.is_private() || v4.is_loopback() || v4.is_link_local() || v4.is_unspecified()
+        Some(url::Host::Ipv4(v4)) => is_local_v4(v4),
+        Some(url::Host::Ipv6(v6)) => {
+            // Un IPv4-mapped (`::ffff:127.0.0.1`) se juge sur son IPv4 :
+            // `Ipv6Addr::is_loopback()` ne reconnait QUE `::1`, donc
+            // `http://[::ffff:127.0.0.1]/` contournait le filtre d'une seule
+            // ligne d'URL.
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return is_local_v4(v4);
+            }
+            let s = v6.segments();
+            v6.is_loopback()
+                || v6.is_unspecified()
+                || (s[0] & 0xfe00) == 0xfc00  // ULA fc00::/7
+                || (s[0] & 0xffc0) == 0xfe80  // lien-local fe80::/10
         }
-        Some(url::Host::Ipv6(v6)) => v6.is_loopback() || v6.is_unspecified(),
         Some(url::Host::Domain(d)) => {
             let d = d.to_ascii_lowercase();
             d == "localhost"
@@ -698,6 +723,26 @@ mod tests_local_host {
         assert!(local("http://[::1]/"));
     }
 
+    /// Bypass classiques du filtre : IPv4-mapped IPv6, CGNAT (Tailscale),
+    /// ULA/lien-local IPv6, et notations decimale/hexa de l'IPv4.
+    #[test]
+    fn detecte_les_contournements() {
+        // `Ipv6Addr::is_loopback()` ne reconnait QUE `::1` : sans traitement
+        // explicite, cette URL atteignait le loopback.
+        assert!(local("http://[::ffff:127.0.0.1]/"));
+        assert!(local("http://[::ffff:192.168.1.1]/"));
+        // CGNAT 100.64/10 = plage Tailscale.
+        assert!(local("http://100.64.0.1/"));
+        assert!(local("http://100.127.255.254/"));
+        // IPv6 ULA et lien-local.
+        assert!(local("http://[fd00::1]/"));
+        assert!(local("http://[fe80::1]/"));
+        // Notations alternatives : normalisees par le parser WHATWG du crate
+        // `url` (c'est ce que `host_str()` n'aurait pas donne).
+        assert!(local("http://2130706433/"));
+        assert!(local("http://0x7f.0.0.1/"));
+    }
+
     /// Les hotes publics restent evidemment suivis.
     #[test]
     fn laisse_passer_les_hotes_publics() {
@@ -705,5 +750,8 @@ mod tests_local_host {
         assert!(!local("https://172.32.0.1/"));   // hors plage privee 172.16/12
         assert!(!local("https://11.0.0.1/"));     // hors plage privee 10/8
         assert!(!local("https://192.169.1.1/"));  // hors plage privee 192.168/16
+        assert!(!local("https://100.128.0.1/"));  // hors CGNAT 100.64/10
+        assert!(!local("https://100.63.0.1/"));   // hors CGNAT 100.64/10
+        assert!(!local("http://[2001:db8::1]/")); // IPv6 public
     }
 }
