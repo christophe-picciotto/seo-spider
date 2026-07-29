@@ -2668,6 +2668,69 @@
   // Dossier d'enregistrement a passer aux commandes save_crawl/load_crawl (null = defaut app).
   function saveDirArg() { return (PREFS.saveDir && PREFS.saveDir.trim()) ? PREFS.saveDir.trim() : null; }
 
+  // =========================================================================
+  // PERSISTANCE DES REGLAGES (PREFS.settings)
+  //
+  // Tous les reglages du volet + les deux cases de la barre du haut sont
+  // memorises et restitues au lancement suivant : on ne recommence pas sa
+  // configuration a chaque ouverture.
+  //
+  // Les CASES a cocher et les CHAMPS sont traites separement (`.checked` vs
+  // `.value`). "max-pages" est un cas particulier : il bascule entre `number`
+  // et `text` (cf. lockMaxPages), donc on persiste `data-last` — la derniere
+  // valeur NUMERIQUE saisie — et jamais le libelle "∞ (max ...)".
+  // =========================================================================
+  var SETTING_CHECKS = [
+    "opt-unlimited", "opt-robots",
+    "no-rate-limit", "random-rps", "force-chrome", "random-ua"
+  ];
+  var SETTING_FIELDS = ["max-depth", "rps", "threads"];
+
+  function persistSettings() {
+    var s = {};
+    SETTING_CHECKS.forEach(function (id) {
+      var el = $(id); if (el) s[id] = !!el.checked;
+    });
+    SETTING_FIELDS.forEach(function (id) {
+      var el = $(id); if (el) s[id] = el.value;
+    });
+    // Valeur numerique de "Pages max", meme quand le champ est verrouille.
+    var mp = $("max-pages");
+    if (mp) s["max-pages"] = (mp.type === "number" && mp.value) ? mp.value : (mp.dataset.last || "500");
+    PREFS.settings = s;
+    persistPrefs();
+  }
+
+  // Restaure les reglages memorises. A appeler AVANT syncUnlimited()/syncRate(),
+  // qui derivent l'etat grise (et donc l'affichage) de ces valeurs.
+  function restoreSettings() {
+    var s = PREFS.settings;
+    if (!s) return;
+    SETTING_CHECKS.forEach(function (id) {
+      var el = $(id); if (el && typeof s[id] === "boolean") el.checked = s[id];
+    });
+    SETTING_FIELDS.forEach(function (id) {
+      var el = $(id); if (el && s[id] != null && s[id] !== "") el.value = s[id];
+    });
+    var mp = $("max-pages");
+    if (mp && s["max-pages"]) {
+      mp.dataset.last = s["max-pages"];
+      // Ecrire AUSSI dans `value` tant que le champ est en mode `number` (son
+      // etat au chargement) : `lockMaxPages()`, appele juste apres par
+      // `syncUnlimited()`, recopie `value` dans `data-last` et ECRASERAIT la
+      // valeur restauree par le "500" de l'attribut HTML.
+      if (mp.type === "number") mp.value = s["max-pages"];
+    }
+  }
+
+  // Branche la sauvegarde sur tout changement de reglage.
+  function watchSettings() {
+    SETTING_CHECKS.concat(SETTING_FIELDS).concat(["max-pages"]).forEach(function (id) {
+      var el = $(id);
+      if (el) el.addEventListener("change", persistSettings);
+    });
+  }
+
   // #E : init du champ "Dossier des projets" + bouton Ouvrir.
   function initSaveDir() {
     var input = $("save-dir");
@@ -2865,6 +2928,11 @@
     //
     // `readonly` et non `disabled` : un input desactive ne recoit AUCUN
     // evenement souris, le clic serait impossible.
+    // Reglages memorises de la session precedente : AVANT syncUnlimited() et
+    // syncRate(), qui derivent l'affichage (champs grises, libelles) de ces
+    // valeurs. Les restaurer apres laisserait l'UI dans un etat incoherent.
+    restoreSettings();
+
     var unlim = $("opt-unlimited");
     var maxPages = $("max-pages");
 
@@ -2903,6 +2971,9 @@
       e.preventDefault();
       unlim.checked = false;
       syncUnlimited();
+      // Decochage PAR CODE : aucun evenement `change` n'est emis, donc le
+      // listener de persistance ne se declenche pas tout seul.
+      persistSettings();
       maxPages.focus();
       maxPages.select();
     });
@@ -2938,6 +3009,12 @@
     noLimit.addEventListener("change", syncRate);
     forceChrome.addEventListener("change", syncRate);
     syncRate();
+
+    // Sauvegarde a chaque changement. Branche APRES syncUnlimited/syncRate :
+    // sur un `change`, les listeners s'executent dans l'ordre d'ajout, donc la
+    // persistance voit l'etat DEJA reconcilie (ex. "Debit illimite" decoche par
+    // syncRate quand on coche "Forcer Chrome").
+    watchSettings();
 
     initSaveDir();   // #E : champ dossier des projets
     initColResize();   // #F : colonnes redimensionnables

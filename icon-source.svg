@@ -1,27 +1,56 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!--
+    Icone SEO Spider.
+
+    Le texte est trace en PATHS et non en <text> : la conversion SVG -> PNG
+    (sharp/librsvg) ne garantit aucune police, un <text> pourrait donner une
+    icone vide ou deformee selon la machine de build.
+
+    Rouge volontairement franc : l'icone doit se distinguer AU PREMIER COUP
+    D'OEIL de celle de crawl-audit (memes barres, mais bleu/cyan), les deux
+    applications etant cote a cote dans la barre des taches.
+  -->
   <defs>
-    <linearGradient id="bars" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#3b82f6"/>
-      <stop offset="0.5" stop-color="#22d3ee"/>
-      <stop offset="1" stop-color="#2dd4bf"/>
-    </linearGradient>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#0f172a"/>
-      <stop offset="1" stop-color="#1e293b"/>
+      <stop offset="0" stop-color="#1a0d0d"/>
+      <stop offset="1" stop-color="#2d1414"/>
+    </linearGradient>
+    <linearGradient id="red" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f87171"/>
+      <stop offset="1" stop-color="#dc2626"/>
     </linearGradient>
   </defs>
 
-  <!-- Fond -->
-  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <!-- Fond arrondi -->
+  <rect width="1024" height="1024" rx="190" fill="url(#bg)"/>
 
-  <!-- Graphe a barres croissantes : mesure du poids des pages -->
-  <g fill="url(#bars)">
-    <rect x="220" y="634" width="116" height="186" rx="20"/>
-    <rect x="376" y="510" width="116" height="310" rx="20"/>
-    <rect x="532" y="374" width="116" height="446" rx="20"/>
-    <rect x="688" y="231" width="116" height="589" rx="20"/>
+  <!-- SEO, trace au stroke : lisible jusqu'en 32x32.
+       Le stroke deborde de la moitie de sa largeur de chaque cote du trace :
+       les lettres sont donc espacees de ~62 px pour ne pas se toucher. -->
+  <g fill="none" stroke="url(#red)" stroke-width="46"
+     stroke-linecap="round" stroke-linejoin="round">
+    <!-- S -->
+    <path d="M 361 390
+             C 361 362 332 340 297 340
+             C 256 340 232 363 232 396
+             C 232 429 256 444 297 452
+             C 338 460 372 474 372 510
+             C 372 546 338 590 297 590
+             C 262 590 235 568 235 540"/>
+    <!-- E -->
+    <path d="M 567 340 L 452 340 L 452 590 L 567 590"/>
+    <path d="M 452 465 L 535 465"/>
+    <!-- O -->
+    <ellipse cx="722" cy="465" rx="68" ry="125"/>
   </g>
 
-  <!-- Ligne de base (axe) -->
-  <rect x="196" y="820" width="632" height="14" rx="7" fill="#64748b"/>
+  <!-- Rappel du graphe a barres (filiation avec crawl-audit), en rouge.
+       Nettement sous les lettres pour ne pas empieter dessus. -->
+  <g fill="#dc2626" opacity="0.92">
+    <rect x="286" y="762" width="76" height="48" rx="12"/>
+    <rect x="390" y="736" width="76" height="74" rx="12"/>
+    <rect x="494" y="706" width="76" height="104" rx="12"/>
+    <rect x="598" y="672" width="76" height="138" rx="12"/>
+  </g>
+  <rect x="262" y="828" width="500" height="14" rx="7" fill="#991b1b"/>
 </svg>
