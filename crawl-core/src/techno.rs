@@ -39,7 +39,11 @@ fn header_present(headers: &HeaderMap, name: &str) -> bool {
 /// La liste retournee est sans doublons et conserve l'ordre de detection.
 pub fn detect(headers: &HeaderMap, html: &str) -> Vec<String> {
     let mut found: Vec<String> = Vec::new();
-    let mut push = |tech: &str, found: &mut Vec<String>| {
+    // Pas de `mut` : cette closure ne capture rien de son environnement —
+    // `found` lui est passe en ARGUMENT a chaque appel. C'est justement ce qui
+    // evite qu'elle ne le verrouille en emprunt mutable pour toute sa duree de
+    // vie, ce qui empecherait le reste de la fonction d'y toucher.
+    let push = |tech: &str, found: &mut Vec<String>| {
         if !found.iter().any(|t| t == tech) {
             found.push(tech.to_string());
         }
