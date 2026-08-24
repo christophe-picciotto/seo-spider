@@ -180,27 +180,149 @@
     return c && c.served_by ? String(c.served_by) : "";
   }
 
-  // Une couche formatee : « Cloudflare (cf-cache-status) : MISS ».
-  function layerText(l) {
-    if (!l) return "";
-    var t = l.engine || l.header || "?";
-    if (l.header && l.engine) t += " (" + l.header + ")";
-    return t + " : " + (l.raw || l.status || "?");
+  // Ce qu'a fait UNE couche, en trois mots : « a fourni la page » ou
+  // « est alle chercher plus loin ». C'est la seule chose qu'on veut savoir
+  // en lisant la liste des couches.
+  function layerRole(st) {
+    if (st === "HIT" || st === "EDGE" || st === "STALE" || st === "UPDATING") return "a fourni la page";
+    if (st === "MISS" || st === "EXPIRED") return "n'avait pas la page";
+    if (st === "REVALIDATED") return "a verifie aupres du serveur";
+    if (st === "BYPASS") return "a ete contourne";
+    if (st === "DYNAMIC") return "ne met pas cette page en cache";
+    if (!st) return "present, sans indication";
+    return "";
   }
 
-  // Infobulle : quel moteur a tranche, son age, et toutes les couches.
-  // C'est le desaccord entre couches qui est parlant (CDN MISS + origine HIT).
+  // Une couche formatee : « Cloudflare : MISS — n'avait pas la page ».
+  function layerText(l) {
+    if (!l) return "";
+    var t = (l.engine || l.header || "?") + " : " + (l.raw || l.status || "?");
+    var role = layerRole(l.status);
+    if (role) t += "  — " + role;
+    return t;
+  }
+
+  // Phrase expliquant un verdict, en francais et sans jargon. C'est elle qui
+  // ouvre l'infobulle : le code technique ne dit rien a qui ne le connait pas.
+  function cacheMeaning(st) {
+    switch (st) {
+      case "HIT":
+        return "Page servie depuis le cache : le serveur n'a pas ete sollicite.";
+      case "MISS":
+        return "Le cache n'avait pas la page : le serveur a du la generer.";
+      case "EDGE":
+        return "Page hebergee sur le reseau Cloudflare (Pages / Workers).\n" +
+               "Il n'y a pas de serveur d'origine a solliciter : ni HIT ni MISS possibles.";
+      case "EXPIRED":
+        return "Le cache avait la page mais perimee : il est alle la revalider aupres du serveur.";
+      case "REVALIDATED":
+        return "Le cache a verifie sa copie aupres du serveur, qui l'a confirmee a jour.";
+      case "STALE":
+        return "Page servie perimee pendant que le cache la rafraichit en arriere-plan.";
+      case "UPDATING":
+        return "Page servie perimee, sa mise a jour est en cours.";
+      case "BYPASS":
+        return "Le cache a ete contourne : une regle, un cookie ou un en-tete l'a interdit.";
+      case "DYNAMIC":
+        return "Cloudflare ne met pas cette page en cache : aucune regle ne la couvre.\n" +
+               "Chaque visite atteint le serveur.";
+      case "PRERENDER":
+        return "Page pre-generee servie telle quelle.";
+      case "NONE":
+        return "Aucune mise en cache pour cette reponse.";
+      default:
+        return "";
+    }
+  }
+
+  // Traduit un `server-timing` Cloudflare en lignes lisibles.
+  //
+  //   cfEdge;dur=6,cfOrigin;dur=0,cfWorker;dur=18
+  //
+  // ne dit rien tel quel. Chaque cle designe une etape du trajet de la requete,
+  // et `cfOrigin` est la plus parlante : a zero, le serveur n'a pas ete touche.
+  function serverTimingLines(raw) {
+    var LABELS = {
+      cfedge:   "au point de presence Cloudflare le plus proche",
+      cforigin: "sur le serveur d'origine",
+      cfworker: "dans un Worker (code execute sur le reseau Cloudflare)",
+      cfcachestatus: null
+    };
+    var out = [];
+    var items = String(raw).split(",");
+    for (var i = 0; i < items.length; i++) {
+      var m = /^\s*([a-z]+)\s*;\s*dur\s*=\s*([0-9.]+)/i.exec(items[i]);
+      if (!m) continue;
+      var key = m[1].toLowerCase();
+      var ms = parseFloat(m[2]);
+      var label = LABELS[key];
+      if (!label) continue;
+      var line = "   " + ms + " ms  " + label;
+      // La ligne qui repond a la question qu'on se pose vraiment.
+      if (key === "cforigin") {
+        line += ms > 0 ? "  <- il a travaille" : "  <- il n'a pas ete sollicite";
+      }
+      out.push(line);
+    }
+    return out;
+  }
+
+  // Infobulle : le verdict explique en clair, puis qui a servi, puis le detail
+  // technique. C'est le desaccord entre couches qui est parlant (CDN MISS +
+  // cache d'origine HIT).
   function cacheTitle(p) {
     var c = cacheOf(p);
-    if (!c) return "Aucun en-tete de cache : impossible de conclure (ce n'est pas un MISS).";
+    if (!c) {
+      return "Aucun en-tete de cache dans la reponse.\n" +
+             "Impossible de conclure — et ce n'est PAS un MISS : " +
+             "le serveur n'a simplement rien dit a ce sujet.";
+    }
     var parts = [];
-    if (c.engine) parts.push(c.engine + (c.source ? " (" + c.source + ")" : "") + " : " + (c.raw || c.status));
-    if (c.served_by) parts.push("servi par : " + c.served_by);
-    if (c.age != null) parts.push("age " + fmtAge(c.age));
+
+    // 1) Le verdict, en toutes lettres.
+    var meaning = cacheMeaning(c.status);
+    parts.push(c.status ? (c.status + (meaning ? " — " + meaning : "")) : "Statut indetermine.");
+
+    // 2) Qui a fourni la page.
+    if (c.served_by) {
+      parts.push("");
+      parts.push(c.served_by === "origine"
+        ? "Servi par : le serveur d'origine (aucun cache n'a repondu)"
+        : "Servi par : " + c.served_by);
+    }
+    if (c.age != null) parts.push("En cache depuis : " + fmtAge(c.age));
+
+    // 3) Le detail technique, traduit quand c'est possible.
+    var st = (c.source === "server-timing") ? c.raw : null;
+    if (!st) {
+      var ls = c.layers || [];
+      for (var li = 0; li < ls.length; li++) {
+        if (ls[li] && ls[li].header === "server-timing") { st = ls[li].raw; break; }
+      }
+    }
+    if (st) {
+      var lines = serverTimingLines(st);
+      if (lines.length) {
+        parts.push("");
+        parts.push("Temps mesures par Cloudflare :");
+        parts = parts.concat(lines);
+      }
+    }
+
+    // 4) Les couches traversees, quand il y en a plusieurs.
     var layers = Array.isArray(c.layers) ? c.layers : [];
     if (layers.length > 1) {
-      parts.push("couches traversees :");
-      for (var i = 0; i < layers.length; i++) parts.push("   " + layerText(layers[i]));
+      parts.push("");
+      parts.push("Couches traversees, de l'exterieur vers le serveur :");
+      for (var i = 0; i < layers.length; i++) {
+        parts.push("   " + (i + 1) + ". " + layerText(layers[i]));
+      }
+    }
+
+    // 5) La source, pour qui veut verifier.
+    if (c.source) {
+      parts.push("");
+      parts.push("(lu dans l'en-tete " + c.source + ")");
     }
     return parts.join("\n");
   }
@@ -218,11 +340,15 @@
   // puis TOUTES les couches quand il y en a plusieurs.
   function cacheInfoText(p) {
     var c = cacheOf(p);
-    if (!c) return "— (aucun en-tete de cache)";
+    if (!c) return "— aucun en-tete de cache (ce n'est pas un MISS : le serveur n'a rien dit)";
     var out = (c.status || "?");
-    if (c.engine) out += " sur " + c.engine + (c.source ? " (" + c.source + ")" : "");
-    if (c.served_by) out += "  —  servi par " + c.served_by;
-    if (c.age != null) out += "  —  age " + fmtAge(c.age);
+    var meaning = cacheMeaning(c.status);
+    // L'explication d'abord : le code seul ne parle qu'aux inities.
+    if (meaning) out += " — " + meaning.replace(/\n/g, " ");
+    if (c.served_by) {
+      out += "  |  Servi par " + (c.served_by === "origine" ? "le serveur d'origine" : c.served_by);
+    }
+    if (c.age != null) out += "  |  en cache depuis " + fmtAge(c.age);
     var layers = Array.isArray(c.layers) ? c.layers : [];
     if (layers.length > 1) {
       var txt = [];
