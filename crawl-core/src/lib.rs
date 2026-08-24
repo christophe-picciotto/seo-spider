@@ -11,5 +11,6 @@ pub mod robots;
 pub mod security;
 pub mod urlcheck;
 pub mod sitemap;
+pub mod cachestat;
 
 pub use report::*;

@@ -689,6 +689,41 @@ body.is-resizing-detail { user-select: none; cursor: ns-resize; }
 .speed--slow { color: var(--err);   background: var(--err-bg); }
 .speed--na   { color: var(--text-soft); background: #edeef1; }
 
+/* ----- Statut de cache (colonne Cache) ---------------------------------
+   Trois familles de couleur, pas une par valeur :
+     vert  = servi par le cache (HIT) ;
+     rouge = alle jusqu'a l'origine (MISS, EXPIRED) ;
+     orange= entre les deux (STALE, REVALIDATED, PRERENDER, UPDATING) ;
+     gris  = hors sujet (BYPASS, DYNAMIC, NONE) ou aucune information. */
+.cache-pill {
+  display: inline-block;
+  min-width: 46px;
+  padding: 1px 6px;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 11px;
+  text-align: center;
+  border-radius: 3px;
+  cursor: help;              /* l'infobulle porte le detail des couches */
+}
+.cache--hit  { color: var(--ok);    background: var(--ok-bg); }
+.cache--miss { color: var(--err);   background: var(--err-bg); }
+.cache--warm { color: var(--redir); background: var(--redir-bg); }
+.cache--none { color: var(--text-soft); background: #e7e9ee; }
+.cache--na   { color: var(--text-soft); background: #edeef1; cursor: default; }
+
+/* Colonne "Servi par" : qui a reellement fourni la page. Texte simple, sauf
+   "origine" — le seul cas ou le serveur a travaille, donc celui qu'on cherche
+   du regard dans un audit de performance. */
+.cache-by {
+  font-size: 11px;
+  cursor: help;
+}
+.cache-by--origin {
+  color: var(--err);
+  font-weight: 700;
+}
+
 /* ----- (B) Aide visuelle des reglages (Threads vs Req/sec) --------------
    Petit texte sous le champ. La variante --accent distingue "Threads"
    (parallelisme) de "Req/sec" (debit) sans etre criard. */

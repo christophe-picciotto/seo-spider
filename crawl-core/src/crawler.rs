@@ -984,6 +984,21 @@ async fn process_one_page<P, G>(
     // pour que la generation d'issues puisse en tenir compte plus tard.
     report.url_flags = Some(crate::urlcheck::analyze(&url));
     report.security = Some(crate::security::analyze(&url, &probe.headers, &probe.html));
+
+    // Statut de cache (HIT/MISS/...) lu sur les en-tetes de la sonde HTTP.
+    //
+    // Pose ICI, dans la zone commune aux deux chemins de mesure : la sonde HTTP
+    // precede TOUJOURS la mesure navigateur, donc la colonne est renseignee des
+    // la premiere URL, y compris sur les pages finalement mesurees par Chrome.
+    //
+    // Sur une chaine de redirection, ce sont les en-tetes de la reponse FINALE
+    // (cf. `http_probe::probe`) : le statut decrit la page reellement servie,
+    // pas le 301 qui y menait.
+    //
+    // Le HTML est passe en second : WP Rocket seul (sans son module serveur)
+    // n'emet aucun en-tete et ne se reconnait qu'a sa signature en fin de
+    // document.
+    report.cache = crate::cachestat::analyze(&probe.headers, &probe.html);
     if let Some(seo) = report.seo.as_mut() {
         seo.x_robots_tag = probe
             .headers

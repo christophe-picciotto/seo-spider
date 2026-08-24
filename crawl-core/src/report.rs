@@ -66,6 +66,60 @@ pub struct SecurityData {
     pub missing_headers: Vec<String>,
 }
 
+/// Une couche de cache traversee par la reponse (cf. `cachestat`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CacheLayer {
+    /// En-tete qui l'a revelee (ex: "cf-cache-status"), ou "html:wp-rocket"
+    /// quand la couche a ete reconnue a sa signature dans le document.
+    pub header: String,
+    /// Nom lisible du moteur : "Cloudflare", "HiveCache", "WP Rocket"...
+    pub engine: String,
+    /// Valeur brute de l'en-tete, telle que servie.
+    pub raw: String,
+    /// Verdict normalise de CETTE couche. Vide quand le moteur est identifie
+    /// mais que rien ne permet de dire s'il a servi la page.
+    pub status: String,
+}
+
+/// Statut de cache de la reponse, lu dans ses en-tetes (cf. `cachestat`).
+///
+/// Renseigne des la sonde HTTP, donc present sur TOUTE page crawlee, y compris
+/// celles mesurees ensuite au navigateur.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CacheData {
+    /// Verdict normalise : "HIT" | "MISS" | "BYPASS" | "EXPIRED" |
+    /// "REVALIDATED" | "STALE" | "UPDATING" | "PRERENDER" | "DYNAMIC" | "NONE",
+    /// ou la valeur brute en majuscules si le serveur en a dit une autre.
+    ///
+    /// C'est le verdict de la couche la plus EXTERIEURE : ce qu'a vecu le
+    /// visiteur.
+    pub status: String,
+    /// En-tete qui a tranche (ex: "cf-cache-status"), pour la tracabilite.
+    pub source: String,
+    /// Moteur derriere cet en-tete : "Cloudflare", "HiveCache"...
+    #[serde(default)]
+    pub engine: String,
+    /// Qui a REELLEMENT servi la page : le premier cache a avoir repondu sans
+    /// solliciter le serveur, ou "origine" si la requete est allee jusqu'a lui.
+    ///
+    /// Distinct de `status` : « MISS » cote Cloudflare avec `served_by` a
+    /// "HiveCache" signifie que le CDN a laisse passer mais que le cache du
+    /// serveur a fourni la page — le PHP n'a pas tourne.
+    #[serde(default)]
+    pub served_by: String,
+    /// Valeur brute de cet en-tete, telle que servie.
+    pub raw: String,
+    /// `Age` en secondes : temps passe dans le cache. `None` si absent.
+    pub age: Option<u64>,
+    /// TOUTES les couches traversees, de la plus exterieure a la plus interne.
+    ///
+    /// Leur desaccord est l'information la plus parlante : Cloudflare en MISS
+    /// avec HiveCache en HIT dit que la page etait en cache cote serveur mais
+    /// que le CDN est alle la chercher quand meme.
+    #[serde(default)]
+    pub layers: Vec<CacheLayer>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct UrlFlags {
     pub length: usize,
@@ -125,6 +179,10 @@ pub struct PageReport {
     pub security: Option<SecurityData>,
     #[serde(default)]
     pub url_flags: Option<UrlFlags>,
+    /// Statut de cache de la reponse (HIT/MISS/...). `None` quand aucun en-tete
+    /// ne permet de conclure — l'absence d'information n'est pas un MISS.
+    #[serde(default)]
+    pub cache: Option<CacheData>,
 }
 
 /// Default value helper for serde (`threads` defaults to 5).

@@ -143,6 +143,110 @@
     return '<span class="speed-pill ' + speedClass(ms) + '">' + esc(fmtSpeed(ms)) + '</span>';
   }
 
+  // ----- CACHE (cache.status) ----------------------------------------------
+  // Statut de cache de la reponse, lu par le backend sur les en-tetes
+  // (cf-cache-status, x-hivecache, x-cache, age...). Renseigne des la sonde
+  // HTTP, donc present sur toute page crawlee.
+
+  // Objet cache d'une page, ou null.
+  function cacheOf(p) { return p && p.cache ? p.cache : null; }
+
+  // Verdict court en majuscules ("HIT", "MISS"...), "" si indetermine.
+  function cacheStatus(p) {
+    var c = cacheOf(p);
+    return c && c.status ? String(c.status).toUpperCase() : "";
+  }
+
+  // Classe de couleur. Trois familles, pas une par valeur :
+  //   servi par le cache (vert) / alle jusqu'a l'origine (rouge) /
+  //   ni l'un ni l'autre — non eligible, contourne (gris).
+  function cacheClass(st) {
+    if (st === "HIT") return "cache--hit";
+    if (st === "MISS" || st === "EXPIRED") return "cache--miss";
+    if (st === "STALE" || st === "UPDATING" || st === "REVALIDATED" || st === "PRERENDER")
+      return "cache--warm";
+    if (!st) return "cache--na";
+    return "cache--none";   // BYPASS, DYNAMIC, NONE, valeur inconnue
+  }
+
+  // Qui a REELLEMENT servi la page : "Cloudflare", "HiveCache", "WP Rocket"...
+  // ou "origine" quand la requete est allee jusqu'au serveur.
+  function cacheServedBy(p) {
+    var c = cacheOf(p);
+    return c && c.served_by ? String(c.served_by) : "";
+  }
+
+  // Une couche formatee : « Cloudflare (cf-cache-status) : MISS ».
+  function layerText(l) {
+    if (!l) return "";
+    var t = l.engine || l.header || "?";
+    if (l.header && l.engine) t += " (" + l.header + ")";
+    return t + " : " + (l.raw || l.status || "?");
+  }
+
+  // Infobulle : quel moteur a tranche, son age, et toutes les couches.
+  // C'est le desaccord entre couches qui est parlant (CDN MISS + origine HIT).
+  function cacheTitle(p) {
+    var c = cacheOf(p);
+    if (!c) return "Aucun en-tete de cache : impossible de conclure (ce n'est pas un MISS).";
+    var parts = [];
+    if (c.engine) parts.push(c.engine + (c.source ? " (" + c.source + ")" : "") + " : " + (c.raw || c.status));
+    if (c.served_by) parts.push("servi par : " + c.served_by);
+    if (c.age != null) parts.push("age " + fmtAge(c.age));
+    var layers = Array.isArray(c.layers) ? c.layers : [];
+    if (layers.length > 1) {
+      parts.push("couches traversees :");
+      for (var i = 0; i < layers.length; i++) parts.push("   " + layerText(layers[i]));
+    }
+    return parts.join("\n");
+  }
+
+  // Age lisible : secondes, minutes, heures ou jours.
+  function fmtAge(s) {
+    s = s || 0;
+    if (s < 60) return s + " s";
+    if (s < 3600) return Math.round(s / 60) + " min";
+    if (s < 86400) return (s / 3600).toFixed(1).replace(".", ",") + " h";
+    return (s / 86400).toFixed(1).replace(".", ",") + " j";
+  }
+
+  // Ligne "Cache" du panneau de detail : verdict, en-tete qui a tranche, age,
+  // puis TOUTES les couches quand il y en a plusieurs.
+  function cacheInfoText(p) {
+    var c = cacheOf(p);
+    if (!c) return "— (aucun en-tete de cache)";
+    var out = (c.status || "?");
+    if (c.engine) out += " sur " + c.engine + (c.source ? " (" + c.source + ")" : "");
+    if (c.served_by) out += "  —  servi par " + c.served_by;
+    if (c.age != null) out += "  —  age " + fmtAge(c.age);
+    var layers = Array.isArray(c.layers) ? c.layers : [];
+    if (layers.length > 1) {
+      var txt = [];
+      for (var i = 0; i < layers.length; i++) txt.push(layerText(layers[i]));
+      out += "  —  couches : " + txt.join("  >  ");
+    }
+    return out;
+  }
+
+  // Cellule HTML "cache" (pastille coloree). "—" quand aucun en-tete ne permet
+  // de conclure : l'absence d'information n'est pas un MISS.
+  function cacheCellHtml(p) {
+    var st = cacheStatus(p);
+    var label = st || "—";
+    return '<span class="cache-pill ' + cacheClass(st) + '" title="' +
+           esc(cacheTitle(p)) + '">' + esc(label) + '</span>';
+  }
+
+  // Cellule "Servi par" : le moteur qui a fourni la page. "origine" est mis en
+  // evidence — c'est le cas ou le serveur a reellement travaille, donc celui
+  // qui coute et qu'on cherche a reduire.
+  function cacheByCellHtml(p) {
+    var by = cacheServedBy(p);
+    if (!by) return '<span class="muted">—</span>';
+    var cls = (by === "origine") ? "cache-by cache-by--origin" : "cache-by";
+    return '<span class="' + cls + '" title="' + esc(cacheTitle(p)) + '">' + esc(by) + '</span>';
+  }
+
   // Cellule URL : lien tronque, titre complet au survol. stopPropagation pour
   // ne pas selectionner la ligne quand on ouvre le lien dans le navigateur.
   function urlCellHtml(url) {
@@ -206,6 +310,13 @@
   // =========================================================================
   var NEAR_DUP_BITS = 6;          // <= 6 bits de difference = quasi-duplique
   var NEAR_DUP_MAX_PAGES = 2000;  // au-dela, on saute le calcul O(n^2) (cf. note UI)
+
+  // ----- Cadence des rendus PENDANT un crawl -------------------------------
+  // Deux plafonds distincts, parce que les deux couts n'ont pas le meme ordre
+  // de grandeur. Ils ne s'appliquent QUE tant que le crawl tourne : hors
+  // crawl, tri, filtre et recherche restent instantanes.
+  var RENDER_MIN_INTERVAL_MS = 350;    // rendu complet : ~3/s au lieu de ~60/s
+  var NEAR_DUP_MIN_INTERVAL_MS = 3000; // calcul O(n^2) : au plus une fois / 3 s
 
   // Table de popcount sur 16 bits (65536 entrees) : POPCNT16[x] = nb de bits a 1.
   // Construite une seule fois ; rend popcountBig() quasi O(1) par comparaison.
@@ -307,6 +418,8 @@
     // Cadence des re-rendus (batch via requestAnimationFrame pour gros crawls)
     dirty: false,
     rafPending: false,
+    lastRenderAt: 0,                    // horodatage du dernier rendu complet
+    lastNearDupAt: 0,                   // horodatage du dernier calcul O(n^2)
     running: false,
     paused: false,                      // VAGUE 4 (C) : crawl mis en pause (Stop)
     rateStartTs: 0,                     // pour estimer le debit pages/seconde
@@ -333,6 +446,8 @@
       columns: [
         { key: "url",       label: "Adresse" },
         { key: "status",    label: "Code", num: true },
+        { key: "cache",     label: "Cache" },
+        { key: "cacheby",   label: "Servi par" },
         { key: "ctype",     label: "Type" },
         { key: "speed",     label: "Vitesse", num: true },
         { key: "words",     label: "Mots", num: true },
@@ -350,6 +465,12 @@
           { html: urlCellHtml(p.url), text: p.url || "", sort: p.url || "" },
           { html: httpCodeHtml(p.status),
             text: String(p.status || 0), sort: p.status || 0 },
+          // Statut de cache. Le tri regroupe par verdict ; les pages sans
+          // information ("") tombent ensemble, en tete ou en queue.
+          { html: cacheCellHtml(p), text: cacheStatus(p), sort: cacheStatus(p) },
+          // Qui a fourni la page : trier ici isole d'un coup toutes les pages
+          // servies par "origine", celles qui font travailler le serveur.
+          { html: cacheByCellHtml(p), text: cacheServedBy(p), sort: cacheServedBy(p) },
           { html: esc(shortType(p.content_type)), text: p.content_type || "", sort: p.content_type || "" },
           // VAGUE 4 (A) : temps de reponse colore (vert/orange/rouge), triable.
           { html: '<span class="col-num">' + speedCellHtml(respMs(p)) + '</span>',
@@ -1044,22 +1165,70 @@
   function scheduleRender() {
     S.dirty = true;
     if (S.rafPending) return;
+
+    // Pendant un crawl, les pages arrivent en continu : sans plafond, on
+    // reconstruisait TOUT a chaque frame (agregats sur toutes les pages et
+    // tous leurs liens, near-duplicates en O(n^2), tri, grille entiere). Le
+    // thread principal n'avait plus une milliseconde pour traiter un clic —
+    // d'ou l'impression que l'interface "coince" quand on trie en cours de
+    // crawl. On plafonne donc la cadence tant que le crawl tourne ; hors
+    // crawl (tri, filtre, recherche), le rendu reste immediat.
+    var wait = 0;
+    if (S.running) {
+      var since = Date.now() - S.lastRenderAt;
+      if (since < RENDER_MIN_INTERVAL_MS) wait = RENDER_MIN_INTERVAL_MS - since;
+    }
+
     S.rafPending = true;
-    requestAnimationFrame(function () {
-      S.rafPending = false;
-      if (!S.dirty) return;
-      S.dirty = false;
-      rebuildAggregates();   // Vague 4 : inlinks/issues/bw recalcules (idempotent)
-      rebuildDupMaps();      // cartes de doublons fraiches pour grille + overview
-      rebuildNearDup();      // Vague 3 : near-duplicates (Hamming sur simhash)
-      rebuildHreflangRecip();// Vague 3 : reciprocite hreflang (lien retour)
-      renderTabCounts();
-      renderOverview();
-      renderGrid();
-      // Si une ligne est selectionnee, on rafraichit le panneau de detail :
-      // les Inlinks peuvent grossir au fil du crawl (nouvelles pages liantes).
-      if (S.selectedUrl) renderDetail();
-    });
+    var run = function () {
+      requestAnimationFrame(function () {
+        S.rafPending = false;
+        if (!S.dirty) return;
+        S.dirty = false;
+        S.lastRenderAt = Date.now();
+        rebuildAggregates();   // Vague 4 : inlinks/issues/bw recalcules (idempotent)
+        rebuildDupMaps();      // cartes de doublons fraiches pour grille + overview
+        maybeRebuildNearDup(); // Vague 3 : near-duplicates (Hamming sur simhash)
+        rebuildHreflangRecip();// Vague 3 : reciprocite hreflang (lien retour)
+        renderTabCounts();
+        renderOverview();
+        renderGrid();
+        // Si une ligne est selectionnee, on rafraichit le panneau de detail :
+        // les Inlinks peuvent grossir au fil du crawl (nouvelles pages liantes).
+        if (S.selectedUrl) renderDetail();
+      });
+    };
+    if (wait > 0) setTimeout(run, wait);
+    else run();
+  }
+
+  // Near-duplicates : calcul O(n^2) espace pendant le crawl.
+  //
+  // A 2000 pages, `rebuildNearDup` compare 2 millions de paires en BigInt
+  // (XOR + popcount) : le refaire a chaque cycle de rendu bloquait le thread
+  // principal a lui seul. Pendant le crawl on l'espace donc fortement — la
+  // carte affichee a au pire quelques secondes de retard, ce qui est sans
+  // consequence pour un indicateur qui evolue de page en page. Hors crawl
+  // (donc a la fin, et a chaque interaction), le calcul reste systematique et
+  // la carte est exacte.
+  function maybeRebuildNearDup() {
+    if (S.running) {
+      var since = Date.now() - S.lastNearDupAt;
+      if (since < NEAR_DUP_MIN_INTERVAL_MS) return;
+    }
+    S.lastNearDupAt = Date.now();
+    rebuildNearDup();
+  }
+
+  // Rendu complet SANS plafond de cadence.
+  //
+  // A appeler quand l'affichage doit etre exact et non plus seulement frais :
+  // en fin de sequence, la carte des near-duplicates volontairement espacee
+  // pendant le crawl doit etre recalculee sur la totalite des pages.
+  function renderNow() {
+    S.lastRenderAt = 0;     // plus d'attente
+    S.lastNearDupAt = 0;    // force le recalcul O(n^2)
+    scheduleRender();
   }
 
   // =========================================================================
@@ -1183,17 +1352,38 @@
     }
 
     // --- En-tete (colonnes triables au clic) ---
-    var hh = "<tr>";
-    for (var c = 0; c < def.columns.length; c++) {
-      var col = def.columns[c];
-      var cls = "";
-      if (S.sort.key === col.key) cls = S.sort.dir === "asc" ? "sort-asc" : "sort-desc";
-      var savedW = PREFS.colWidths && PREFS.colWidths[S.activeTab] && PREFS.colWidths[S.activeTab][col.key];
-      var wStyle = savedW ? ' style="width:' + savedW + 'px"' : '';
-      hh += '<th data-key="' + esc(col.key) + '" class="' + cls + '"' + wStyle + '>' + esc(col.label) + '<span class="col-resizer"></span></th>';
+    //
+    // L'en-tete n'est REECRIT que si son contenu logique change : onglet, tri,
+    // ou largeurs enregistrees. Le reconstruire a chaque rendu — donc a chaque
+    // page recue pendant un crawl — detruisait les <th> en continu, avec deux
+    // consequences visibles :
+    //   - un clic de tri etait AVALE quand le remplacement tombait entre le
+    //     mousedown et le mouseup (le navigateur n'emet `click` que si les deux
+    //     visent le meme element) ;
+    //   - un redimensionnement en cours perdait sa reference `rz.th`, qui
+    //     pointait alors sur un noeud detache.
+    var widthsSig = "";
+    var savedTab = PREFS.colWidths && PREFS.colWidths[S.activeTab];
+    if (savedTab) {
+      for (var wk in savedTab) {
+        if (Object.prototype.hasOwnProperty.call(savedTab, wk)) widthsSig += wk + ":" + savedTab[wk] + ";";
+      }
     }
-    hh += "</tr>";
-    head.innerHTML = hh;
+    var headSig = S.activeTab + "|" + S.sort.key + "|" + S.sort.dir + "|" + widthsSig;
+    if (head.__sig !== headSig) {
+      var hh = "<tr>";
+      for (var c = 0; c < def.columns.length; c++) {
+        var col = def.columns[c];
+        var cls = "";
+        if (S.sort.key === col.key) cls = S.sort.dir === "asc" ? "sort-asc" : "sort-desc";
+        var savedW = savedTab && savedTab[col.key];
+        var wStyle = savedW ? ' style="width:' + savedW + 'px"' : '';
+        hh += '<th data-key="' + esc(col.key) + '" class="' + cls + '"' + wStyle + '>' + esc(col.label) + '<span class="col-resizer"></span></th>';
+      }
+      hh += "</tr>";
+      head.innerHTML = hh;
+      head.__sig = headSig;
+    }
 
     // --- Lignes (mappees + triees) ---
     var items = currentItems();
@@ -1844,6 +2034,7 @@
     var rows = [
       ["Adresse", p.url || ""],
       ["Code HTTP", String(p.status || 0)],
+      ["Cache", cacheInfoText(p)],
       ["Content-Type", p.content_type || "—"],
       ["Sonde", probeLabel(p.measured_with)],
       ["Poids total", fmtBytes(p.total_bytes || 0)],
@@ -2242,6 +2433,11 @@
     // crawl (dans le handler `crawl:done`) : re-sauver ici ne ferait que
     // reecrire a l'identique le dernier de la liste.
     if (!isList) saveCurrentCrawl(true);
+
+    // Le crawl est fini : on repasse d'un affichage FRAIS (cadence plafonnee)
+    // a un affichage EXACT. Sans ce rendu force, la carte des near-duplicates
+    // garderait l'etat de son dernier calcul, jusqu'a 3 s avant la fin.
+    renderNow();
   }
 
   // Vide UNIQUEMENT les donnees du run courant (pages, index, issues, bw).
