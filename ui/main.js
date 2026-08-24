@@ -161,6 +161,10 @@
   //   servi par le cache (vert) / alle jusqu'a l'origine (rouge) /
   //   ni l'un ni l'autre — non eligible, contourne (gris).
   function cacheClass(st) {
+    // EDGE : heberge sur le reseau (Cloudflare Pages/Workers). Aucune origine
+    // n'existe, donc aucune n'a ete sollicitee — meme famille qu'un HIT, avec
+    // sa teinte propre pour ne pas laisser croire a un cache classique.
+    if (st === "EDGE") return "cache--edge";
     if (st === "HIT") return "cache--hit";
     if (st === "MISS" || st === "EXPIRED") return "cache--miss";
     if (st === "STALE" || st === "UPDATING" || st === "REVALIDATED" || st === "PRERENDER")
@@ -247,12 +251,17 @@
     return '<span class="' + cls + '" title="' + esc(cacheTitle(p)) + '">' + esc(by) + '</span>';
   }
 
-  // Cellule URL : lien tronque, titre complet au survol. stopPropagation pour
-  // ne pas selectionner la ligne quand on ouvre le lien dans le navigateur.
+  // Cellule URL : lien tronque, titre complet au survol.
+  //
+  // Le `href` est CONSERVE bien qu'il ne soit jamais suivi : il donne au lien
+  // son apparence et son curseur, alimente le menu contextuel ("Copier
+  // l'adresse du lien") et sert de source a l'ouverture. C'est le gestionnaire
+  // delegue (cf. initExternalLinks) qui intercepte le clic et confie l'URL au
+  // navigateur par defaut, la WebView n'ayant nulle part ou ouvrir un onglet.
   function urlCellHtml(url) {
     var u = esc(url || "");
-    return '<a href="' + u + '" target="_blank" rel="noopener noreferrer" title="' +
-           u + '" class="cell-url" onclick="event.stopPropagation()">' +
+    return '<a href="' + u + '" rel="noopener noreferrer" title="' +
+           u + '" class="cell-url">' +
            esc(truncUrl(url, 90)) + '</a>';
   }
   function pill(kind, label) {
@@ -3156,6 +3165,39 @@
     });
   }
 
+  // Clic sur une URL -> ouverture dans le NAVIGATEUR PAR DEFAUT du systeme.
+  //
+  // Dans une WebView il n'y a ni onglet ni fenetre ou aller : un
+  // `target="_blank"` ne produit rien, et laisser le lien se suivre remplacerait
+  // l'application elle-meme par la page distante. Le clic est donc intercepte et
+  // l'URL confiee au systeme via la commande `open_external`.
+  //
+  // Un SEUL gestionnaire, delegue sur le document : il couvre tous les liens
+  // d'URL de l'application — grille, panneau de detail, onglets Liens et
+  // Sitemap — y compris ceux crees plus tard, puisqu'il ne vise pas les noeuds
+  // mais la classe.
+  //
+  // En phase de CAPTURE (3e argument a `true`), et c'est indispensable : la
+  // selection de ligne est branchee sur le tbody, qui en phase de bouillonnage
+  // recevrait le clic AVANT le document et ouvrirait le panneau de detail au
+  // passage. En capture, le document voit l'evenement en premier et peut
+  // l'arreter. C'est ce que faisait l'ancien `onclick` pose sur le lien lui-meme.
+  function initExternalLinks() {
+    document.addEventListener("click", function (e) {
+      var a = e.target.closest && e.target.closest("a.cell-url");
+      if (!a) return;
+      var href = a.getAttribute("href");
+      e.preventDefault();    // ne JAMAIS naviguer dans la fenetre de l'app
+      // Un lien reste un lien : cliquer dessus ne doit pas, en plus, changer la
+      // ligne selectionnee dans la grille.
+      e.stopPropagation();
+      if (!href) return;
+      if (!TAURI) { return; }   // hors Tauri (page ouverte seule) : rien a faire
+      TAURI.core.invoke("open_external", { url: href })
+        .catch(function (err) { console.error("open_external", href, err); });
+    }, true);
+  }
+
   // #F : redimensionnement des colonnes a la souris ; largeurs persistees par onglet.
   function initColResize() {
     var rz = null;
@@ -3412,6 +3454,7 @@
     initSaveDir();   // #E : champ dossier des projets
     initColResize();   // #F : colonnes redimensionnables
     initDetailResize();   // panneau de detail redimensionnable (hauteur persistee)
+    initExternalLinks();  // liens d'URL -> navigateur par defaut du systeme
 
     // Volet de reglages repliable.
     var toggle = $("btn-toggle-settings");

@@ -13,6 +13,8 @@
 //!                             reprendre via un nouvel appel a `start_crawl`).
 //!   - `clear_crawl()`       : VIDE l'etat de crawl (apres ca, `start_crawl` repart
 //!                             de zero). Le bouton "Vider" de l'UI peut l'appeler.
+//!   - `open_external(url)`  : ouvre une URL http(s) dans le navigateur par
+//!                             defaut du systeme (impossible depuis la WebView).
 //!
 //! ## Pause / reprise (Vague 4)
 //!
@@ -327,6 +329,50 @@ pub fn open_crawls_folder(app: AppHandle, dir: Option<String>) -> Result<(), Str
     #[cfg(not(windows))]
     {
         std::process::Command::new("xdg-open").arg(&d).spawn().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Ouvre une URL dans le NAVIGATEUR PAR DEFAUT du systeme.
+///
+/// POURQUOI une commande cote Rust : dans une WebView, un `<a target="_blank">`
+/// ne fait rien — il n'y a pas d'onglet ou aller. Seul le systeme peut ouvrir le
+/// navigateur, et seul le backend peut le lui demander.
+///
+/// SECURITE — le schema est VERIFIE avant tout appel systeme. Ces URLs viennent
+/// de pages crawlees, donc de sources non maitrisees : sans ce filtre, un lien
+/// `file:///C:/...` ouvrirait un fichier local et un schema proprietaire
+/// (`ms-...`) declencherait le handler correspondant. Seuls `http` et `https`
+/// passent.
+///
+/// Aucun shell n'est invoque (pas de `cmd /c start`) : l'URL est passee comme
+/// ARGUMENT au programme, jamais interpretee comme une ligne de commande, ce qui
+/// ecarte toute injection via `&`, `|` ou `^`.
+#[tauri::command]
+pub fn open_external(url: String) -> Result<(), String> {
+    let parsed = url::Url::parse(url.trim())
+        .map_err(|e| format!("URL invalide : {e}"))?;
+    match parsed.scheme() {
+        "http" | "https" => {}
+        other => return Err(format!("schema refuse : {other}")),
+    }
+    // On repasse par la forme normalisee par le parseur, jamais par la chaine
+    // brute recue du frontend.
+    let target = parsed.as_str();
+
+    #[cfg(windows)]
+    {
+        // `explorer <url>` delegue au navigateur par defaut. Il rend un code de
+        // sortie non nul meme en cas de succes : on ne l'attend pas (`spawn`).
+        std::process::Command::new("explorer").arg(target).spawn().map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open").arg(target).spawn().map_err(|e| e.to_string())?;
+    }
+    #[cfg(all(not(windows), not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open").arg(target).spawn().map_err(|e| e.to_string())?;
     }
     Ok(())
 }

@@ -177,6 +177,36 @@ fn is_bot_challenge(status: u16, headers: &reqwest::header::HeaderMap, html: &st
     false
 }
 
+/// En-tetes par defaut d'une NAVIGATION, ajoutes a tous les clients HTTP.
+///
+/// Un agent utilisateur realiste ne suffit pas : Cloudflare juge une requete sur
+/// son `Accept`. Sans en-tete `Accept` de document, il traite l'appel comme une
+/// sonde et OMET son `server-timing` — celui qui expose `cfOrigin;dur=0`, seule
+/// facon de savoir si l'origine a travaille sur un hebergement de peripherie
+/// (Pages, Workers), ou aucun `cf-cache-status` n'est emis.
+///
+/// Verifie le 24/08/2026 sur www.fuiterecherche.com : a UA identique, la
+/// presence du seul `Accept` fait apparaitre `server-timing`. Ni
+/// `Accept-Encoding`, ni `Accept-Language`, ni les `Sec-Fetch-*` n'ont cet effet.
+///
+/// La valeur est celle de Chrome pour un document. Le `*/*;q=0.8` final laisse
+/// passer images, scripts et feuilles de style, que le meme client telecharge
+/// pour mesurer le poids des pages.
+fn browser_headers() -> reqwest::header::HeaderMap {
+    let mut h = reqwest::header::HeaderMap::new();
+    h.insert(
+        reqwest::header::ACCEPT,
+        reqwest::header::HeaderValue::from_static(
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        ),
+    );
+    h.insert(
+        reqwest::header::ACCEPT_LANGUAGE,
+        reqwest::header::HeaderValue::from_static("fr-FR,fr;q=0.9,en;q=0.8"),
+    );
+    h
+}
+
 /// Petit generateur xorshift64 (pour les delais aleatoires "humains").
 fn rng_next(mut x: u64) -> u64 {
     if x == 0 {
@@ -486,6 +516,7 @@ where
     let client = reqwest::Client::builder()
         .user_agent(USER_AGENT)
         .cookie_store(true)
+        .default_headers(browser_headers())
         // Redirects are followed manually in `http_probe::probe` so the full
         // chain (and the first 3xx code) is observable.
         .redirect(reqwest::redirect::Policy::none())
@@ -845,6 +876,10 @@ async fn process_one_page<P, G>(
     let page_client = match &profile {
         Some(p) => reqwest::Client::builder()
             .user_agent(p.ua)
+            // Memes en-tetes de navigation que le client global : sans eux,
+            // cocher "UA aleatoire" ferait disparaitre le `server-timing` de
+            // Cloudflare, donc la colonne Cache sur tout hebergement Pages.
+            .default_headers(browser_headers())
             // Same manual-redirect policy AND same timeouts as the global
             // client : sans ca, la rotation d'UA reintroduirait l'attente
             // illimitee sur un hote injoignable.

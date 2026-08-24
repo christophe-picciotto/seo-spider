@@ -66,7 +66,10 @@ const AGE_HEADERS: &[&str] = &["age", "x-hivecache-age", "x-cache-age"];
 /// `REVALIDATED` et `EXPIRED` n'en font pas partie : dans les deux cas le cache
 /// a contacte le serveur pour verifier sa copie. Pour la question « est-ce
 /// qu'on est alle taper le site ? », la reponse y est oui.
-const SERVED_FROM_CACHE: &[&str] = &["HIT", "STALE", "UPDATING"];
+///
+/// `EDGE` en fait partie pour une raison plus radicale : sur un hebergement de
+/// peripherie, il n'y a pas d'origine du tout (cf. `cloudflare_edge`).
+const SERVED_FROM_CACHE: &[&str] = &["HIT", "STALE", "UPDATING", "EDGE"];
 
 /// Nom retenu quand aucun cache n'a servi : la page vient du serveur.
 const ORIGIN: &str = "origine";
@@ -217,6 +220,94 @@ fn read_age(headers: &HeaderMap) -> Option<u64> {
     None
 }
 
+/// Reconnait un hebergement de PERIPHERIE Cloudflare (Pages, Workers avec
+/// assets statiques), qui n'emet aucun statut de cache.
+///
+/// LE FAIT, verifie sur le parc : Cloudflare Pages ne pose JAMAIS
+/// `cf-cache-status` sur le HTML — ni a la premiere requete, ni aux suivantes.
+/// Un site proxifie classique en porte toujours un, ne serait-ce que `DYNAMIC`.
+/// L'ABSENCE de cet en-tete, conjuguee a la presence de `cf-ray` (l'identifiant
+/// de requete que Cloudflare ajoute systematiquement), est donc discriminante.
+///
+/// POURQUOI ce n'est ni un HIT ni un MISS : sur ce type d'hebergement il n'y a
+/// pas d'origine a joindre. Le document EST sur le reseau, servi par le noeud le
+/// plus proche. La question « le serveur a-t-il travaille ? » n'a pas de MISS
+/// possible — d'ou un verdict propre, `EDGE`, plutot qu'un HIT approximatif.
+///
+/// PRECISION DU NOM : les en-tetes ne permettent pas de distinguer Pages d'un
+/// Worker servant des assets statiques — leurs reponses sont identiques. On s'en
+/// tient donc a « Cloudflare edge », vrai dans les deux cas, plutot que de
+/// nommer un produit au hasard.
+fn cloudflare_edge(headers: &HeaderMap) -> Option<CacheLayer> {
+    if !headers.contains_key("cf-ray") {
+        return None;
+    }
+
+    // Piste PRECISE, quand elle est disponible : `server-timing`.
+    //
+    // Cloudflare y decompose le temps de traitement — `cfEdge` (peripherie),
+    // `cfOrigin` (serveur d'origine), `cfWorker` (code execute au bord) :
+    //
+    //     server-timing: cfEdge;dur=13,cfOrigin;dur=0,cfWorker;dur=58
+    //
+    // `cfOrigin;dur=0` DIT que l'origine n'a pas ete sollicitee — l'equivalent
+    // d'un HIT, exprime en temps plutot qu'en statut. Une valeur non nulle dit
+    // l'inverse : le serveur a travaille, donc MISS.
+    //
+    // ATTENTION : cet en-tete n'est emis que si la requete ressemble a une
+    // NAVIGATION, ce que Cloudflare juge sur l'en-tete `Accept`. Le crawler en
+    // envoie donc un de navigateur (cf. `crawler.rs`) — sans lui, l'information
+    // n'arrive jamais.
+    if let Some(st) = header_lower(headers, "server-timing") {
+        if let Some(origin_ms) = server_timing_dur(&st, "cforigin") {
+            let worker = server_timing_dur(&st, "cfworker").unwrap_or(0.0);
+            let engine = if worker > 0.0 { "Cloudflare Worker" } else { "Cloudflare edge" };
+            return Some(CacheLayer {
+                header: "server-timing".to_string(),
+                engine: engine.to_string(),
+                raw: st.clone(),
+                status: if origin_ms > 0.0 {
+                    // Le serveur d'origine a bel et bien repondu.
+                    "MISS".to_string()
+                } else {
+                    "EDGE".to_string()
+                },
+            });
+        }
+    }
+
+    // A defaut : la seule ABSENCE de statut malgre un `cf-ray`.
+    Some(CacheLayer {
+        header: "cf-ray".to_string(),
+        engine: "Cloudflare edge".to_string(),
+        raw: "servi par le reseau, sans origine (aucun cf-cache-status)".to_string(),
+        status: "EDGE".to_string(),
+    })
+}
+
+/// Lit une duree dans un en-tete `server-timing` : `parse("cfEdge;dur=13,...",
+/// "cfedge")` renvoie `Some(13.0)`.
+///
+/// Le nom recherche doit etre donne en MINUSCULES (l'en-tete est deja abaisse
+/// par `header_lower`).
+fn server_timing_dur(raw: &str, name: &str) -> Option<f64> {
+    for entry in raw.split(',') {
+        let entry = entry.trim();
+        let mut parts = entry.split(';');
+        let key = parts.next()?.trim();
+        if key != name {
+            continue;
+        }
+        for p in parts {
+            let p = p.trim();
+            if let Some(v) = p.strip_prefix("dur=") {
+                return v.trim().parse::<f64>().ok();
+            }
+        }
+    }
+    None
+}
+
 /// Les `n` derniers octets d'une chaine, coupes sur une frontiere de caractere.
 ///
 /// `len()` compte des OCTETS : trancher a l'aveugle ferait paniquer des qu'un
@@ -306,9 +397,11 @@ fn wp_rocket_from_html(html: &str) -> Option<CacheLayer> {
 ///   1. les en-tetes connus, dans l'ordre du plus exterieur au plus interne ;
 ///   2. tout en-tete dont le nom evoque un cache et dont la valeur dit hit/miss
 ///      (caches maison, plugins WordPress) ;
-///   3. la signature HTML de WP Rocket, qui n'emet pas d'en-tete sans son
+///   3. l'hebergement de peripherie Cloudflare (Pages, Workers), reconnaissable
+///      a l'ABSENCE de statut de cache malgre un `cf-ray` ;
+///   4. la signature HTML de WP Rocket, qui n'emet pas d'en-tete sans son
 ///      module serveur ;
-///   4. `Age` (RFC 9111) : un age > 0 PROUVE qu'un intermediaire a stocke puis
+///   5. `Age` (RFC 9111) : un age > 0 PROUVE qu'un intermediaire a stocke puis
 ///      servi la reponse, meme sans en-tete proprietaire. Un age de 0 ne prouve
 ///      rien — une entree fraichement stockee vaut 0 elle aussi.
 ///
@@ -361,7 +454,21 @@ pub fn analyze(headers: &HeaderMap, html: &str) -> Option<CacheData> {
         }
     }
 
-    // --- 3. WP Rocket sans en-tete (signature HTML) ------------------------
+    // --- 3. Hebergement de peripherie Cloudflare (Pages / Workers) ---------
+    //
+    // UNIQUEMENT si aucun en-tete de statut n'a parle : c'est precisement leur
+    // absence qui signe ce mode d'hebergement. Des qu'un `cf-cache-status`
+    // existe — meme `DYNAMIC` —, le site est proxifie et c'est lui qui fait foi.
+    //
+    // Insere EN TETE : le reseau de peripherie est la couche la plus exterieure
+    // de toutes, celle qui a repondu au visiteur.
+    if layers.is_empty() {
+        if let Some(l) = cloudflare_edge(headers) {
+            layers.push(l);
+        }
+    }
+
+    // --- 4. WP Rocket sans en-tete (signature HTML) ------------------------
     // Ajoute en DERNIER : c'est un cache d'origine, le plus interne de tous.
     if !layers.iter().any(|l| l.engine == "WP Rocket") {
         if let Some(l) = wp_rocket_from_html(html) {
@@ -618,6 +725,109 @@ mod tests {
         html.push_str("<!-- WP Rocket -->");
         let c = analyze(&HeaderMap::new(), &html).unwrap();
         assert_eq!(c.engine, "WP Rocket");
+    }
+
+    // --- Hebergement de peripherie Cloudflare ------------------------------
+    // En-tetes releves le 24/08/2026 sur amiante.guide et web-pulse.app.
+
+    #[test]
+    fn cloudflare_pages_reconnu_malgre_l_absence_de_statut() {
+        let c = an(&[
+            ("cf-ray", "a30423943f3300d0-CDG"),
+            ("cache-control", "public, max-age=0, must-revalidate"),
+            ("access-control-allow-origin", "*"),
+            ("server", "cloudflare"),
+        ])
+        .unwrap();
+        assert_eq!(c.status, "EDGE");
+        assert_eq!(c.engine, "Cloudflare edge");
+        // Il n'y a pas d'origine a joindre : le document EST sur le reseau.
+        assert_eq!(c.served_by, "Cloudflare edge");
+    }
+
+    #[test]
+    fn un_cf_cache_status_meme_dynamic_prime_sur_la_signature_edge() {
+        // Site proxifie (Worker SSR) : l'en-tete existe, il fait foi, et la
+        // detection de peripherie ne doit PAS se declencher.
+        let c = an(&[("cf-ray", "a30423d6ba98acc1-CDG"), ("cf-cache-status", "DYNAMIC")]).unwrap();
+        assert_eq!(c.status, "DYNAMIC");
+        assert_eq!(c.engine, "Cloudflare");
+        assert_eq!(c.served_by, ORIGIN);
+        assert_eq!(c.layers.len(), 1);
+    }
+
+    // --- server-timing : la decomposition edge / origine / worker ----------
+    // Valeurs relevees le 24/08/2026 sur www.fuiterecherche.com.
+
+    #[test]
+    fn server_timing_origine_a_zero_vaut_edge() {
+        let c = an(&[
+            ("cf-ray", "a3046d370c2fbb4e-CDG"),
+            ("server-timing", "cfEdge;dur=13,cfOrigin;dur=0,cfWorker;dur=58"),
+        ])
+        .unwrap();
+        assert_eq!(c.status, "EDGE");
+        // Un cfWorker non nul : du code a tourne au bord, pas sur une origine.
+        assert_eq!(c.engine, "Cloudflare Worker");
+        assert_eq!(c.served_by, "Cloudflare Worker");
+    }
+
+    #[test]
+    fn server_timing_origine_non_nulle_vaut_miss() {
+        // Le serveur d'origine a bel et bien travaille.
+        let c = an(&[
+            ("cf-ray", "abc-CDG"),
+            ("server-timing", "cfEdge;dur=4,cfOrigin;dur=213,cfWorker;dur=0"),
+        ])
+        .unwrap();
+        assert_eq!(c.status, "MISS");
+        assert_eq!(c.engine, "Cloudflare edge");
+        assert_eq!(c.served_by, ORIGIN);
+    }
+
+    #[test]
+    fn server_timing_sans_worker_reste_edge() {
+        let c = an(&[("cf-ray", "abc"), ("server-timing", "cfEdge;dur=9,cfOrigin;dur=0")]).unwrap();
+        assert_eq!(c.status, "EDGE");
+        assert_eq!(c.engine, "Cloudflare edge");
+    }
+
+    #[test]
+    fn server_timing_d_un_autre_editeur_est_ignore() {
+        // Beaucoup d'applications emettent leur propre `server-timing` : sans
+        // cle `cfOrigin`, on retombe sur la detection par absence de statut.
+        let c = an(&[("cf-ray", "abc"), ("server-timing", "db;dur=53, app;dur=47.2")]).unwrap();
+        assert_eq!(c.status, "EDGE");
+        assert_eq!(c.source, "cf-ray");
+    }
+
+    #[test]
+    fn un_cf_cache_status_prime_sur_le_server_timing() {
+        // Site proxifie : le statut explicite fait foi, on ne deduit rien.
+        let c = an(&[
+            ("cf-ray", "abc"),
+            ("cf-cache-status", "HIT"),
+            ("server-timing", "cfEdge;dur=1,cfOrigin;dur=99"),
+        ])
+        .unwrap();
+        assert_eq!(c.status, "HIT");
+        assert_eq!(c.source, "cf-cache-status");
+    }
+
+    #[test]
+    fn lecture_d_une_duree_server_timing() {
+        let raw = "cfedge;dur=13,cforigin;dur=0,cfworker;dur=58.5";
+        assert_eq!(server_timing_dur(raw, "cfedge"), Some(13.0));
+        assert_eq!(server_timing_dur(raw, "cforigin"), Some(0.0));
+        assert_eq!(server_timing_dur(raw, "cfworker"), Some(58.5));
+        assert_eq!(server_timing_dur(raw, "absent"), None);
+    }
+
+    #[test]
+    fn sans_cf_ray_pas_de_verdict_de_peripherie() {
+        // `server: cloudflare` seul ne suffit pas : il apparait aussi sur des
+        // reponses ou Cloudflare n'a fait que relayer.
+        assert!(an(&[("server", "cloudflare")]).is_none());
     }
 
     // --- Divers ------------------------------------------------------------

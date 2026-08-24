@@ -21,6 +21,7 @@ fn main() {
             commands::save_crawl,
             commands::load_crawl,
             commands::open_crawls_folder,
+            commands::open_external,
             commands::pick_folder,
             commands::pick_open_project,
             commands::pick_url_list,

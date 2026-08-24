@@ -707,6 +707,10 @@ body.is-resizing-detail { user-select: none; cursor: ns-resize; }
   cursor: help;              /* l'infobulle porte le detail des couches */
 }
 .cache--hit  { color: var(--ok);    background: var(--ok-bg); }
+/* EDGE : heberge sur le reseau (Pages/Workers), aucune origine sollicitee.
+   Bleu et non vert : c'est aussi bon qu'un HIT, mais ce n'est PAS un cache
+   classique — la nuance de teinte evite de confondre les deux d'un coup d'oeil. */
+.cache--edge { color: var(--accent); background: #e5edfd; }
 .cache--miss { color: var(--err);   background: var(--err-bg); }
 .cache--warm { color: var(--redir); background: var(--redir-bg); }
 .cache--none { color: var(--text-soft); background: #e7e9ee; }
