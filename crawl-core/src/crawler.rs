@@ -122,6 +122,61 @@ fn needs_chrome(tech: &[String]) -> bool {
     tech.iter().any(|t| JS_FRAMEWORKS.contains(&t.as_str()))
 }
 
+/// Vrai si la reponse est un DEFI anti-bot (Cloudflare et equivalents).
+///
+/// Un defi n'est pas une panne du site : c'est une page intermediaire qui exige
+/// l'execution d'un JavaScript pour delivrer un cookie de passage. Une sonde HTTP
+/// pure ne peut pas la franchir et enregistre un 403 trompeur — le site repond
+/// parfaitement 200 des qu'on l'interroge en direct.
+///
+/// Trois signaux, du plus fiable au plus general :
+///   1. l'en-tete `cf-mitigated: challenge`, que Cloudflare pose explicitement ;
+///   2. le titre « Just a moment... » de sa page d'attente ;
+///   3. un 403 servi par `server: cloudflare` sur un corps minuscule.
+///
+/// Quand c'est vrai, on bascule sur Chrome : un vrai navigateur execute le defi,
+/// obtient le cookie, et le magasin de cookies du client le reutilise ensuite pour
+/// tout le reste du crawl.
+fn is_bot_challenge(status: u16, headers: &reqwest::header::HeaderMap, html: &str) -> bool {
+    // 1. Signal explicite de Cloudflare.
+    if let Some(v) = header_lower(headers, "cf-mitigated") {
+        if v.contains("challenge") {
+            return true;
+        }
+    }
+
+    // 2. Page d'attente reconnaissable.
+    if status == 403 || status == 503 {
+        // `len()` compte des OCTETS, pas des caracteres : couper a l'aveugle au
+        // 2048e ferait paniquer le worker si la borne tombe au milieu d'un
+        // caractere multi-octets — un seul accent dans une page 403 francaise
+        // suffit. On recule jusqu'a la derniere frontiere valide (3 tours au
+        // pire, un caractere UTF-8 pesant au plus 4 octets).
+        let mut cut = html.len().min(2048);
+        while cut > 0 && !html.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        let head = html[..cut].to_ascii_lowercase();
+        if head.contains("just a moment")
+            || head.contains("cf-browser-verification")
+            || head.contains("challenge-platform")
+        {
+            return true;
+        }
+    }
+
+    // 3. 403 tres court servi par Cloudflare : signature d'une interstitielle.
+    if status == 403 && html.len() < 8192 {
+        if let Some(server) = header_lower(headers, "server") {
+            if server.contains("cloudflare") {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
 /// Petit generateur xorshift64 (pour les delais aleatoires "humains").
 fn rng_next(mut x: u64) -> u64 {
     if x == 0 {
@@ -410,9 +465,27 @@ where
     state.started.store(true, Ordering::SeqCst);
 
     // --- Client HTTP par defaut : compression negociee + UA Chrome realiste.
-    //     (Aucun cookie store n'est active : chaque requete part d'un etat vierge.) ---
+    //
+    //     COOKIE STORE ACTIVE (auparavant : aucun, chaque requete partait vierge).
+    //
+    //     Motif : les defis anti-bot fonctionnent en DEUX temps. La premiere
+    //     requete recoit un 403 accompagne d'un cookie de passage — `cf_clearance`
+    //     chez Cloudflare — et les requetes suivantes doivent le presenter. Sans
+    //     magasin de cookies, ce jeton etait jete aussitot recu : chaque URL du
+    //     crawl repartait de zero et recoltait un 403, y compris apres que Chrome
+    //     eut resolu le defi.
+    //
+    //     Mesure du 08/08/2026 sur un parc de 7 sites derriere Cloudflare :
+    //     200 depuis l'origine sur les 7, mais 403 via Cloudflare sur 5 d'entre
+    //     eux, tous avec l'en-tete `cf-mitigated: challenge`. L'agent utilisateur
+    //     n'y etait pour rien : Chrome/145, Screaming Frog et un UA vide donnaient
+    //     le meme resultat.
+    //
+    //     Le magasin est propre au client, donc au crawl : rien ne persiste d'une
+    //     execution a l'autre. ---
     let client = reqwest::Client::builder()
         .user_agent(USER_AGENT)
+        .cookie_store(true)
         // Redirects are followed manually in `http_probe::probe` so the full
         // chain (and the first 3xx code) is observable.
         .redirect(reqwest::redirect::Policy::none())
@@ -811,8 +884,16 @@ async fn process_one_page<P, G>(
     // 2. Detection de techno (headers + HTML).
     let tech = crate::techno::detect(&probe.headers, &probe.html);
 
-    // 3. DECISION : navigateur (framework JS / force_chrome) ou HTTP statique.
-    let use_chrome = config.force_chrome || needs_chrome(&tech);
+    // 3. DECISION : navigateur (framework JS / defi anti-bot / force_chrome)
+    //    ou HTTP statique.
+    //
+    //    Le defi anti-bot est la troisieme raison de passer par Chrome, et la
+    //    seule qui ne depende pas de la techno du site : sans lui, la sonde HTTP
+    //    enregistrerait un 403 alors que la page est parfaitement servie. Chrome
+    //    execute le defi, et le cookie obtenu profite ensuite a tout le crawl
+    //    grace au magasin de cookies du client.
+    let challenged = is_bot_challenge(probe.status, &probe.headers, &probe.html);
+    let use_chrome = config.force_chrome || needs_chrome(&tech) || challenged;
 
     // On tente d'abord la mesure navigateur si demandee/necessaire, en notant
     // toute raison d'echec pour basculer proprement sur le repli HTTP statique.
