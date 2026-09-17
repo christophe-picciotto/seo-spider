@@ -290,6 +290,22 @@ a:hover { text-decoration: underline; }
   width: 16px; height: 16px; line-height: 14px; border-radius: 3px; cursor: pointer; font-weight: 700;
 }
 
+/* ----- Compteur de selection multiple + bouton Copier (barre d'outils) ----- */
+.multi-sel {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--text-muted);
+  padding: 3px 8px; background: #eef2fb; border: 1px solid #c6d6f3; border-radius: 3px;
+}
+.multi-sel[hidden] { display: none; }
+.multi-sel strong { color: var(--accent-dark); }
+.multi-sel button {
+  border: none; background: #c6d6f3; color: var(--accent-dark);
+  padding: 2px 8px; border-radius: 3px; cursor: pointer; font-weight: 600; font-size: 11px;
+}
+.multi-sel button:hover { background: #b6c9ec; }
+.multi-sel button.multi-sel-x { width: 16px; height: 16px; line-height: 14px; padding: 0; font-weight: 700; }
+.multi-sel button.is-done { background: var(--ok-bg); color: var(--ok); }
+
 /* ----- Selecteur de vue Sitemap (Vague 3) : visible sur l'onglet Sitemap --- */
 .sitemap-views {
   display: inline-flex; align-items: center; gap: 6px;
@@ -402,6 +418,11 @@ a:hover { text-decoration: underline; }
 .grid tbody tr.row--alert,
 .grid tbody tr.row--alert:nth-child(even) { background: var(--err-bg); }
 .grid tbody tr:hover { background: var(--row-hover); cursor: pointer; }
+/* Selection MULTIPLE (clic / Shift+clic / Ctrl+clic), independante de la ligne
+   ouverte dans le detail (.is-selected) : les deux peuvent se cumuler. Pas de
+   liseret pour ne pas la confondre avec le detail ; un fond bleu plus soutenu. */
+.grid tbody tr.is-multi { background: #dbe9fb; }
+.grid tbody tr.is-multi td { border-bottom-color: #b6d2f5; }
 .grid tbody tr.is-selected { background: var(--row-sel); box-shadow: inset 2px 0 0 var(--row-sel-bd); }
 .grid tbody tr.is-selected td { border-bottom-color: #b6d2f5; }
 

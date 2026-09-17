@@ -508,6 +508,13 @@
     sitemapView: "all",                 // Vague 3 : "all" | "notin" (onglet Sitemap)
     sort: { key: null, dir: null },     // tri de la grille (par onglet courant)
 
+    // Selection MULTIPLE de lignes (clic, Shift+clic, Ctrl+clic) -> copie.
+    // Cles = normUrl de la ligne, pour survivre aux re-rendus de la grille
+    // pendant un crawl (le tbody est reconstruit, pas les cles).
+    multiSel: {},                       // cle -> true
+    multiAnchor: null,                  // cle de l'ancre du prochain Shift+clic
+    gridRows: [],                       // [{key, text}] dans l'ORDRE AFFICHE (tri + filtre)
+
     // Filtre pousse par la sidebar Overview : { predicate(p)->bool, label } ou null
     catFilter: null,
     catId: null,                        // identifiant de la categorie active
@@ -1555,6 +1562,9 @@
     // --- Construction HTML (une seule affectation innerHTML = perf) ---
     var rows = "";
     var selKey = S.selectedUrl ? normUrl(S.selectedUrl) : null;
+    // Ordre d'affichage memorise : c'est lui qui donne son sens a « de cette
+    // ligne a celle-la » (Shift+clic) et l'ordre des adresses copiees.
+    var gridRows = [];
     // rowClass : applique pour les onglets "pages" ET "sitemap" (surlignage alerte).
     var hasRowClass = (def.kind === "pages" || def.kind === "sitemap") && typeof def.rowClass === "function";
     for (var r = 0; r < mapped.length; r++) {
@@ -1564,6 +1574,9 @@
       // Classes cumulees : selection (ligne ouverte dans le detail) + alerte
       // eventuelle propre a l'onglet (URL trop longue, contenu mixte...).
       var classes = [];
+      var rowKey = normUrl(rowUrl);
+      gridRows.push({ key: rowKey, text: (cells[0] && cells[0].text) || rowUrl });
+      if (S.multiSel[rowKey]) classes.push("is-multi");
       if (selKey && def.kind === "pages" && normUrl(item.url) === selKey) classes.push("is-selected");
       if (hasRowClass) { var rc = def.rowClass(item); if (rc) classes.push(rc); }
       var clsAttr = classes.length ? ' class="' + classes.join(" ") + '"' : "";
@@ -1572,6 +1585,8 @@
       rows += "</tr>";
     }
     body.innerHTML = rows;
+    S.gridRows = gridRows;
+    updateMultiSelBar();
 
     // Message "grille vide".
     var empty = $("grid-empty");
@@ -1950,6 +1965,141 @@
   // =========================================================================
   // PANNEAU DE DETAIL (au clic sur une ligne de page)
   // =========================================================================
+  // =========================================================================
+  // SELECTION MULTIPLE DE LIGNES + COPIE DES ADRESSES
+  //
+  // Modele « tableur » : un clic pose l'ancre, Shift+clic selectionne la plage
+  // de l'ancre a la ligne cliquee, Ctrl+clic ajoute ou retire une ligne,
+  // Ctrl+C copie les adresses (une par ligne), Ctrl+A prend tout ce qui est
+  // affiche, Echap deselectionne.
+  //
+  // Sans ca, copier une liste d'URLs depuis la grille etait impossible : le
+  // clic ouvre le detail, et une selection de texte a la souris ne survit pas
+  // aux re-rendus de la grille pendant un crawl.
+  // =========================================================================
+  function multiCount() { return Object.keys(S.multiSel).length; }
+
+  // Ré-applique la classe .is-multi sans reconstruire la grille (le clic doit
+  // repondre a l'instant, pas au prochain rendu).
+  function applyMultiClasses() {
+    document.querySelectorAll("#grid-body tr[data-url]").forEach(function (tr) {
+      tr.classList.toggle("is-multi", !!S.multiSel[normUrl(tr.getAttribute("data-url") || "")]);
+    });
+  }
+
+  function multiClear() {
+    S.multiSel = {};
+    S.multiAnchor = null;
+    applyMultiClasses();
+    updateMultiSelBar();
+  }
+
+  // Selection = la plage [ancre .. cle] dans l'ordre affiche (remplace la
+  // selection courante, comme dans un explorateur de fichiers).
+  function multiSelectRange(fromKey, toKey) {
+    var rows = S.gridRows, a = -1, b = -1;
+    for (var i = 0; i < rows.length; i++) {
+      if (a < 0 && rows[i].key === fromKey) a = i;
+      if (b < 0 && rows[i].key === toKey) b = i;
+    }
+    if (a < 0) a = b;
+    if (b < 0) b = a;
+    if (a < 0) return;
+    var lo = Math.min(a, b), hi = Math.max(a, b);
+    S.multiSel = {};
+    for (var j = lo; j <= hi; j++) S.multiSel[rows[j].key] = true;
+  }
+
+  // Adresses selectionnees, dans l'ordre affiche, sans doublon (l'onglet Liens
+  // peut porter plusieurs lignes pour une meme source).
+  function multiSelectedTexts() {
+    var out = [], seen = {};
+    for (var i = 0; i < S.gridRows.length; i++) {
+      var r = S.gridRows[i];
+      if (S.multiSel[r.key] && r.text && !seen[r.text]) { seen[r.text] = true; out.push(r.text); }
+    }
+    return out;
+  }
+
+  // Ecriture dans le presse-papiers : API moderne d'abord, repli sur l'ancien
+  // execCommand si la WebView la refuse. `done(ok)` recoit le verdict.
+  function copyText(text, done) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(
+        function () { done(true); },
+        function () { done(copyTextLegacy(text)); }
+      );
+    } else {
+      done(copyTextLegacy(text));
+    }
+  }
+  function copyTextLegacy(text) {
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed"; ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand("copy"); } catch (err) { ok = false; }
+    document.body.removeChild(ta);
+    return ok;
+  }
+
+  function copyMultiSelection() {
+    var lines = multiSelectedTexts();
+    if (!lines.length) return;
+    copyText(lines.join("\n"), function (ok) {
+      // Retour visible sur le bouton lui-meme : sans lui, rien ne dit que la
+      // copie a eu lieu — le presse-papiers est invisible.
+      var b = $("multi-sel-copy");
+      if (!b) return;
+      b.textContent = ok ? (lines.length + " copiee(s)") : "Echec de la copie";
+      b.classList.toggle("is-done", ok);
+      setTimeout(function () { b.textContent = "Copier les adresses"; b.classList.remove("is-done"); }, 1600);
+    });
+  }
+
+  function updateMultiSelBar() {
+    var bar = $("multi-sel");
+    if (!bar) return;
+    var n = multiCount();
+    bar.hidden = !n;
+    setText("multi-sel-count", n);
+  }
+
+  function initMultiSelect() {
+    // Shift+clic : le navigateur voudrait etendre une selection de TEXTE entre
+    // les deux clics. On la coupe a la racine, sur le mousedown.
+    $("grid-body").addEventListener("mousedown", function (e) {
+      if (e.shiftKey && e.target.closest("tr[data-url]")) e.preventDefault();
+    });
+
+    $("multi-sel-copy").addEventListener("click", copyMultiSelection);
+    $("multi-sel-clear").addEventListener("click", multiClear);
+
+    document.addEventListener("keydown", function (e) {
+      // Jamais dans un champ de saisie : Ctrl+C / Ctrl+A y gardent leur sens.
+      var t = e.target, tag = t && t.tagName ? t.tagName.toLowerCase() : "";
+      if (tag === "input" || tag === "textarea" || tag === "select" || (t && t.isContentEditable)) return;
+      var mod = e.ctrlKey || e.metaKey;
+      if (mod && (e.key === "c" || e.key === "C")) {
+        // Sans selection de lignes, on laisse Ctrl+C copier le texte surligne.
+        if (multiCount()) { e.preventDefault(); copyMultiSelection(); }
+      } else if (mod && (e.key === "a" || e.key === "A")) {
+        if (S.gridRows.length) {
+          e.preventDefault();
+          S.multiSel = {};
+          for (var i = 0; i < S.gridRows.length; i++) S.multiSel[S.gridRows[i].key] = true;
+          applyMultiClasses();
+          updateMultiSelBar();
+        }
+      } else if (e.key === "Escape" && multiCount()) {
+        multiClear();
+      }
+    });
+  }
+
   function openDetail(url) {
     var p = S.byUrl[normUrl(url)];
     if (!p) return;
@@ -2632,6 +2782,8 @@
     S.dupMaps = { title: {}, meta: {}, h1: {} };
     S.nearDup = {};
     S.nearDupSkipped = false;
+    S.multiSel = {};
+    S.multiAnchor = null;
     S.hreflangRecip = {};
     S.hreflangIssues = [];
     S.sitemapUrls = [];
@@ -3359,6 +3511,10 @@
     document.addEventListener("click", function (e) {
       var a = e.target.closest && e.target.closest("a.cell-url");
       if (!a) return;
+      // Shift / Ctrl + clic = geste de SELECTION de lignes, pas d'ouverture :
+      // on bloque la navigation mais on laisse l'evenement descendre jusqu'a
+      // la grille. Le navigateur ne doit pas s'ouvrir quand on etend une plage.
+      if (e.shiftKey || e.ctrlKey || e.metaKey) { e.preventDefault(); return; }
       var href = a.getAttribute("href");
       e.preventDefault();    // ne JAMAIS naviguer dans la fenetre de l'app
       // Un lien reste un lien : cliquer dessus ne doit pas, en plus, changer la
@@ -3628,6 +3784,7 @@
     initColResize();   // #F : colonnes redimensionnables
     initDetailResize();   // panneau de detail redimensionnable (hauteur persistee)
     initExternalLinks();  // liens d'URL -> navigateur par defaut du systeme
+    initMultiSelect();    // clic / Shift+clic / Ctrl+clic -> copie des adresses
 
     // Volet de reglages repliable.
     var toggle = $("btn-toggle-settings");
@@ -3661,9 +3818,35 @@
     $("grid-body").addEventListener("click", function (e) {
       var tr = e.target.closest("tr[data-url]");
       if (!tr) return;
+      var url = tr.getAttribute("data-url");
+      var key = normUrl(url || "");
+
+      // --- Selection multiple, sur TOUS les onglets (on copie des adresses,
+      //     pas seulement des pages). Shift et Ctrl n'ouvrent PAS le detail :
+      //     ce sont des gestes de selection, pas de consultation.
+      if (e.shiftKey) {
+        multiSelectRange(S.multiAnchor || key, key);
+        applyMultiClasses();
+        updateMultiSelBar();
+        return;
+      }
+      if (e.ctrlKey || e.metaKey) {
+        if (S.multiSel[key]) delete S.multiSel[key]; else S.multiSel[key] = true;
+        S.multiAnchor = key;
+        applyMultiClasses();
+        updateMultiSelBar();
+        return;
+      }
+      // Clic simple : cette ligne devient la selection ET l'ancre. Ctrl+C
+      // copie donc l'adresse de la ligne courante meme sans autre geste.
+      S.multiSel = {};
+      S.multiSel[key] = true;
+      S.multiAnchor = key;
+      applyMultiClasses();
+      updateMultiSelBar();
+
       // L'onglet "Liens" ne represente pas une page unique : pas de detail.
       if (TABS[S.activeTab].kind !== "pages") return;
-      var url = tr.getAttribute("data-url");
       // D) Sur l'onglet "Donnees structurees" (schema), ou si on clique sur un
       // badge de type, on ouvre directement le sous-onglet JSON-LD brut.
       if (S.activeTab === "schema" || e.target.closest(".badge--schema")) {

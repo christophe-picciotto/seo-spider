@@ -176,6 +176,13 @@
         <button type="button" id="active-filter-clear" title="Retirer le filtre">x</button>
       </span>
 
+      <!-- Selection multiple de lignes (clic, Shift+clic, Ctrl+clic) -> copie des adresses -->
+      <span class="multi-sel" id="multi-sel" hidden>
+        <strong id="multi-sel-count">0</strong> ligne(s)
+        <button type="button" id="multi-sel-copy" title="Copier les adresses selectionnees, une par ligne (Ctrl+C)">Copier les adresses</button>
+        <button type="button" id="multi-sel-clear" class="multi-sel-x" title="Deselectionner (Echap)">x</button>
+      </span>
+
       <!-- Selecteur de vue : visible seulement sur l'onglet Sitemap -->
       <span class="sitemap-views" id="sitemap-views" hidden>
         <label for="sitemap-view">Vue</label>
