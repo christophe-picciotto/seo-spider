@@ -1086,9 +1086,10 @@
     },
 
     // ----- Sitemap (Vague 3) -----
-    // Source dediee (kind "sitemap") : voir sitemapItems(). Deux vues commutables
+    // Source dediee (kind "sitemap") : voir sitemapItems(). Trois vues commutables
     // via le sous-filtre S.sitemapView :
     //   "all"    : toutes les URLs du sitemap + statut Crawlee / Orpheline ;
+    //   "orphan" : SEULES les URLs du sitemap jamais atteintes par le crawl ;
     //   "notin"  : pages crawlees ABSENTES du sitemap (couverture inverse).
     sitemap: {
       kind: "sitemap",
@@ -1405,9 +1406,10 @@
   }
 
   // Lignes de l'onglet Sitemap (Vague 3) selon la vue S.sitemapView :
-  //   "all"   : chaque URL declaree dans le sitemap, marquee Crawlee/Orpheline ;
-  //   "notin" : pages crawlees absentes du sitemap.
-  // Filtre de recherche d'URL applique dans les deux cas.
+  //   "all"    : chaque URL declaree dans le sitemap, marquee Crawlee/Orpheline ;
+  //   "orphan" : seules les URLs du sitemap qu'aucune page crawlee ne couvre ;
+  //   "notin"  : pages crawlees absentes du sitemap.
+  // Filtre de recherche d'URL applique dans les trois cas.
   function sitemapItems() {
     var q = S.search ? S.search.toLowerCase() : "";
     var out = [];
@@ -1423,12 +1425,19 @@
       }
       return out;
     }
-    // Vue "all" : on parcourt les URLs du sitemap.
+    // Vues "all" et "orphan" : on parcourt les URLs du sitemap.
+    //
+    // En vue "orphan", seules celles qu'aucune page crawlee ne couvre sont
+    // gardees. Avant, cliquer « Orphelines » basculait sur "all" et se contentait
+    // de les SURLIGNER au milieu des autres : impossible de les isoler, de les
+    // compter dans la grille ou de les exporter seules.
+    var onlyOrphans = (S.sitemapView === "orphan");
     for (var s = 0; s < S.sitemapUrls.length; s++) {
       var u = S.sitemapUrls[s];
       if (!u) continue;
       if (q && u.toLowerCase().indexOf(q) === -1) continue;
       var pg = S.byUrl[normUrl(u)];                       // page crawlee correspondante
+      if (onlyOrphans && pg) continue;                    // crawlee -> pas orpheline
       out.push({
         url: u,
         inSitemap: true,
@@ -1576,6 +1585,8 @@
             empty.textContent = S.pages.length
               ? "Aucun sitemap trouve pour ce site."
               : "Lancez un crawl pour analyser le sitemap.";
+          } else if (S.sitemapView === "orphan" && S.sitemapUrls.length && !S.search) {
+            empty.textContent = "Aucune orpheline : toutes les URLs du sitemap ont ete atteintes par le crawl.";
           } else {
             empty.textContent = "Aucune URL ne correspond a cette vue.";
           }
@@ -1863,13 +1874,11 @@
   }
 
   // Fabrique une ligne d'Overview pour le groupe Sitemap (data-sm = vue cible).
-  // "all"/"notin" basculent S.sitemapView ; "orphan" pointe la vue "all" (les
-  // orphelines y sont surlignees). is-active suit S.activeTab + S.sitemapView.
+  // Chaque ligne a SA vue — "orphan" comprise, qui n'est plus un simple
+  // raccourci vers "all". is-active suit S.activeTab + S.sitemapView.
   function smRow(view, label, n, tone) {
     var toneCls = n > 0 && tone ? (" ov-" + tone) : "";
-    var targetView = (view === "notin") ? "notin" : "all";
-    var active = (S.activeTab === "sitemap" && S.sitemapView === targetView &&
-                  (view !== "orphan")) ? " is-active" : "";
+    var active = (S.activeTab === "sitemap" && S.sitemapView === view) ? " is-active" : "";
     return '<div class="ov-row' + toneCls + active + '" data-sm="' + view +
            '" data-empty="' + (n ? 0 : 1) + '">' +
            '<span class="ov-label">' + esc(label) + '</span>' +
@@ -1973,6 +1982,7 @@
     var outs = Array.isArray(p.outlinks) ? p.outlinks : [];
     setText("dt-inlinks-count", inl.length);
     setText("dt-outlinks-count", outs.length);
+    setText("dt-images-count", imagesMissingAltOf(p).length);
     // D) Compteur de blocs JSON-LD bruts presents sur la page.
     setText("dt-schema-count", structuredRawOf(p).length);
 
@@ -1998,6 +2008,8 @@
         ["url", "anchor", "type", "rel"],
         "Aucun lien sortant sur cette page."
       );
+    } else if (S.detailTab === "images") {
+      body.innerHTML = renderImagesMissingAlt(p);
     } else if (S.detailTab === "serp") {
       body.innerHTML = renderSerp(p);
     } else if (S.detailTab === "info") {
@@ -2085,6 +2097,40 @@
       h += "</tr>";
     }
     h += "</tbody></table>";
+    return h;
+  }
+
+  // Images sans attribut alt d'une page : URLs absolues remontees par le backend.
+  function imagesMissingAltOf(p) {
+    var s = seoOf(p);
+    return (s && Array.isArray(s.images_missing_alt_urls)) ? s.images_missing_alt_urls : [];
+  }
+
+  // Sous-onglet "Images sans alt" : la LISTE des images en defaut, pas seulement
+  // leur nombre — c'est elle qu'il faut pour corriger. Chaque URL s'ouvre dans le
+  // navigateur ; le nom de fichier seul est repete a cote, pour reperer l'image
+  // d'un coup d'oeil quand l'URL est longue.
+  function renderImagesMissingAlt(p) {
+    var urls = imagesMissingAltOf(p);
+    var s = seoOf(p);
+    var missing = s ? (s.images_missing_alt || 0) : 0;
+    var items = urls.map(function (u) {
+      var file = String(u).split("?")[0].split("/").pop() || u;
+      return { url: u, file: file };
+    });
+    var emptyMsg = missing > 0
+      // Le compteur est la mais pas la liste : rapport enregistre AVANT que le
+      // backend ne remonte les URLs. Le dire, sinon on cherche un bug ailleurs.
+      ? missing + " image(s) sans alt comptee(s), mais aucune URL enregistree : ce crawl est anterieur a cette version, relancez-le."
+      : "Toutes les images de cette page ont un attribut alt.";
+    var h = renderLinkTable(items, ["Image (src)", "Fichier"], ["url", "file"], emptyMsg);
+    // Le compteur peut depasser la liste : doublons fusionnes, plafond backend,
+    // ou `src` vide. On l'explique plutot que de laisser croire a une liste
+    // tronquee par erreur.
+    if (items.length && missing > items.length) {
+      h += '<div class="detail-empty">' + esc(missing + " sans alt au total, " + items.length +
+           " URL(s) distincte(s) : la meme image repetee ne compte qu'une ligne.") + '</div>';
+    }
     return h;
   }
 
@@ -2993,10 +3039,11 @@
   }
 
   // Bascule sur l'onglet Sitemap avec la vue voulue (depuis la sidebar Overview).
-  //   "all"/"orphan" -> vue "all" (orphelines surlignees) ; "notin" -> vue "notin".
+  //   "all", "orphan" et "notin" sont trois vues distinctes ; toute autre valeur
+  //   retombe sur "all".
   function selectSitemapView(view) {
     clearCategoryFilter();                 // les filtres categorie ne s'appliquent pas ici
-    S.sitemapView = (view === "notin") ? "notin" : "all";
+    S.sitemapView = (view === "notin" || view === "orphan") ? view : "all";
     var sel = $("sitemap-view"); if (sel) sel.value = S.sitemapView;  // sync du selecteur
     setActiveTab("sitemap");
     renderOverview();
@@ -3471,10 +3518,10 @@
       closeMenus();
     });
 
-    // Selecteur de vue de l'onglet Sitemap (Toutes / Hors sitemap).
+    // Selecteur de vue de l'onglet Sitemap (Toutes / Orphelines / Hors sitemap).
     var smSel = $("sitemap-view");
     if (smSel) smSel.addEventListener("change", function () {
-      S.sitemapView = this.value === "notin" ? "notin" : "all";
+      S.sitemapView = (this.value === "notin" || this.value === "orphan") ? this.value : "all";
       renderGrid();
       renderOverview();
     });
@@ -3621,6 +3668,11 @@
       // badge de type, on ouvre directement le sous-onglet JSON-LD brut.
       if (S.activeTab === "schema" || e.target.closest(".badge--schema")) {
         S.detailTab = "schema";
+      }
+      // Sur l'onglet "Images", on ouvre directement la liste des images sans
+      // alt : c'est ce qu'on vient chercher en cliquant une ligne de cet onglet.
+      if (S.activeTab === "images") {
+        S.detailTab = "images";
       }
       if (url) openDetail(url);
     });

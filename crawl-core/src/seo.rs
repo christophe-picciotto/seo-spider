@@ -9,6 +9,14 @@ use crate::report::{Hreflang, Issue, PageReport};
 use scraper::{ElementRef, Html, Selector};
 use url::Url;
 
+/// Nombre maximal de `src` d'images sans alt conserves par page.
+///
+/// Une galerie ou une page de listing peut en aligner des centaines ; au-dela
+/// de ce plafond, la liste ne sert plus a corriger et ne fait que gonfler les
+/// rapports enregistres. Le COMPTEUR (`images_missing_alt`) reste exact quoi
+/// qu'il arrive — seule la liste est bornee.
+const MAX_MISSING_ALT_URLS: usize = 200;
+
 /// Parse a constant selector string. The argument is always a hard-coded,
 /// known-valid CSS selector, so `expect` here can never fire on external input.
 fn sel(s: &str) -> Selector {
@@ -440,6 +448,32 @@ pub fn extract_seo(html: &str, page_url: &str, seed_host: Option<&str>) -> SeoDa
         };
         if !alt_ok {
             data.images_missing_alt += 1;
+
+            // Le compteur ne suffit pas a corriger : on retient AUSSI le `src`.
+            //
+            // Les images en chargement paresseux (lazy) portent souvent un `src`
+            // vide ou un pixel transparent en `data:`, et le vrai chemin dans
+            // `data-src` : on prend le premier attribut exploitable. Resolu en
+            // absolu contre l'URL de la page quand c'est possible, sinon garde
+            // tel quel plutot que perdu.
+            let src = ["src", "data-src", "data-lazy-src"]
+                .iter()
+                .filter_map(|a| el.value().attr(a))
+                .map(str::trim)
+                .find(|s| !s.is_empty() && !s.starts_with("data:"));
+            if let Some(src) = src {
+                if data.images_missing_alt_urls.len() < MAX_MISSING_ALT_URLS {
+                    let abs = base
+                        .as_ref()
+                        .and_then(|b| resolve_url(b, src))
+                        .unwrap_or_else(|| src.to_string());
+                    // La meme image (logo, pictogramme) revient souvent plusieurs
+                    // fois dans une page : une seule ligne suffit pour la corriger.
+                    if !data.images_missing_alt_urls.contains(&abs) {
+                        data.images_missing_alt_urls.push(abs);
+                    }
+                }
+            }
         }
     }
 
@@ -691,4 +725,47 @@ pub fn analyze(report: &PageReport) -> Vec<Issue> {
     }
 
     issues
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn images_sans_alt_remontees_en_url_absolue_et_dedoublonnees() {
+        let html = r#"<html><body>
+            <img src="/img/a.webp">
+            <img src="/img/a.webp">
+            <img src="/img/b.webp" alt="">
+            <img src="/img/c.webp" alt="ok">
+            <img src="data:image/gif;base64,R0lGOD" data-src="https://cdn.ex/lazy.webp">
+            <img alt="">
+        </body></html>"#;
+        let seo = extract_seo(html, "https://exemple.fr/page/", Some("exemple.fr"));
+
+        assert_eq!(seo.images_total, 6);
+        // a, a, b (alt vide), lazy, sans src : seul c.webp a un alt.
+        assert_eq!(seo.images_missing_alt, 5);
+        assert_eq!(
+            seo.images_missing_alt_urls,
+            vec![
+                "https://exemple.fr/img/a.webp",   // relatif -> absolu ; le doublon n'apparait qu'une fois
+                "https://exemple.fr/img/b.webp",   // alt="" compte comme manquant
+                "https://cdn.ex/lazy.webp",        // `src` en data: ignore, `data-src` retenu
+            ]
+        );
+    }
+
+    #[test]
+    fn images_sans_alt_le_compteur_reste_exact_seule_la_liste_est_bornee() {
+        let mut html = String::from("<html><body>");
+        for i in 0..MAX_MISSING_ALT_URLS + 50 {
+            html.push_str(&format!("<img src=\"/i/{i}.webp\">"));
+        }
+        html.push_str("</body></html>");
+        let seo = extract_seo(&html, "https://exemple.fr/", None);
+
+        assert_eq!(seo.images_missing_alt as usize, MAX_MISSING_ALT_URLS + 50);
+        assert_eq!(seo.images_missing_alt_urls.len(), MAX_MISSING_ALT_URLS);
+    }
 }

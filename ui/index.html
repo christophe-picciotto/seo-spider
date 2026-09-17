@@ -181,6 +181,7 @@
         <label for="sitemap-view">Vue</label>
         <select id="sitemap-view" class="mini-select">
           <option value="all">Toutes les URLs du sitemap</option>
+          <option value="orphan">Orphelines (dans le sitemap, non crawlees)</option>
           <option value="notin">Pages hors sitemap</option>
         </select>
       </span>
@@ -241,6 +242,8 @@
         <div class="detail-tabs" id="detail-tabs">
           <button type="button" class="dtab is-active" data-dtab="inlinks">Inlinks <span id="dt-inlinks-count">0</span></button>
           <button type="button" class="dtab" data-dtab="outlinks">Outlinks <span id="dt-outlinks-count">0</span></button>
+          <!-- La LISTE des images sans alt, pas seulement leur nombre : c'est elle qu'il faut pour corriger. -->
+          <button type="button" class="dtab" data-dtab="images">Images sans alt <span id="dt-images-count">0</span></button>
           <button type="button" class="dtab" data-dtab="serp">SERP Snippet</button>
           <button type="button" class="dtab" data-dtab="info">Infos / En-tetes</button>
           <!-- D) Sous-onglet dedie au contenu brut des donnees structurees (JSON-LD). -->

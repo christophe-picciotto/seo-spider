@@ -43,6 +43,13 @@ pub struct SeoData {
     pub twitter: HashMap<String, String>,
     pub images_total: u32,
     pub images_missing_alt: u32,
+    /// `src` de chaque image SANS attribut alt, en URL absolue quand la
+    /// resolution est possible. Le compteur seul ne permet pas de retrouver les
+    /// images en defaut, donc pas de les corriger. Dedoublonne et plafonne
+    /// (cf. `seo::MAX_MISSING_ALT_URLS`). `default` : les projets enregistres
+    /// avant ce champ se rechargent sans lui.
+    #[serde(default)]
+    pub images_missing_alt_urls: Vec<String>,
     pub internal_links: u32,
     pub external_links: u32,
     pub hreflang: Vec<Hreflang>,
