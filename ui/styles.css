@@ -306,6 +306,31 @@ a:hover { text-decoration: underline; }
 .multi-sel button.multi-sel-x { width: 16px; height: 16px; line-height: 14px; padding: 0; font-weight: 700; }
 .multi-sel button.is-done { background: var(--ok-bg); color: var(--ok); }
 
+/* ----- Menu contextuel de la grille (clic droit) ------------------------- */
+.ctx-menu {
+  position: fixed; z-index: 1000; min-width: 220px;
+  padding: 4px; background: #fff; border: 1px solid var(--border); border-radius: 4px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.18);
+  display: flex; flex-direction: column;
+}
+.ctx-menu[hidden] { display: none; }
+.ctx-item {
+  text-align: left; border: none; background: transparent; color: var(--text);
+  padding: 6px 10px; font-size: 12px; font-family: var(--font); cursor: pointer; border-radius: 3px;
+  white-space: nowrap;
+}
+.ctx-item:hover { background: var(--row-hover); color: var(--accent-dark); }
+.ctx-item[hidden] { display: none; }
+
+/* ----- Message flottant bref ------------------------------------------- */
+.toast {
+  position: fixed; left: 50%; bottom: 44px; transform: translateX(-50%);
+  z-index: 1001; padding: 8px 14px; font-size: 12px; font-weight: 600;
+  color: #fff; background: #1f2937; border-radius: 4px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.25); pointer-events: none;
+}
+.toast[hidden] { display: none; }
+
 /* ----- Selecteur de vue Sitemap (Vague 3) : visible sur l'onglet Sitemap --- */
 .sitemap-views {
   display: inline-flex; align-items: center; gap: 6px;
@@ -421,8 +446,7 @@ a:hover { text-decoration: underline; }
 /* Selection MULTIPLE (clic / Shift+clic / Ctrl+clic), independante de la ligne
    ouverte dans le detail (.is-selected) : les deux peuvent se cumuler. Pas de
    liseret pour ne pas la confondre avec le detail ; un fond bleu plus soutenu. */
-.grid tbody tr.is-multi { background: #dbe9fb; }
-.grid tbody tr.is-multi td { border-bottom-color: #b6d2f5; }
+.grid tbody td.is-multi { background: #dbe9fb; box-shadow: inset 0 0 0 1px #9dbfea; }
 .grid tbody tr.is-selected { background: var(--row-sel); box-shadow: inset 2px 0 0 var(--row-sel-bd); }
 .grid tbody tr.is-selected td { border-bottom-color: #b6d2f5; }
 

@@ -178,8 +178,8 @@
 
       <!-- Selection multiple de lignes (clic, Shift+clic, Ctrl+clic) -> copie des adresses -->
       <span class="multi-sel" id="multi-sel" hidden>
-        <strong id="multi-sel-count">0</strong> ligne(s)
-        <button type="button" id="multi-sel-copy" title="Copier les adresses selectionnees, une par ligne (Ctrl+C)">Copier les adresses</button>
+        <strong id="multi-sel-count">0</strong> cellule(s) &middot; <span id="multi-sel-col"></span>
+        <button type="button" id="multi-sel-copy" title="Copier les valeurs selectionnees, une par ligne (Ctrl+C ou clic droit)">Copier</button>
         <button type="button" id="multi-sel-clear" class="multi-sel-x" title="Deselectionner (Echap)">x</button>
       </span>
 
@@ -280,6 +280,16 @@
     </footer>
 
   </div>
+
+  <!-- Menu contextuel de la grille (clic droit sur une cellule). -->
+  <div class="ctx-menu" id="ctx-menu" hidden>
+    <button type="button" class="ctx-item" id="ctx-copy">Copier <span id="ctx-copy-count">0</span> valeur(s) &mdash; <span id="ctx-col-label"></span></button>
+    <button type="button" class="ctx-item" id="ctx-copy-col">Copier toute la colonne affichee</button>
+    <button type="button" class="ctx-item" id="ctx-open">Ouvrir l'adresse dans le navigateur</button>
+  </div>
+
+  <!-- Message flottant bref (copie effectuee, etc.). -->
+  <div class="toast" id="toast" hidden></div>
 
   <script src="main.js"></script>
 </body>
