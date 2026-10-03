@@ -16,7 +16,7 @@ use futures::StreamExt;
 /// Localise un binaire Chrome (ou Edge en repli sous Windows) utilisable.
 ///
 /// Renvoie le premier chemin existant trouve, sinon `None` (chromiumoxide
-/// tentera alors sa propre detection au lancement).
+/// tentera alors sa propre détection au lancement).
 pub fn find_chrome() -> Option<PathBuf> {
     #[cfg(windows)]
     {
@@ -84,7 +84,7 @@ fn find_in_path(name: &str) -> Option<PathBuf> {
 pub async fn launch_browser() -> anyhow::Result<(Browser, tokio::task::JoinHandle<()>)> {
     // Headless est le mode par defaut du builder ; on n'appelle donc PAS
     // `with_head()`. Si un binaire est localise, on le fixe explicitement,
-    // sinon on laisse chromiumoxide tenter sa propre detection.
+    // sinon on laisse chromiumoxide tenter sa propre détection.
     let mut builder = BrowserConfig::builder();
     if let Some(exe) = find_chrome() {
         builder = builder.chrome_executable(exe);

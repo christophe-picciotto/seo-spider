@@ -22,7 +22,7 @@ const MAX_URLS: usize = 50_000;
 /// Recupere les URLs listees dans le(s) sitemap(s) du site cible.
 ///
 /// `client`   : client HTTP reutilise pour le crawl.
-/// `seed_url` : URL de depart (sert a deriver l'origine du site).
+/// `seed_url` : URL de départ (sert a deriver l'origine du site).
 pub async fn fetch(client: &reqwest::Client, seed_url: &str) -> Vec<String> {
     let parsed = match url::Url::parse(seed_url) {
         Ok(u) => u,
@@ -170,7 +170,7 @@ async fn fetch_text(client: &reqwest::Client, url: &str) -> Option<String> {
     resp.text().await.ok()
 }
 
-/// Detecte un sitemap index à partir de la présence de la balise ouvrante
+/// Détecté un sitemap index à partir de la présence de la balise ouvrante
 /// `<sitemapindex` (insensible à la casse).
 fn is_sitemap_index(body: &str) -> bool {
     contains_ci(body, "<sitemapindex")

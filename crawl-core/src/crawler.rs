@@ -4,9 +4,9 @@
 //! desormais jusqu'à `config.threads` pages EN PARALLELE :
 //!   1. Sonde HTTP légère de chaque page (`http_probe::probe`) -> statut, headers,
 //!      HTML, liens, temps de réponse.
-//!   2. Detection de techno (`techno::detect`).
+//!   2. Détection de techno (`techno::detect`).
 //!   3. DECISION de mesure :
-//!        - si `force_chrome` OU framework JS detecte -> mesure NAVIGATEUR réelle
+//!        - si `force_chrome` OU framework JS détecté -> mesure NAVIGATEUR réelle
 //!          (`chrome_probe::measure_page`, bande passante CDP) ;
 //!        - sinon -> mesure HTTP statique (`http_probe::measure_static_assets`).
 //!   4. Notifications via callbacks `on_page` puis `on_progress`.
@@ -103,11 +103,11 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// "Database Storage Mode" de Screaming Frog. Cf. AUDIT-SCREAMING-FROG.md.
 const HARD_MAX_PAGES: usize = 200_000;
 
-/// Frameworks dont la présence declenche la mesure NAVIGATEUR (rendu/hydratation
+/// Frameworks dont la présence déclenché la mesure NAVIGATEUR (rendu/hydratation
 /// côté client : la mesure HTTP statique sous-estimerait la bande passante réelle).
 ///
-/// **React et Vue en ont été RETIRES volontairement.** Leur detection
-/// (`techno.rs`) se declenche sur un simple `data-reactroot` / `#root` + bundle,
+/// **React et Vue en ont été RETIRES volontairement.** Leur détection
+/// (`techno.rs`) se déclenché sur un simple `data-reactroot` / `#root` + bundle,
 /// ce qui matche un WordPress avec Gutenberg ou un Astro avec une seule ile
 /// React. Or la mesure Chrome est SERIALISEE (un seul navigateur derriere un
 /// Mutex) : un seul faux positif faisait tomber tout le crawl à une page à la
@@ -158,7 +158,7 @@ fn is_bot_challenge(status: u16, headers: &reqwest::header::HeaderMap, html: &st
         }
         let head = html[..cut].to_ascii_lowercase();
         if head.contains("just a moment")
-            || head.contains("cf-browser-verification")
+            || head.contains("cf-browser-vérification")
             || head.contains("challenge-platform")
         {
             return true;
@@ -239,7 +239,7 @@ fn header_lower(headers: &reqwest::header::HeaderMap, name: &str) -> Option<Stri
 /// applicatif Tauri afin de SURVIVRE entre un `stop` (pause) et un `start`
 /// (reprise). Cree par [`SharedState::new`], pilote par [`run_shared`].
 pub struct SharedState {
-    /// URL de depart : sert d'identite pour decider reprise vs nouveau crawl.
+    /// URL de départ : sert d'identite pour decider reprise vs nouveau crawl.
     pub seed_url: String,
     /// File BFS des URLs a traiter, avec leur profondeur.
     pub queue: Mutex<VecDeque<(String, usize)>>,
@@ -260,7 +260,7 @@ pub struct SharedState {
     pub queued_set: Mutex<HashSet<String>>,
     /// Nombre de pages terminées (emises).
     pub done: AtomicUsize,
-    /// Nombre de workers en train de traiter une page (detection de fin).
+    /// Nombre de workers en train de traiter une page (détection de fin).
     pub active: AtomicUsize,
     /// Drapeau de pause : `true` => les workers finissent leur page puis sortent.
     pub stop: AtomicBool,
@@ -284,7 +284,7 @@ pub struct SharedState {
     pub ua_seed_base: u64,
 }
 
-/// Retire le fragment (`#...`) d'une URL de depart.
+/// Retire le fragment (`#...`) d'une URL de départ.
 ///
 /// Le fragment n'est jamais envoye au serveur : le garder dans la seed la
 /// rendrait différente (au sens de `visited`) des liens extraits du HTML, qui
@@ -422,7 +422,7 @@ async fn build_http_report(
         }
     }
 
-    // Dynamique ? (la page elle-même : /api, RSC, ou cache manque).
+    // Dynamique ? (la page elle-même : /api, RSC, ou cache manqué).
     let dynamic_requests =
         if crate::techno::is_dynamic_request(url, vercel_cache.as_deref()) { 1 } else { 0 };
 
@@ -455,7 +455,7 @@ async fn build_http_report(
 ///
 /// `on_progress` est appele après chaque page traitée, `on_page` avec le
 /// `PageReport` complet de chaque page. Les deux closures sont `Send + Sync +
-/// 'static`. Retourne le `CrawlSummary` agrege.
+/// 'static`. Retourne le `CrawlSummary` agrégé.
 pub async fn run<P, G>(
     config: CrawlConfig,
     on_progress: P,
@@ -872,7 +872,7 @@ async fn process_one_page<P, G>(
         None
     };
 
-    // Client HTTP : un client dedie portant l'UA du profil, sinon le client global.
+    // Client HTTP : un client dédié portant l'UA du profil, sinon le client global.
     let page_client = match &profile {
         Some(p) => reqwest::Client::builder()
             .user_agent(p.ua)
@@ -916,7 +916,7 @@ async fn process_one_page<P, G>(
         }
     };
 
-    // 2. Detection de techno (headers + HTML).
+    // 2. Détection de techno (headers + HTML).
     let tech = crate::techno::detect(&probe.headers, &probe.html);
 
     // 3. DECISION : navigateur (framework JS / defi anti-bot / force_chrome)
@@ -1016,7 +1016,7 @@ async fn process_one_page<P, G>(
     }
 
     // Indicateurs URL + sécurité (Vague 2). Calcules AVANT seo::analyze
-    // pour que la generation d'issues puisse en tenir compte plus tard.
+    // pour que la génération d'issues puisse en tenir compte plus tard.
     report.url_flags = Some(crate::urlcheck::analyze(&url));
     report.security = Some(crate::security::analyze(&url, &probe.headers, &probe.html));
 
@@ -1121,7 +1121,7 @@ async fn process_one_page<P, G>(
     emit_report(state, on_page, on_progress, report, &url).await;
 }
 
-/// Cumule un `PageReport` dans le resume (pages, totaux, technos).
+/// Cumulé un `PageReport` dans le resume (pages, totaux, technos).
 ///
 /// Prend le rapport PAR VALEUR : les agrégats sont lus d'abord, puis le rapport
 /// est deplace dans `summary.pages` sans clone supplémentaire.
@@ -1183,7 +1183,7 @@ mod tests {
     }
 
     /// Verrouille le choix volontaire : React/Vue seuls ne doivent PLUS
-    /// declencher la mesure Chrome (qui est serialisee et effondrait le crawl
+    /// déclencher la mesure Chrome (qui est serialisee et effondrait le crawl
     /// sur un WordPress+Gutenberg ou un Astro a ile React), mais les
     /// meta-frameworks SSR, si.
     #[test]
@@ -1198,7 +1198,7 @@ mod tests {
         assert!(needs_chrome(&["SvelteKit".to_string()]));
         assert!(needs_chrome(&["Remix".to_string()]));
 
-        // Un meta-framework accompagne de React declenche quand même Chrome.
+        // Un meta-framework accompagne de React déclenché quand même Chrome.
         assert!(needs_chrome(&["React".to_string(), "Next.js".to_string()]));
         assert!(!needs_chrome(&[]));
     }

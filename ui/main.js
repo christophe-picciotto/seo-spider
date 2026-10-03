@@ -161,7 +161,7 @@
   //   servi par le cache (vert) / alle jusqu'à l'origine (rouge) /
   //   ni l'un ni l'autre — non eligible, contourne (gris).
   function cacheClass(st) {
-    // EDGE : heberge sur le réseau (Cloudflare Pages/Workers). Aucune origine
+    // EDGE : hébergé sur le réseau (Cloudflare Pages/Workers). Aucune origine
     // n'existe, donc aucune n'a été sollicitée — même famille qu'un HIT, avec
     // sa teinte propre pour ne pas laisser croire à un cache classique.
     if (st === "EDGE") return "cache--edge";
@@ -819,7 +819,7 @@
 
     // ----- Contenu (Vague 3) : near-duplicates -----
     // Colonnes : Adresse, Mots, Near-dup (Oui + nombre de pages similaires).
-    // La detection repose sur seo.simhash + distance de Hamming (cf. rebuildNearDup).
+    // La détection repose sur seo.simhash + distance de Hamming (cf. rebuildNearDup).
     content: {
       kind: "pages",
       columns: [
@@ -969,7 +969,7 @@
           { html: recipHtml, text: recipText, sort: recipSort }
         ];
       },
-      // Surligne la ligne si un lien retour hreflang manque.
+      // Surligne la ligne si un lien retour hreflang manqué.
       rowClass: function (p) { return hasHreflangMissingBack(p) ? "row--alert" : ""; }
     },
 
@@ -1133,7 +1133,7 @@
       }
     },
 
-    // ----- Bande passante : tableau de mesure (poids transfere réel) -----
+    // ----- Bande passante : tableau de mesure (poids transféré réel) -----
     bandwidth: {
       kind: "pages",
       columns: [
@@ -1259,7 +1259,7 @@
   // (Re)construit en O(total) les agrégats derives de S.pages :
   //   - inlinksIndex : index inverse cible -> [{from, anchor, rel}] ;
   //   - issues + sevCounts : problèmes backend agreges par sévérité ;
-  //   - bw : poids total cumule + poids max d'une page (barre bande passante).
+  //   - bw : poids total cumulé + poids max d'une page (barre bande passante).
   // Recalcule à chaque cycle de rendu => robuste à la re-ingestion (reprise).
   function rebuildAggregates() {
     var inlinks = {};
@@ -1302,7 +1302,7 @@
 
   // =========================================================================
   // RENDU BATCH (performant pour gros crawls)
-  // On marque l'état "dirty" et on declenche un seul rendu par frame.
+  // On marque l'état "dirty" et on déclenché un seul rendu par frame.
   // =========================================================================
   function scheduleRender() {
     S.dirty = true;
@@ -1494,7 +1494,7 @@
     if (banner) {
       if (S.activeTab === "content" && S.nearDupSkipped) {
         banner.hidden = false;
-        banner.textContent = "Detection des near-duplicates désactivée : plus de " +
+        banner.textContent = "Détection des near-duplicates désactivée : plus de " +
           NEAR_DUP_MAX_PAGES + " pages (le calcul O(n^2) serait trop couteux).";
       } else {
         banner.hidden = true;
@@ -1924,7 +1924,7 @@
 
     // ----- Groupe SITEMAP (Vague 3) : rendu special (lignes data-sm) ---------
     // Ses compteurs ne reposent pas sur des predicates de page (les orphelines
-    // ne sont pas dans S.pages), d'ou un rendu et un handler dedies.
+    // ne sont pas dans S.pages), d'ou un rendu et un handler dédiés.
     var nOrphan = countSitemapOrphans();
     var nNotIn  = countNotInSitemap();
     var nSmTotal = S.sitemapUrls.length;
@@ -2003,7 +2003,7 @@
     applySelClasses(); updateSelBar(); hideCtxMenu();
   }
 
-  // Une seule cellule : point de depart de toute sélection.
+  // Une seule cellule : point de départ de toute sélection.
   function selOne(col, key) {
     S.sel.col = col; S.sel.keys = {}; S.sel.keys[key] = true; S.sel.anchor = key;
     applySelClasses(); updateSelBar();
@@ -2239,7 +2239,7 @@
         inl.map(function (x) { return { url: x.from, anchor: x.anchor, rel: x.rel }; }),
         ["Source (qui pointe ici)", "Ancre", "Rel"],
         ["url", "anchor", "rel"],
-        "Aucun lien entrant detecte parmi les pages crawlées."
+        "Aucun lien entrant détecté parmi les pages crawlées."
       );
     } else if (S.detailTab === "outlinks") {
       body.innerHTML = renderLinkTable(
@@ -2281,7 +2281,7 @@
   // Rendu du sous-onglet "Données structurees" : pour chaque bloc JSON-LD brut,
   // on tente JSON.parse + JSON.stringify(obj, null, 2) (indente, lisible) ; si le
   // parse echoue (JSON-LD malforme), on affiche le texte brut tel quel. Chaque
-  // bloc est precede d'un petit en-tête (index + type detecte via @type).
+  // bloc est precede d'un petit en-tête (index + type détecté via @type).
   function renderStructuredData(p) {
     var raw = structuredRawOf(p);
     if (!raw.length) {
@@ -2686,7 +2686,7 @@
         return;
       }
 
-      // Fin du run courant : on cumule dans l'agregat multi-run.
+      // Fin du run courant : on cumulé dans l'agregat multi-run.
       // rebuildAggregates() tourne normalement dans le rAF (asynchrone) ; on le
       // rejoue ici de facon SYNCHRONE pour garantir que S.bw.totalBytes reflete
       // bien TOUTES les pages de ce run avant le cumul (mesure fiable).
@@ -2786,7 +2786,7 @@
     var seed = S.multi.config && S.multi.config.seed_url;
     if (!TAURI || !seed || !S.pages.length) return;
     // MULTI-SITES : n'enregistrer que les pages DU SITE COURANT, pas la grille
-    // cumulee. Sans ce decoupage, le fichier projet de chaque site contiendrait
+    // cumulée. Sans ce decoupage, le fichier projet de chaque site contiendrait
     // aussi les pages de tous les sites précédents.
     var pages = (S.multi.seeds && S.multi.seeds.length)
       ? S.pages.slice(S.multi.pagesOffset || 0)
@@ -3178,7 +3178,7 @@
     unsubscribeEvents();
     subscribeEvents();
 
-    // Depart PROPRE : on vide d'abord l'état backend (clear_crawl) pour ne pas
+    // Départ PROPRE : on vide d'abord l'état backend (clear_crawl) pour ne pas
     // "reprendre" par erreur une file reprenable de la même seed, PUIS on lance.
     // clear_crawl est async : on chaîne startRun() pour éviter une course.
     Promise.resolve(TAURI.core.invoke("clear_crawl").catch(function () {}))
@@ -3246,7 +3246,7 @@
       t.classList.toggle("is-active", t.getAttribute("data-tab") === key);
     });
     // VAGUE 4 (E) : on reporte l'onglet courant sur l'en-tête de grille, ce qui
-    // declenche le lisere colore (CSS #grid-head[data-tab="..."]).
+    // déclenché le lisere colore (CSS #grid-head[data-tab="..."]).
     var gh = $("grid-head");
     if (gh) gh.setAttribute("data-tab", key);
     // Filtres de sévérité : visibles seulement sur l'onglet Problèmes.
@@ -3829,7 +3829,7 @@
       unlim.checked = false;
       syncUnlimited();
       // Decochage PAR CODE : aucun événement `change` n'est emis, donc le
-      // listener de persistance ne se declenche pas tout seul.
+      // listener de persistance ne se déclenché pas tout seul.
       persistSettings();
       maxPages.focus();
       maxPages.select();

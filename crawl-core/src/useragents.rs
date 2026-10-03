@@ -115,7 +115,7 @@ fn xorshift64(mut x: u64) -> u64 {
 }
 
 /// Choisit un profil à partir d'une graine (ex: compteur de requêtes mélange a
-/// une graine de depart). Deterministe pour une même graine.
+/// une graine de départ). Deterministe pour une même graine.
 pub fn pick(seed: u64) -> &'static UaProfile {
     let idx = (xorshift64(seed) % PROFILES.len() as u64) as usize;
     &PROFILES[idx]

@@ -23,7 +23,7 @@ fn sel(s: &str) -> Option<Selector> {
     Selector::parse(s).ok()
 }
 
-/// Une valeur d'attribut est-elle une ressource http:// non securisee ?
+/// Une valeur d'attribut est-elle une ressource http:// non sécurisée ?
 /// (insensible à la casse, tolere les espaces de tête).
 fn is_insecure_resource(value: &str) -> bool {
     let v = value.trim();
@@ -74,7 +74,7 @@ pub fn analyze(
     if https {
         let document = Html::parse_document(html);
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-        // Ressources actives et passives susceptibles de declencher du mixed content.
+        // Ressources actives et passives susceptibles de déclencher du mixed content.
         collect_insecure(&document, "img[src]", "src", &mut seen, &mut mixed_content);
         collect_insecure(&document, "script[src]", "src", &mut seen, &mut mixed_content);
         collect_insecure(&document, "link[href]", "href", &mut seen, &mut mixed_content);

@@ -159,7 +159,7 @@ pub struct PageReport {
     pub url: String,
     pub status: u16,
     pub tech: Vec<String>,
-    pub total_bytes: u64,            // bande passante réelle (octets transferes)
+    pub total_bytes: u64,            // bande passante réelle (octets transférés)
     pub by_type: HashMap<String, TypeStat>,
     pub request_count: u32,
     pub dynamic_requests: u32,       // cache MISS + /api + RSC (proxy invocations serverless)

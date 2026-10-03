@@ -1,9 +1,9 @@
-//! Detection de technologie par signatures (style Wappalyzer).
+//! Détection de technologie par signatures (style Wappalyzer).
 //!
 //! Deux entrées publiques :
 //! - [`detect`] : inspecte les en-têtes HTTP et le HTML pour deviner la stack.
-//! - [`is_dynamic_request`] : heuristique "cette requête a-t-elle declenche du
-//!   calcul serveur ?" (route API, RSC, ou cache CDN manque).
+//! - [`is_dynamic_request`] : heuristique "cette requête a-t-elle déclenché du
+//!   calcul serveur ?" (route API, RSC, ou cache CDN manqué).
 
 use reqwest::header::HeaderMap;
 
@@ -29,14 +29,14 @@ fn header_present(headers: &HeaderMap, name: &str) -> bool {
     headers.contains_key(name)
 }
 
-/// Detecte les technologies à partir des en-têtes HTTP et du corps HTML.
+/// Détecté les technologies à partir des en-têtes HTTP et du corps HTML.
 ///
 /// Le HTML est compare tel quel (les signatures fournies sont sensibles à la
 /// casse : `__NEXT_DATA__`, `wp-content`, `/_astro/`, ...). Les valeurs
 /// d'en-têtes sont comparees sans tenir compte de la casse car les serveurs
 /// varient (`Vercel` / `vercel`, `cloudflare`, ...).
 ///
-/// La liste retournee est sans doublons et conserve l'ordre de detection.
+/// La liste retournee est sans doublons et conserve l'ordre de détection.
 pub fn detect(headers: &HeaderMap, html: &str) -> Vec<String> {
     let mut found: Vec<String> = Vec::new();
     // Pas de `mut` : cette closure ne capture rien de son environnement —
@@ -105,7 +105,7 @@ pub fn detect(headers: &HeaderMap, html: &str) -> Vec<String> {
         push("Vue", &mut found);
     }
 
-    // --- Hebergeurs / CDN (en-têtes) ---
+    // --- Hébergeurs / CDN (en-têtes) ---
 
     // Vercel : server = Vercel, ou en-têtes spécifiques.
     if header_contains(headers, "server", "Vercel")
@@ -128,7 +128,7 @@ pub fn detect(headers: &HeaderMap, html: &str) -> Vec<String> {
     found
 }
 
-/// Heuristique : la requête a-t-elle probablement declenche du calcul serveur
+/// Heuristique : la requête a-t-elle probablement déclenché du calcul serveur
 /// (invocation serverless) plutot qu'un simple hit de cache statique ?
 ///
 /// Vrai si :

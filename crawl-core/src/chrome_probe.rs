@@ -1,7 +1,7 @@
 //! Sonde NAVIGATEUR via chromiumoxide 0.7 (Chrome DevTools Protocol, domaine Network).
 //!
 //! C'est la mesure de référence : `encoded_data_length` du CDP donne la bande
-//! passante RÉELLE transferee sur le fil (compression incluse, telle que vue par
+//! passante RÉELLE transférée sur le fil (compression incluse, telle que vue par
 //! le navigateur), contrairement à une simple lecture HTTP de l'asset.
 //!
 //! Stratégie :
@@ -12,7 +12,7 @@
 //!        - `EventResponseReceived` : type de ressource + headers (x-vercel-cache) + URL.
 //!        - `EventLoadingFinished`  : `encoded_data_length` (octets réels) -> agregation.
 //!   4. Naviguer, attendre la fin de navigation + une tempo d'inactivite réseau.
-//!   5. Recuperer le HTML final pour la detection de techno.
+//!   5. Recuperer le HTML final pour la détection de techno.
 //!   6. Construire le `PageReport`.
 
 use std::collections::HashMap;
@@ -77,7 +77,7 @@ fn resource_kind(rt: &ResourceType) -> String {
         ResourceType::Image => "Image",
         ResourceType::Font => "Font",
         ResourceType::Script => "Script",
-        // XHR et Fetch sont regroupes sous "Fetch" (requêtes de données).
+        // XHR et Fetch sont regroupés sous "Fetch" (requêtes de données).
         ResourceType::Xhr | ResourceType::Fetch => "Fetch",
         // Tout le reste (Media, Manifest, Ping, WebSocket, Other, etc.).
         _ => "Other",
@@ -298,7 +298,7 @@ pub async fn measure_page(
         Err(e) => Some(format!("navigation echouee: {e}")),
     };
 
-    // 4. HTML final + headers du document principal -> detection techno.
+    // 4. HTML final + headers du document principal -> détection techno.
     //    Le HTML est recupere via le DOM (page.content), ce qui inclut le rendu JS.
     let html = page.content().await.unwrap_or_default();
 
@@ -333,7 +333,7 @@ pub async fn measure_page(
             doc_headers = headers_json_to_map(&meta.headers_json);
         }
 
-        // Detection techno : combine headers du document + HTML rendu.
+        // Détection techno : combine headers du document + HTML rendu.
         let tech = crate::techno::detect(&doc_headers, &html);
 
         PageReport {

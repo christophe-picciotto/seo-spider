@@ -59,7 +59,7 @@
 |---|---|
 | **Issues tab** centralisé (tous les problèmes, priorité, % URLs affectées, lien d'aide) | 🟡 (issues basiques, pas de priorité/%) |
 | **Right-hand Overview** (arbo des catégories avec compteurs + % en direct) | ❌ |
-| **Lower window — URL Details** : Inlinks, Outlinks, Image Details, Resources, **SERP Snippet**, **Rendered Page**, View Source (brut/rendu), HTTP Headers, Cookies, Duplicate Details, Structured Data Details, PageSpeed, Spelling | ❌ |
+| **Lower window — URL Détails** : Inlinks, Outlinks, Image Détails, Resources, **SERP Snippet**, **Rendered Page**, View Source (brut/rendu), HTTP Headers, Cookies, Duplicate Détails, Structured Data Détails, PageSpeed, Spelling | ❌ |
 
 ## 5. Extraction & recherche personnalisées
 | Fonction SF | État |
@@ -92,7 +92,7 @@
 |---|---|
 | **Scheduling** (crawls planifiés + export auto) | ❌ |
 | **CLI / ligne de commande** (headless, automatisation) | ❌ |
-| **Crawl Comparison / Change Detection** | ❌ |
+| **Crawl Comparison / Change Détection** | ❌ |
 | **Segments** (regrouper les URLs par règles) | ❌ |
 | **Near Duplicates** (seuil de similarité, minhash) | ❌ |
 | **Spelling & Grammar** (multi-langues) | ❌ |

@@ -324,7 +324,7 @@ fn tail(s: &str, n: usize) -> &str {
     &s[start..]
 }
 
-/// Detecte WP Rocket dans le HTML, faute d'en-tête HTTP.
+/// Détecté WP Rocket dans le HTML, faute d'en-tête HTTP.
 ///
 /// POURQUOI c'est nécessaire : WP Rocket seul (mode PHP) n'emet AUCUN en-tête
 /// de statut. Seule son extension serveur Rocket-Nginx pose un
@@ -748,7 +748,7 @@ mod tests {
     #[test]
     fn un_cf_cache_status_meme_dynamic_prime_sur_la_signature_edge() {
         // Site proxifie (Worker SSR) : l'en-tête existe, il fait foi, et la
-        // detection de peripherie ne doit PAS se declencher.
+        // détection de peripherie ne doit PAS se déclencher.
         let c = an(&[("cf-ray", "a30423d6ba98acc1-CDG"), ("cf-cache-status", "DYNAMIC")]).unwrap();
         assert_eq!(c.status, "DYNAMIC");
         assert_eq!(c.engine, "Cloudflare");
@@ -795,7 +795,7 @@ mod tests {
     #[test]
     fn server_timing_d_un_autre_editeur_est_ignore() {
         // Beaucoup d'applications emettent leur propre `server-timing` : sans
-        // clé `cfOrigin`, on retombe sur la detection par absence de statut.
+        // clé `cfOrigin`, on retombe sur la détection par absence de statut.
         let c = an(&[("cf-ray", "abc"), ("server-timing", "db;dur=53, app;dur=47.2")]).unwrap();
         assert_eq!(c.status, "EDGE");
         assert_eq!(c.source, "cf-ray");

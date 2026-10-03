@@ -163,7 +163,7 @@ pub async fn start_crawl(
             }
             Err(e) => {
                 // Échec global : on remonte un resume vide marque comme termine,
-                // et on emet aussi un événement d'erreur dedie.
+                // et on emet aussi un événement d'erreur dédié.
                 let empty = CrawlSummary {
                     pages: Vec::new(),
                     total_bytes: 0,
@@ -281,7 +281,7 @@ fn crawls_dir(app: &AppHandle, custom: &Option<String>) -> Result<std::path::Pat
     Ok(dir.join("crawls"))
 }
 
-/// Transforme un identifiant (URL de depart) en nom de fichier sur (sans separateurs).
+/// Transforme un identifiant (URL de départ) en nom de fichier sur (sans separateurs).
 fn sanitize_id(id: &str) -> String {
     let mut s: String = id
         .chars()
@@ -306,7 +306,7 @@ pub fn save_crawl(app: AppHandle, id: String, json: String, dir: Option<String>)
     Ok(path.to_string_lossy().to_string())
 }
 
-/// Charge un crawl enregistré par son identifiant (URL de depart). Renvoie "" si absent.
+/// Charge un crawl enregistré par son identifiant (URL de départ). Renvoie "" si absent.
 #[tauri::command]
 pub fn load_crawl(app: AppHandle, id: String, dir: Option<String>) -> Result<String, String> {
     let d = crawls_dir(&app, &dir)?;
@@ -415,7 +415,7 @@ pub async fn pick_open_project(app: AppHandle) -> Result<Option<String>, String>
 ///   - lignes vides et commentaires (`#`) ignores ;
 ///   - première colonne seulement si le fichier est un CSV (`,` ou `;`), ce qui
 ///     permet de deposer un export tel quel sans le nettoyer à la main ;
-///   - `https://` ajoute quand le schema manque (`example.com` est accepte) ;
+///   - `https://` ajoute quand le schema manqué (`example.com` est accepte) ;
 ///   - fragment retire et URL normalisée via le crate `url`, comme la seed d'un
 ///     crawl normal — sinon deux lignes designant la même ressource lanceraient
 ///     deux crawls complets ;
