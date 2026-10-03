@@ -1,17 +1,17 @@
 //! Sonde NAVIGATEUR via chromiumoxide 0.7 (Chrome DevTools Protocol, domaine Network).
 //!
-//! C'est la mesure de reference : `encoded_data_length` du CDP donne la bande
-//! passante REELLE transferee sur le fil (compression incluse, telle que vue par
-//! le navigateur), contrairement a une simple lecture HTTP de l'asset.
+//! C'est la mesure de référence : `encoded_data_length` du CDP donne la bande
+//! passante RÉELLE transferee sur le fil (compression incluse, telle que vue par
+//! le navigateur), contrairement à une simple lecture HTTP de l'asset.
 //!
-//! Strategie :
+//! Stratégie :
 //!   1. Ouvrir une page vierge.
 //!   2. Activer + ECOUTER le domaine Network AVANT de naviguer (sinon on rate les
-//!      premieres reponses).
-//!   3. Deux flux d'evenements alimentent un etat partage `Arc<Mutex<NetState>>` :
+//!      premieres réponses).
+//!   3. Deux flux d'événements alimentent un état partage `Arc<Mutex<NetState>>` :
 //!        - `EventResponseReceived` : type de ressource + headers (x-vercel-cache) + URL.
-//!        - `EventLoadingFinished`  : `encoded_data_length` (octets reels) -> agregation.
-//!   4. Naviguer, attendre la fin de navigation + une tempo d'inactivite reseau.
+//!        - `EventLoadingFinished`  : `encoded_data_length` (octets réels) -> agregation.
+//!   4. Naviguer, attendre la fin de navigation + une tempo d'inactivite réseau.
 //!   5. Recuperer le HTML final pour la detection de techno.
 //!   6. Construire le `PageReport`.
 
@@ -28,20 +28,20 @@ use chromiumoxide::cdp::browser_protocol::network::{
 
 use crate::report::{AssetReport, PageReport, TypeStat};
 
-/// Etat partage entre les deux taches d'ecoute et le thread principal.
+/// État partage entre les deux tâches d'ecoute et le thread principal.
 #[derive(Default)]
 struct NetState {
-    /// Infos memorisees a `ResponseReceived`, indexees par `requestId` (chaine CDP).
+    /// Infos memorisees a `ResponseReceived`, indexees par `requestId` (chaîne CDP).
     responses: HashMap<String, ResponseMeta>,
-    /// Agregation des octets reels par type de ressource (cle = libelle `kind`).
+    /// Agregation des octets réels par type de ressource (clé = libellé `kind`).
     by_type: HashMap<String, TypeStat>,
     /// Assets de type Image, finalises (un par `LoadingFinished` correspondant).
     images: Vec<AssetReport>,
     /// Somme de tous les `encoded_data_length`.
     total_bytes: u64,
-    /// Nombre total de requetes finalisees.
+    /// Nombre total de requêtes finalisees.
     request_count: u32,
-    /// Requetes dynamiques (cache MISS + /api + RSC) — invocations serverless.
+    /// Requêtes dynamiques (cache MISS + /api + RSC) — invocations serverless.
     dynamic_requests: u32,
     /// Cache Vercel : HIT.
     vercel_cache_hits: u32,
@@ -49,13 +49,13 @@ struct NetState {
     vercel_cache_misses: u32,
 }
 
-/// Donnees retenues depuis `EventResponseReceived`, consommees a `LoadingFinished`.
+/// Données retenues depuis `EventResponseReceived`, consommees a `LoadingFinished`.
 struct ResponseMeta {
     url: String,
     kind: String,
-    /// Valeur du header `x-vercel-cache` (deja en minuscules), si presente.
+    /// Valeur du header `x-vercel-cache` (déjà en minuscules), si présente.
     vercel_cache: Option<String>,
-    /// Tous les headers de reponse (objet JSON brut du CDP). Conserve pour le
+    /// Tous les headers de réponse (objet JSON brut du CDP). Conserve pour le
     /// document principal afin d'alimenter `techno::detect` (server, x-vercel-id,
     /// x-powered-by, cf-ray, x-nf-request-id...).
     headers_json: serde_json::Value,
@@ -63,11 +63,11 @@ struct ResponseMeta {
     status: u16,
     /// Type CDP brut (pour distinguer le Document principal).
     resource_type: ResourceType,
-    /// `true` si deja comptabilise par un `LoadingFinished` (anti double-comptage).
+    /// `true` si déjà comptabilise par un `LoadingFinished` (anti double-comptage).
     finalized: bool,
 }
 
-/// Traduit le `ResourceType` du CDP vers le libelle `kind` du contrat report.rs.
+/// Traduit le `ResourceType` du CDP vers le libellé `kind` du contrat report.rs.
 /// Domaine de valeurs cible : "Image" | "Script" | "Stylesheet" | "Font" |
 /// "Document" | "Fetch" | "Other".
 fn resource_kind(rt: &ResourceType) -> String {
@@ -77,7 +77,7 @@ fn resource_kind(rt: &ResourceType) -> String {
         ResourceType::Image => "Image",
         ResourceType::Font => "Font",
         ResourceType::Script => "Script",
-        // XHR et Fetch sont regroupes sous "Fetch" (requetes de donnees).
+        // XHR et Fetch sont regroupes sous "Fetch" (requêtes de données).
         ResourceType::Xhr | ResourceType::Fetch => "Fetch",
         // Tout le reste (Media, Manifest, Ping, WebSocket, Other, etc.).
         _ => "Other",
@@ -85,7 +85,7 @@ fn resource_kind(rt: &ResourceType) -> String {
     .to_string()
 }
 
-/// Extrait la valeur d'un header (insensible a la casse) depuis l'objet JSON
+/// Extrait la valeur d'un header (insensible à la casse) depuis l'objet JSON
 /// `Headers` du CDP. En chromiumoxide 0.7, `network::Headers` enveloppe un
 /// `serde_json::Value` (objet) ; on passe par `serde_json::to_value` pour rester
 /// robuste aux variations exactes d'API (deref / inner()).
@@ -94,8 +94,8 @@ fn header_value(headers_json: &serde_json::Value, name: &str) -> Option<String> 
     let want = name.to_ascii_lowercase();
     for (k, v) in obj {
         if k.to_ascii_lowercase() == want {
-            // Les valeurs de header peuvent etre des chaines ; on gere aussi le
-            // cas (rare) d'une valeur deja typee differemment.
+            // Les valeurs de header peuvent être des chaînes ; on gere aussi le
+            // cas (rare) d'une valeur déjà typee différemment.
             return match v {
                 serde_json::Value::String(s) => Some(s.clone()),
                 other => Some(other.to_string()),
@@ -106,8 +106,8 @@ fn header_value(headers_json: &serde_json::Value, name: &str) -> Option<String> 
 }
 
 /// Convertit l'objet JSON `Headers` du CDP en `reqwest::header::HeaderMap`
-/// (pour `techno::detect`). Les entrees invalides (nom/valeur non ASCII-token)
-/// sont ignorees silencieusement.
+/// (pour `techno::detect`). Les entrées invalides (nom/valeur non ASCII-token)
+/// sont ignorées silencieusement.
 fn headers_json_to_map(headers_json: &serde_json::Value) -> reqwest::header::HeaderMap {
     use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
     let mut map = HeaderMap::new();
@@ -157,7 +157,7 @@ pub async fn measure_page(
     }
 
     // Session vierge : on efface cookies + cache avant chaque page (le profil
-    // Chrome est deja temporaire et isole de celui de l'utilisateur).
+    // Chrome est déjà temporaire et isole de celui de l'utilisateur).
     {
         use chromiumoxide::cdp::browser_protocol::network::{
             ClearBrowserCacheParams, ClearBrowserCookiesParams,
@@ -169,7 +169,7 @@ pub async fn measure_page(
     let state: Arc<Mutex<NetState>> = Arc::new(Mutex::new(NetState::default()));
 
     // 2. ECOUTER le domaine Network AVANT de naviguer.
-    //    On enregistre les listeners d'evenements puis on active le domaine.
+    //    On enregistre les listeners d'événements puis on active le domaine.
     let mut response_events = page
         .event_listener::<EventResponseReceived>()
         .await
@@ -179,12 +179,12 @@ pub async fn measure_page(
         .await
         .context("abonnement EventLoadingFinished")?;
 
-    // Active la capture reseau (equivaut a Network.enable du CDP).
+    // Active la capture réseau (equivaut a Network.enable du CDP).
     page.execute(NetworkEnableParams::default())
         .await
         .context("Network.enable")?;
 
-    // --- Tache : ResponseReceived -> memorise type/headers/url par request_id. ---
+    // --- Tâche : ResponseReceived -> memorise type/headers/url par request_id. ---
     let state_resp = Arc::clone(&state);
     let resp_task = tokio::spawn(async move {
         while let Some(ev) = response_events.next().await {
@@ -195,10 +195,10 @@ pub async fn measure_page(
 
             let response = &ev.response;
             let url = response.url.clone();
-            // Le statut CDP est numerique (i64) ; on le ramene a u16.
+            // Le statut CDP est numérique (i64) ; on le ramene a u16.
             let status = response.status as u16;
 
-            // Headers de reponse -> JSON pour lecture insensible a la casse.
+            // Headers de réponse -> JSON pour lecture insensible à la casse.
             // `response.headers` est de type network::Headers (newtype JSON).
             let headers_json = serde_json::to_value(&response.headers).unwrap_or(serde_json::Value::Null);
             let vercel_cache =
@@ -220,23 +220,23 @@ pub async fn measure_page(
         }
     });
 
-    // --- Tache : LoadingFinished -> octets reels + agregation par type. ---
+    // --- Tâche : LoadingFinished -> octets réels + agregation par type. ---
     let state_fin = Arc::clone(&state);
     let fin_task = tokio::spawn(async move {
         while let Some(ev) = finished_events.next().await {
             // `ev` est un Arc<EventLoadingFinished>.
             let request_id = ev.request_id.inner().to_string();
-            // `encoded_data_length` est un f64 (octets reels sur le fil).
+            // `encoded_data_length` est un f64 (octets réels sur le fil).
             let bytes = ev.encoded_data_length.max(0.0) as u64;
 
             let mut st = state_fin.lock().await;
 
-            // On a besoin des metas de la reponse correspondante.
+            // On a besoin des metas de la réponse correspondante.
             let (kind, url, vercel_cache) = {
                 match st.responses.get_mut(&request_id) {
                     Some(meta) => {
                         if meta.finalized {
-                            // Deja comptabilise (ex: redirection chainee) — on saute.
+                            // Déjà comptabilise (ex: redirection chainee) — on saute.
                             continue;
                         }
                         meta.finalized = true;
@@ -244,7 +244,7 @@ pub async fn measure_page(
                     }
                     None => {
                         // LoadingFinished sans ResponseReceived connu (preflight, data:,
-                        // cache disque...). On compte quand meme les octets dans "Other".
+                        // cache disque...). On compte quand même les octets dans "Other".
                         ("Other".to_string(), String::new(), None)
                     }
                 }
@@ -266,7 +266,7 @@ pub async fn measure_page(
                 });
             }
 
-            // Requetes dynamiques (cache MISS + /api + RSC).
+            // Requêtes dynamiques (cache MISS + /api + RSC).
             if crate::techno::is_dynamic_request(&url, vercel_cache.as_deref()) {
                 st.dynamic_requests = st.dynamic_requests.saturating_add(1);
             }
@@ -284,13 +284,13 @@ pub async fn measure_page(
         }
     });
 
-    // 3. Navigation + attente de fin de chargement + tempo d'inactivite reseau.
-    //    On capture l'erreur eventuelle sans interrompre la collecte deja faite.
+    // 3. Navigation + attente de fin de chargement + tempo d'inactivite réseau.
+    //    On capture l'erreur eventuelle sans interrompre la collecte déjà faite.
     let nav_error: Option<String> = match page.goto(target).await {
         Ok(_) => {
-            // Attendre l'evenement de navigation (best-effort).
+            // Attendre l'événement de navigation (best-effort).
             let _ = page.wait_for_navigation().await;
-            // Petite tempo pour laisser les dernieres requetes (images lazy, RSC,
+            // Petite tempo pour laisser les dernières requêtes (images lazy, RSC,
             // XHR de fin de chargement) emettre leur LoadingFinished.
             tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
             None
@@ -302,21 +302,21 @@ pub async fn measure_page(
     //    Le HTML est recupere via le DOM (page.content), ce qui inclut le rendu JS.
     let html = page.content().await.unwrap_or_default();
 
-    // 5. Construction du PageReport a partir de l'etat partage.
+    // 5. Construction du PageReport à partir de l'état partage.
     //    On prend un snapshot sous lock, puis on relache avant de fermer la page.
     let report = {
         let st = state.lock().await;
 
-        // Statut + headers du document principal (premiere reponse de type Document).
-        // On cherche la reponse Document dont l'URL correspond le mieux a la cible,
-        // a defaut la premiere reponse Document rencontree.
+        // Statut + headers du document principal (première réponse de type Document).
+        // On cherche la réponse Document dont l'URL correspond le mieux à la cible,
+        // à défaut la première réponse Document rencontree.
         let mut status: u16 = 0;
         let mut doc_headers = reqwest::header::HeaderMap::new();
         let mut doc_meta: Option<&ResponseMeta> = None;
         for meta in st.responses.values() {
             if matches!(meta.resource_type, ResourceType::Document) {
-                // Priorite a l'URL qui matche exactement la cible (apres redirections,
-                // l'URL finale peut differer ; on garde la premiere Document trouvee
+                // Priorite à l'URL qui matche exactement la cible (après redirections,
+                // l'URL finale peut differer ; on garde la première Document trouvee
                 // et on remplace si on trouve un match exact de la cible demandee).
                 match doc_meta {
                     None => doc_meta = Some(meta),
@@ -353,9 +353,9 @@ pub async fn measure_page(
         }
     };
 
-    // 6. Fermeture de la page + arret des taches d'ecoute.
-    //    Fermer la page termine les streams d'evenements -> les boucles `while`
-    //    se finissent, on annule par securite.
+    // 6. Fermeture de la page + arrêt des tâches d'ecoute.
+    //    Fermer la page termine les streams d'événements -> les boucles `while`
+    //    se finissent, on annule par sécurité.
     let _ = page.close().await;
     resp_task.abort();
     fin_task.abort();

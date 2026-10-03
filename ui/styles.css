@@ -1,21 +1,21 @@
 /* =========================================================================
    SEO Spider — Interface dense facon Screaming Frog
-   Look : gris clair, police compacte, en-tetes gris, grille tableur.
-   Layout : flex vertical plein ecran (topbar / onglets / workspace / detail
-   / statusbar). La grille et le panneau de detail scrollent independamment.
+   Look : gris clair, police compacte, en-têtes gris, grille tableur.
+   Layout : flex vertical plein écran (topbar / onglets / workspace / détail
+   / statusbar). La grille et le panneau de détail scrollent independamment.
    ========================================================================= */
 
 :root {
   /* Palette neutre facon application desktop */
   --bg:          #eceef1;   /* fond general gris clair */
-  --surface:     #ffffff;   /* fond des zones de donnees */
-  --header-bg:   #e4e7eb;   /* fond des en-tetes de colonnes */
+  --surface:     #ffffff;   /* fond des zones de données */
+  --header-bg:   #e4e7eb;   /* fond des en-têtes de colonnes */
   --header-bg2:  #dde1e6;   /* fond barres (topbar/onglets) */
   --border:      #c7ccd3;   /* bordures fines */
-  --border-soft: #e2e5e9;   /* bordures internes tres legeres */
+  --border-soft: #e2e5e9;   /* bordures internes très legeres */
   --row-alt:     #f5f6f8;   /* lignes zebrees */
   --row-hover:   #eaf2fd;   /* survol de ligne */
-  --row-sel:     #cfe3fc;   /* ligne selectionnee */
+  --row-sel:     #cfe3fc;   /* ligne sélectionnée */
   --row-sel-bd:  #4a90e2;
 
   --text:        #20242b;
@@ -58,7 +58,7 @@ html, body {
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
-/* ----- Conteneur principal : colonne flex plein ecran -------------------- */
+/* ----- Conteneur principal : colonne flex plein écran -------------------- */
 .app {
   display: flex;
   flex-direction: column;
@@ -131,7 +131,7 @@ a:hover { text-decoration: underline; }
 .btn--ghost { background: transparent; color: var(--text-muted); }
 .btn--sm { height: 24px; padding: 0 9px; font-size: 11px; font-weight: 500; }
 
-/* Info reseau a droite de la topbar */
+/* Info réseau à droite de la topbar */
 .net-info {
   margin-left: auto;
   display: inline-flex;
@@ -150,7 +150,7 @@ a:hover { text-decoration: underline; }
 .net-info.net-ok  .net-dot { background: var(--ok); }
 .net-info.net-err .net-dot { background: var(--err); }
 
-/* Volet de reglages repliable */
+/* Volet de réglages repliable */
 .settings-drawer {
   display: flex;
   flex-wrap: wrap;
@@ -170,15 +170,15 @@ a:hover { text-decoration: underline; }
   border: 1px solid var(--border); border-radius: 3px; background: #fff;
 }
 .setting input[type="number"]:disabled { background: #eef0f2; color: var(--text-soft); }
-/* Champ VERROUILLE (pas desactive) : grise comme un champ inactif, mais reste
-   cliquable — un input `disabled` ne recoit aucun evenement souris, donc on ne
+/* Champ VERROUILLE (pas désactivé) : grise comme un champ inactif, mais reste
+   cliquable — un input `disabled` ne recoit aucun événement souris, donc on ne
    pourrait pas proposer "clique pour modifier". */
 .setting input.is-locked {
   background: #eef0f2; color: var(--text-soft);
   cursor: pointer; width: 118px;
 }
 .setting input.is-locked:hover { border-color: var(--accent); color: var(--text); }
-/* Badge "N sites importes" a cote du bouton d'import. */
+/* Badge "N sites importes" a côté du bouton d'import. */
 .import-badge {
   display: inline-flex; align-items: center; gap: 5px;
   height: 24px; padding: 0 9px;
@@ -266,7 +266,7 @@ a:hover { text-decoration: underline; }
 .grid-search:focus { outline: none; border-color: var(--accent); }
 .gridtools-spacer { flex: 1 1 auto; }
 
-/* Filtres de severite */
+/* Filtres de sévérité */
 .sev-filters { display: flex; gap: 4px; }
 .sev-filters[hidden] { display: none; }
 .sev-filter {
@@ -277,7 +277,7 @@ a:hover { text-decoration: underline; }
 .sev-filter.is-active { background: var(--accent); border-color: var(--accent-dark); color: #fff; }
 .sev-filter span { font-weight: 700; margin-left: 3px; }
 
-/* Indicateur de filtre actif (categorie de la sidebar) */
+/* Indicateur de filtre actif (catégorie de la sidebar) */
 .active-filter {
   display: inline-flex; align-items: center; gap: 6px;
   font-size: 11px; color: var(--text-muted);
@@ -290,7 +290,7 @@ a:hover { text-decoration: underline; }
   width: 16px; height: 16px; line-height: 14px; border-radius: 3px; cursor: pointer; font-weight: 700;
 }
 
-/* ----- Compteur de selection multiple + bouton Copier (barre d'outils) ----- */
+/* ----- Compteur de sélection multiple + bouton Copier (barre d'outils) ----- */
 .multi-sel {
   display: inline-flex; align-items: center; gap: 6px;
   font-size: 11px; color: var(--text-muted);
@@ -403,7 +403,7 @@ a:hover { text-decoration: underline; }
   font-size: var(--fs);
   table-layout: fixed;
 }
-/* En-tete fige en haut pendant le scroll vertical */
+/* En-tête fige en haut pendant le scroll vertical */
 .grid thead th {
   position: sticky;
   top: 0;
@@ -437,15 +437,15 @@ a:hover { text-decoration: underline; }
 }
 .grid tbody tr:nth-child(even) { background: var(--row-alt); }
 /* Ligne en alerte (Vague 2) : URL trop longue/non-ASCII, contenu mixte.
-   Seul le FOND est colore (rose leger) pour ne pas ecraser les couleurs des
-   pastilles/badges. Placee apres le zebrage pour primer dessus, mais avant
-   hover/selection qui restent prioritaires (ordre source, meme specificite). */
+   Seul le FOND est colore (rose leger) pour ne pas écraser les couleurs des
+   pastilles/badges. Placee après le zebrage pour primer dessus, mais avant
+   hover/sélection qui restent prioritaires (ordre source, même specificite). */
 .grid tbody tr.row--alert,
 .grid tbody tr.row--alert:nth-child(even) { background: var(--err-bg); }
 .grid tbody tr:hover { background: var(--row-hover); cursor: pointer; }
-/* Selection MULTIPLE (clic / Shift+clic / Ctrl+clic), independante de la ligne
-   ouverte dans le detail (.is-selected) : les deux peuvent se cumuler. Pas de
-   liseret pour ne pas la confondre avec le detail ; un fond bleu plus soutenu. */
+/* Sélection MULTIPLE (clic / Shift+clic / Ctrl+clic), independante de la ligne
+   ouverte dans le détail (.is-selected) : les deux peuvent se cumuler. Pas de
+   liseret pour ne pas la confondre avec le détail ; un fond bleu plus soutenu. */
 .grid tbody td.is-multi { background: #dbe9fb; box-shadow: inset 0 0 0 1px #9dbfea; }
 .grid tbody tr.is-selected { background: var(--row-sel); box-shadow: inset 2px 0 0 var(--row-sel-bd); }
 .grid tbody tr.is-selected td { border-bottom-color: #b6d2f5; }
@@ -471,7 +471,7 @@ a:hover { text-decoration: underline; }
 .http--err   { color: var(--err);   background: var(--err-bg); }
 .http--muted { color: var(--text-muted); background: #edeef1; }
 
-/* Pastilles d'etat (Manquant / Court / Long / OK / ...) */
+/* Pastilles d'état (Manquant / Court / Long / OK / ...) */
 .state-pill {
   display: inline-block; padding: 1px 7px; font-size: 11px; font-weight: 600; border-radius: 3px;
 }
@@ -507,7 +507,7 @@ a:hover { text-decoration: underline; }
 }
 .grid-empty[hidden] { display: none; }
 
-/* Bandeau d'information contextuel en tete de grille (Vague 3) */
+/* Bandeau d'information contextuel en tête de grille (Vague 3) */
 .grid-banner {
   position: sticky;
   top: 0;
@@ -582,14 +582,14 @@ a:hover { text-decoration: underline; }
 .ov-row[data-empty="1"] .ov-count { background: #eef0f2; color: var(--text-soft); }
 
 /* =========================================================================
-   5) PANNEAU DE DETAIL EN BAS
+   5) PANNEAU DE DÉTAIL EN BAS
    ========================================================================= */
 .detail {
   flex: 0 0 240px;
   min-height: 120px;
-  /* 85vh (et non 45vh) : le panneau doit pouvoir occuper presque tout l'ecran
+  /* 85vh (et non 45vh) : le panneau doit pouvoir occuper presque tout l'écran
      quand on consulte une longue liste d'inlinks. La grille reste accessible,
-     la poignee permettant de revenir en arriere a tout moment. */
+     la poignee permettant de revenir en arrière a tout moment. */
   max-height: 85vh;
   display: flex;
   flex-direction: column;
@@ -597,7 +597,7 @@ a:hover { text-decoration: underline; }
   background: var(--surface);
 }
 .detail[hidden] { display: none; }
-/* Poignee de redimensionnement vertical, posee sur la bordure superieure. */
+/* Poignee de redimensionnement vertical, posee sur la bordure supérieure. */
 .detail-resize {
   flex: 0 0 auto;
   height: 7px;
@@ -608,7 +608,7 @@ a:hover { text-decoration: underline; }
 }
 .detail-resize:hover,
 .detail-resize.is-dragging { background: var(--accent); }
-/* Pendant le glisser : pas de selection de texte parasite dans la page. */
+/* Pendant le glisser : pas de sélection de texte parasite dans la page. */
 body.is-resizing-detail { user-select: none; cursor: ns-resize; }
 .detail-head {
   flex: 0 0 auto;
@@ -640,7 +640,7 @@ body.is-resizing-detail { user-select: none; cursor: ns-resize; }
 .detail-close:hover { background: var(--err-bg); color: var(--err); }
 .detail-body { flex: 1 1 auto; overflow: auto; padding: 0; }
 
-/* Tableau interne du panneau de detail (inlinks / outlinks) */
+/* Tableau interne du panneau de détail (inlinks / outlinks) */
 .detail-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12px; }
 .detail-table th {
   position: sticky; top: 0; z-index: 1;
@@ -654,7 +654,7 @@ body.is-resizing-detail { user-select: none; cursor: ns-resize; }
 .detail-table tr:nth-child(even) td { background: var(--row-alt); }
 .detail-empty { padding: 16px; color: var(--text-soft); font-size: 12px; }
 
-/* Vue "Infos" : liste cle/valeur */
+/* Vue "Infos" : liste clé/valeur */
 .kv { padding: 10px 14px; }
 .kv-row { display: flex; gap: 10px; padding: 3px 0; border-bottom: 1px solid var(--border-soft); }
 .kv-key { flex: 0 0 170px; color: var(--text-muted); font-size: 12px; }
@@ -707,7 +707,7 @@ body.is-resizing-detail { user-select: none; cursor: ns-resize; }
 .status-sep { width: 1px; height: 14px; background: var(--border); }
 .status-item--multi { color: var(--accent-dark); font-weight: 600; }
 .status-item--multi[hidden] { display: none; }
-/* Barre de statut : URL courante a GAUCHE (absorbe la largeur), stats a DROITE (fixes). */
+/* Barre de statut : URL courante à gauche (absorbe la largeur), stats à droite (fixes). */
 .statusbar .status-item { flex: 0 0 auto; }
 .statusbar .status-url { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .85; }
 
@@ -716,7 +716,7 @@ body.is-resizing-detail { user-select: none; cursor: ns-resize; }
    VAGUE 4
    ========================================================================= */
 
-/* ----- (A) Pastille de VITESSE (temps de reponse) -----------------------
+/* ----- (A) Pastille de VITESSE (temps de réponse) -----------------------
    Code couleur facon "rapidite". Texte fonce sur fond clair => lisible.
    vert <=500 ms, orange <=1500 ms, rouge au-dela, gris si pas de mesure. */
 .speed-pill {
@@ -737,7 +737,7 @@ body.is-resizing-detail { user-select: none; cursor: ns-resize; }
 /* ----- Statut de cache (colonne Cache) ---------------------------------
    Trois familles de couleur, pas une par valeur :
      vert  = servi par le cache (HIT) ;
-     rouge = alle jusqu'a l'origine (MISS, EXPIRED) ;
+     rouge = alle jusqu'à l'origine (MISS, EXPIRED) ;
      orange= entre les deux (STALE, REVALIDATED, PRERENDER, UPDATING) ;
      gris  = hors sujet (BYPASS, DYNAMIC, NONE) ou aucune information. */
 .cache-pill {
@@ -749,19 +749,19 @@ body.is-resizing-detail { user-select: none; cursor: ns-resize; }
   font-size: 11px;
   text-align: center;
   border-radius: 3px;
-  cursor: help;              /* l'infobulle porte le detail des couches */
+  cursor: help;              /* l'infobulle porte le détail des couches */
 }
 .cache--hit  { color: var(--ok);    background: var(--ok-bg); }
-/* EDGE : heberge sur le reseau (Pages/Workers), aucune origine sollicitee.
+/* EDGE : heberge sur le réseau (Pages/Workers), aucune origine sollicitée.
    Bleu et non vert : c'est aussi bon qu'un HIT, mais ce n'est PAS un cache
-   classique — la nuance de teinte evite de confondre les deux d'un coup d'oeil. */
+   classique — la nuance de teinte évite de confondre les deux d'un coup d'oeil. */
 .cache--edge { color: var(--accent); background: #e5edfd; }
 .cache--miss { color: var(--err);   background: var(--err-bg); }
 .cache--warm { color: var(--redir); background: var(--redir-bg); }
 .cache--none { color: var(--text-soft); background: #e7e9ee; }
 .cache--na   { color: var(--text-soft); background: #edeef1; cursor: default; }
 
-/* Colonne "Servi par" : qui a reellement fourni la page. Texte simple, sauf
+/* Colonne "Servi par" : qui a réellement fourni la page. Texte simple, sauf
    "origine" — le seul cas ou le serveur a travaille, donc celui qu'on cherche
    du regard dans un audit de performance. */
 .cache-by {
@@ -773,9 +773,9 @@ body.is-resizing-detail { user-select: none; cursor: ns-resize; }
   font-weight: 700;
 }
 
-/* ----- (B) Aide visuelle des reglages (Threads vs Req/sec) --------------
+/* ----- (B) Aide visuelle des réglages (Threads vs Req/sec) --------------
    Petit texte sous le champ. La variante --accent distingue "Threads"
-   (parallelisme) de "Req/sec" (debit) sans etre criard. */
+   (parallelisme) de "Req/sec" (débit) sans être criard. */
 .setting-hint {
   font-size: 10px;
   color: var(--text-soft);
@@ -784,7 +784,7 @@ body.is-resizing-detail { user-select: none; cursor: ns-resize; }
 }
 .setting-hint--accent { color: var(--accent); font-weight: 600; }
 
-/* ----- (D) Donnees structurees brutes (JSON-LD) dans le panneau detail --
+/* ----- (D) Données structurees brutes (JSON-LD) dans le panneau détail --
    Blocs JSON indentes, lisibles, police mono. Badge de type cliquable. */
 .badge--schema { cursor: pointer; }
 .badge--schema:hover { background: #d6e2f5; border-color: #b6c9ec; color: var(--accent-dark); }
@@ -818,15 +818,15 @@ body.is-resizing-detail { user-select: none; cursor: ns-resize; }
    (E) COULEURS D'ACCENT PAR ONGLET
    -------------------------------------------------------------------------
    Chaque onglet recoit une teinte d'accent distincte, SOBRE et PRO :
-     - un lisere superieur colore (inset box-shadow 3px) visible en continu ;
-     - a l'etat ACTIF : la bordure inferieure + le compteur prennent la teinte,
+     - un lisere supérieur colore (inset box-shadow 3px) visible en continu ;
+     - à l'état ACTIF : la bordure inférieure + le compteur prennent la teinte,
        le fond reste blanc => texte fonce parfaitement lisible ;
-     - un lisere de la meme teinte coiffe l'en-tete de la grille de l'onglet
+     - un lisere de la même teinte coiffe l'en-tête de la grille de l'onglet
        courant (via #grid-head[data-tab="X"] th, attribut pose en JS).
    On NE colore JAMAIS le fond fonce du texte : contraste garanti.
    ========================================================================= */
 
-/* Liseré superieur permanent (discret) + transition douce. */
+/* Liseré supérieur permanent (discret) + transition douce. */
 .tab {
   box-shadow: inset 0 3px 0 var(--tab-accent, transparent);
   transition: background .12s ease, box-shadow .12s ease;
@@ -838,15 +838,15 @@ body.is-resizing-detail { user-select: none; cursor: ns-resize; }
 }
 /* Survol : leger fond teinte (8% de la teinte) tout en gardant le texte fonce. */
 .tab:hover { background: var(--tab-accent-soft, #eef0f3); }
-/* Compteur de l'onglet actif : pastille a la teinte de l'onglet. */
+/* Compteur de l'onglet actif : pastille à la teinte de l'onglet. */
 .tab.is-active .tab-count { background: var(--tab-accent, var(--accent)); color: #fff; }
 
-/* Liseré colore en tete de la grille, selon l'onglet courant (data-tab en JS). */
+/* Liseré colore en tête de la grille, selon l'onglet courant (data-tab en JS). */
 #grid-head th { border-top: 2px solid var(--grid-accent, transparent); }
 
 /* --- Palette : une teinte par onglet (sobre, contrastee) ----------------
    --tab-accent      : teinte pleine (bordures/compteur)
-   --tab-accent-soft : version tres claire pour le survol */
+   --tab-accent-soft : version très claire pour le survol */
 .tab[data-tab="internal"]   { --tab-accent:#2563eb; --tab-accent-soft:#eaf1fe; } /* bleu */
 .tab[data-tab="response"]   { --tab-accent:#0891b2; --tab-accent-soft:#e6f6fa; } /* cyan */
 .tab[data-tab="url"]        { --tab-accent:#7c3aed; --tab-accent-soft:#f1eafe; } /* violet */
@@ -866,7 +866,7 @@ body.is-resizing-detail { user-select: none; cursor: ns-resize; }
 .tab[data-tab="sitemap"]    { --tab-accent:#65a30d; --tab-accent-soft:#eef6e0; } /* lime */
 .tab[data-tab="bandwidth"]  { --tab-accent:#ea580c; --tab-accent-soft:#fdece1; } /* orange */
 
-/* Liseré de l'en-tete de grille : meme teinte que l'onglet courant.
+/* Liseré de l'en-tête de grille : même teinte que l'onglet courant.
    L'attribut data-tab est pose sur #grid-head par setActiveTab() (JS). */
 #grid-head[data-tab="internal"]   { --grid-accent:#2563eb; }
 #grid-head[data-tab="response"]   { --grid-accent:#0891b2; }
@@ -892,7 +892,7 @@ body.is-resizing-detail { user-select: none; cursor: ns-resize; }
 .grid th:first-child, .grid td:first-child { width: 36%; }
 .grid th.num, .grid td.num { width: 80px; }
 
-/* #E : champ "Dossier des projets" pousse a droite dans la barre de reglages. */
+/* #E : champ "Dossier des projets" pousse à droite dans la barre de réglages. */
 .setting--dir { margin-left: auto; }
 .setting-dir-row { display: flex; gap: 6px; align-items: center; }
 .dir-input { width: 260px; max-width: 38vw; font-size: 12px; padding: 3px 6px; }

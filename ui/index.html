@@ -11,11 +11,11 @@
   <!-- =====================================================================
        LAYOUT FACON SCREAMING FROG
        app
-        |- topbar      : URL + Demarrer/Vider + cases + reglages repliables
+        |- topbar      : URL + Démarrer/Vider + cases + réglages repliables
         |- tabsbar     : onglets horizontaux avec compteurs
         |- workspace   : [ grille principale ] [ sidebar Overview ]
-        |- detail      : panneau de detail (au clic sur une ligne)
-        |- statusbar   : progression / file / debit / poids total
+        |- détail      : panneau de détail (au clic sur une ligne)
+        |- statusbar   : progression / file / débit / poids total
        ===================================================================== -->
   <div class="app">
 
@@ -26,11 +26,11 @@
           type="url" id="seed-url" name="seed_url" list="url-history"
           class="url-input" placeholder="https://exemple.com" required />
         <datalist id="url-history"></datalist>
-        <button type="submit" id="btn-start" class="btn btn--primary">Demarrer</button>
+        <button type="submit" id="btn-start" class="btn btn--primary">Démarrer</button>
         <button type="button" id="btn-stop"  class="btn btn--danger" disabled>Stop</button>
         <button type="button" id="btn-clear" class="btn">Vider</button>
         <button type="button" id="btn-import" class="btn"
-                title="Importer un fichier .txt ou .csv contenant une URL par ligne. Chaque site sera crawle INTEGRALEMENT, l'un apres l'autre.">
+                title="Importer un fichier .txt ou .csv contenant une URL par ligne. Chaque site sera crawlé INTÉGRALEMENT, l'un après l'autre.">
           Importer une liste
         </button>
         <span class="import-badge" id="import-badge" hidden></span>
@@ -39,23 +39,23 @@
           <input type="checkbox" id="opt-unlimited" checked />
           <span>Tout le site</span>
         </label>
-        <label class="topbar-check" title="Respecter les regles du fichier robots.txt">
+        <label class="topbar-check" title="Respecter les règles du fichier robots.txt">
           <input type="checkbox" id="opt-robots" checked />
           <span>Respecter robots.txt</span>
         </label>
 
         <button type="button" id="btn-toggle-settings" class="btn btn--ghost btn--sm" aria-expanded="false">
-          Reglages
+          Réglages
         </button>
 
-        <!-- Info reseau (IP publique + reverse DNS) poussee a droite -->
+        <!-- Info réseau (IP publique + reverse DNS) poussée à droite -->
         <span class="net-info" id="net-info" title="IP publique sortante + reverse DNS">
           <span class="net-dot"></span>
           <span id="net-info-text">IP...</span>
         </span>
       </form>
 
-      <!-- Volet de reglages repliable -->
+      <!-- Volet de réglages repliable -->
       <div class="settings-drawer" id="settings-drawer" hidden>
         <div class="setting">
           <label for="max-pages">Pages max</label>
@@ -65,7 +65,7 @@
           <label for="max-depth">Profondeur max</label>
           <input type="number" id="max-depth" value="10" min="1" max="50" />
         </div>
-        <div class="setting" title="Debit maximal : cadence d'envoi des requetes (plafond anti-surcharge serveur). Ce plafond est GLOBAL : tant qu'il est actif, ajouter des threads ne change rien.">
+        <div class="setting" title="Débit maximal : cadence d'envoi des requêtes (plafond anti-surcharge serveur). Ce plafond est GLOBAL : tant qu'il est actif, ajouter des threads ne change rien.">
           <label for="rps">Req / sec</label>
           <input type="number" id="rps" value="5" min="1" max="50" step="1" />
         </div>
@@ -73,28 +73,28 @@
           <label for="threads">Threads</label>
           <input type="number" id="threads" value="5" min="1" max="50" step="1" />
         </div>
-        <label class="setting setting--check" title="Supprime le plafond de debit : la vitesse n'est plus bornee que par les threads et le temps de reponse du serveur (comportement Screaming Frog). Attention a ne pas saturer un serveur mutualise.">
+        <label class="setting setting--check" title="Supprime le plafond de débit : la vitesse n'est plus bornée que par les threads et le temps de réponse du serveur (comportement Screaming Frog). Attention a ne pas saturer un serveur mutualise.">
           <input type="checkbox" id="no-rate-limit" />
-          <span>Debit illimite</span>
+          <span>Débit illimité</span>
         </label>
-        <label class="setting setting--check" title="Delais aleatoires entre requetes (comportement humain). Incompatible avec le debit illimite.">
+        <label class="setting setting--check" title="Délais aléatoires entre requêtes (comportement humain). Incompatible avec le débit illimité.">
           <input type="checkbox" id="random-rps" />
-          <span>Debit aleatoire</span>
+          <span>Débit aléatoire</span>
         </label>
-        <label class="setting setting--check" title="Mesure chaque page via Chrome headless (bande passante REELLE : XHR, images lazy, invocations serverless). Necessaire pour les SPA React/Vue, qui ne declenchent plus Chrome automatiquement — la mesure Chrome est serialisee (un seul navigateur), donc lente sur un gros crawl.">
+        <label class="setting setting--check" title="Mesure chaque page via Chrome headless (bande passante RÉELLE : XHR, images lazy, invocations serverless). Nécessaire pour les SPA React/Vue, qui ne declenchent plus Chrome automatiquement — la mesure Chrome est serialisee (un seul navigateur), donc lente sur un gros crawl.">
           <input type="checkbox" id="force-chrome" />
           <span>Forcer Chrome</span>
         </label>
         <label class="setting setting--check">
           <input type="checkbox" id="random-ua" />
-          <span>UA aleatoire</span>
+          <span>UA aléatoire</span>
         </label>
         <div class="setting setting--dir">
           <label for="save-dir">Dossier des projets</label>
           <div class="setting-dir-row">
-            <input type="text" id="save-dir" class="dir-input" placeholder="(defaut : donnees de l'app)" spellcheck="false" />
-            <button type="button" id="btn-pick-folder" class="btn btn--sm" title="Choisir le dossier ou enregistrer les projets">Choisir…</button>
-            <button type="button" id="btn-open-project" class="btn btn--sm" title="Ouvrir un projet enregistre (.json)">Ouvrir un projet</button>
+            <input type="text" id="save-dir" class="dir-input" placeholder="(defaut : données de l'app)" spellcheck="false" />
+            <button type="button" id="btn-pick-folder" class="btn btn--sm" title="Choisir le dossier où enregistrer les projets">Choisir…</button>
+            <button type="button" id="btn-open-project" class="btn btn--sm" title="Ouvrir un projet enregistré (.json)">Ouvrir un projet</button>
           </div>
         </div>
       </div>
@@ -112,7 +112,7 @@
         URL <span class="tab-count" data-count="url">0</span>
       </button>
       <button type="button" class="tab" data-tab="security" role="tab">
-        Securite <span class="tab-count" data-count="security">0</span>
+        Sécurité <span class="tab-count" data-count="security">0</span>
       </button>
       <button type="button" class="tab" data-tab="titles" role="tab">
         Page Titles <span class="tab-count" data-count="titles">0</span>
@@ -148,7 +148,7 @@
         Liens <span class="tab-count" data-count="links">0</span>
       </button>
       <button type="button" class="tab" data-tab="issues" role="tab">
-        Problemes <span class="tab-count" data-count="issues">0</span>
+        Problèmes <span class="tab-count" data-count="issues">0</span>
       </button>
       <button type="button" class="tab" data-tab="sitemap" role="tab">
         Sitemap <span class="tab-count" data-count="sitemap">0</span>
@@ -163,7 +163,7 @@
       <input type="search" id="grid-search" class="grid-search"
              placeholder="Filtrer par URL..." autocomplete="off" />
 
-      <!-- Filtres de severite : visibles seulement sur l'onglet Problemes -->
+      <!-- Filtres de sévérité : visibles seulement sur l'onglet Problèmes -->
       <div class="sev-filters" id="sev-filters" hidden>
         <button type="button" class="sev-filter is-active" data-sev="all">Tous <span data-sevcount="all">0</span></button>
         <button type="button" class="sev-filter" data-sev="critical">Critiques <span data-sevcount="critical">0</span></button>
@@ -176,11 +176,11 @@
         <button type="button" id="active-filter-clear" title="Retirer le filtre">x</button>
       </span>
 
-      <!-- Selection multiple de lignes (clic, Shift+clic, Ctrl+clic) -> copie des adresses -->
+      <!-- Sélection multiple de lignes (clic, Shift+clic, Ctrl+clic) -> copie des adresses -->
       <span class="multi-sel" id="multi-sel" hidden>
         <strong id="multi-sel-count">0</strong> cellule(s) &middot; <span id="multi-sel-col"></span>
-        <button type="button" id="multi-sel-copy" title="Copier les valeurs selectionnees, une par ligne (Ctrl+C ou clic droit)">Copier</button>
-        <button type="button" id="multi-sel-clear" class="multi-sel-x" title="Deselectionner (Echap)">x</button>
+        <button type="button" id="multi-sel-copy" title="Copier les valeurs sélectionnées, une par ligne (Ctrl+C ou clic droit)">Copier</button>
+        <button type="button" id="multi-sel-clear" class="multi-sel-x" title="Désélectionner (Échap)">x</button>
       </span>
 
       <!-- Selecteur de vue : visible seulement sur l'onglet Sitemap -->
@@ -188,7 +188,7 @@
         <label for="sitemap-view">Vue</label>
         <select id="sitemap-view" class="mini-select">
           <option value="all">Toutes les URLs du sitemap</option>
-          <option value="orphan">Orphelines (dans le sitemap, non crawlees)</option>
+          <option value="orphan">Orphelines (dans le sitemap, non crawlées)</option>
           <option value="notin">Pages hors sitemap</option>
         </select>
       </span>
@@ -201,7 +201,7 @@
         <div class="menu-list" id="menu-bulk-list">
           <button type="button" class="menu-item" data-export="links">Tous les liens</button>
           <button type="button" class="menu-item" data-export="images">Toutes les images</button>
-          <button type="button" class="menu-item" data-export="issues">Tous les problemes</button>
+          <button type="button" class="menu-item" data-export="issues">Tous les problèmes</button>
         </div>
       </div>
 
@@ -209,7 +209,7 @@
       <div class="menu" id="menu-report">
         <button type="button" class="btn btn--ghost btn--sm menu-btn">Rapports &#9662;</button>
         <div class="menu-list" id="menu-report-list">
-          <button type="button" class="menu-item" data-report="redirects">Chaines de redirection</button>
+          <button type="button" class="menu-item" data-report="redirects">Chaînes de redirection</button>
           <button type="button" class="menu-item" data-report="canonicals">Canonicals</button>
           <button type="button" class="menu-item" data-report="nonindex">Pages non-indexables</button>
           <button type="button" class="menu-item" data-report="mixed">Contenu mixte</button>
@@ -223,13 +223,13 @@
     <div class="workspace">
       <!-- GRILLE DENSE plein largeur -->
       <main class="gridwrap">
-        <!-- Bandeau d'information contextuel (ex: near-dup desactive si trop de pages) -->
+        <!-- Bandeau d'information contextuel (ex: near-dup désactivé si trop de pages) -->
         <div class="grid-banner" id="grid-banner" hidden></div>
         <table class="grid" id="grid">
           <thead id="grid-head"></thead>
           <tbody id="grid-body"></tbody>
         </table>
-        <div class="grid-empty" id="grid-empty">Lancez un crawl pour voir les resultats ici.</div>
+        <div class="grid-empty" id="grid-empty">Lancez un crawl pour voir les résultats ici.</div>
       </main>
 
       <!-- SIDEBAR DROITE : arborescence Overview avec compteurs -->
@@ -239,12 +239,12 @@
       </aside>
     </div>
 
-    <!-- ----- 5) PANNEAU DE DETAIL (au clic sur une ligne) --------------- -->
+    <!-- ----- 5) PANNEAU DE DÉTAIL (au clic sur une ligne) --------------- -->
     <section class="detail" id="detail" hidden>
       <!-- Poignee de redimensionnement : glisser pour agrandir le panneau,
-           double-clic pour revenir a la hauteur par defaut. -->
+           double-clic pour revenir à la hauteur par defaut. -->
       <div class="detail-resize" id="detail-resize"
-           title="Glisser pour redimensionner — double-clic pour reinitialiser"></div>
+           title="Glisser pour redimensionner — double-clic pour réinitialiser"></div>
       <div class="detail-head">
         <div class="detail-tabs" id="detail-tabs">
           <button type="button" class="dtab is-active" data-dtab="inlinks">Inlinks <span id="dt-inlinks-count">0</span></button>
@@ -252,9 +252,9 @@
           <!-- La LISTE des images sans alt, pas seulement leur nombre : c'est elle qu'il faut pour corriger. -->
           <button type="button" class="dtab" data-dtab="images">Images sans alt <span id="dt-images-count">0</span></button>
           <button type="button" class="dtab" data-dtab="serp">SERP Snippet</button>
-          <button type="button" class="dtab" data-dtab="info">Infos / En-tetes</button>
-          <!-- D) Sous-onglet dedie au contenu brut des donnees structurees (JSON-LD). -->
-          <button type="button" class="dtab" data-dtab="schema">Donnees structurees <span id="dt-schema-count">0</span></button>
+          <button type="button" class="dtab" data-dtab="info">Infos / En-têtes</button>
+          <!-- D) Sous-onglet dedie au contenu brut des données structurees (JSON-LD). -->
+          <button type="button" class="dtab" data-dtab="schema">Données structurees <span id="dt-schema-count">0</span></button>
           <button type="button" class="dtab" data-dtab="source">Source</button>
         </div>
         <button type="button" class="detail-close" id="detail-close" title="Fermer">x</button>
@@ -271,8 +271,8 @@
       <span class="status-item status-url" id="status-url" title=""></span>
       <span class="status-item">Pages : <strong id="status-done">0</strong> / <span id="status-total">0</span></span>
       <span class="status-item">File : <strong id="status-queued">0</strong></span>
-      <span class="status-item">Debit : <strong id="status-rate">0</strong> p/s</span>
-      <span class="status-item" id="status-workers-item" title="Workers reellement occupes / threads configures. S'il reste bas, le goulot n'est pas le nombre de threads (plafond de debit, file vide, ou mesures Chrome serialisees).">Workers : <strong id="status-workers">0</strong>/<span id="status-threads">0</span></span>
+      <span class="status-item">Débit : <strong id="status-rate">0</strong> p/s</span>
+      <span class="status-item" id="status-workers-item" title="Workers réellement occupés / threads configurés. S'il reste bas, le goulot n'est pas le nombre de threads (plafond de débit, file vide, ou mesures Chrome serialisees).">Workers : <strong id="status-workers">0</strong>/<span id="status-threads">0</span></span>
       <span class="status-item">Resp. moy. : <strong id="status-avgms">0</strong> ms/page</span>
       <span class="status-item">Poids total : <strong id="status-bytes">0 o</strong></span>
       <span class="status-sep"></span>
@@ -284,11 +284,11 @@
   <!-- Menu contextuel de la grille (clic droit sur une cellule). -->
   <div class="ctx-menu" id="ctx-menu" hidden>
     <button type="button" class="ctx-item" id="ctx-copy">Copier <span id="ctx-copy-count">0</span> valeur(s) &mdash; <span id="ctx-col-label"></span></button>
-    <button type="button" class="ctx-item" id="ctx-copy-col">Copier toute la colonne affichee</button>
+    <button type="button" class="ctx-item" id="ctx-copy-col">Copier toute la colonne affichée</button>
     <button type="button" class="ctx-item" id="ctx-open">Ouvrir l'adresse dans le navigateur</button>
   </div>
 
-  <!-- Message flottant bref (copie effectuee, etc.). -->
+  <!-- Message flottant bref (copie effectuée, etc.). -->
   <div class="toast" id="toast" hidden></div>
 
   <script src="main.js"></script>

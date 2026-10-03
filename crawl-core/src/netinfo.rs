@@ -1,12 +1,12 @@
-//! Informations reseau de la machine : IP publique sortante + reverse DNS.
+//! Informations réseau de la machine : IP publique sortante + reverse DNS.
 //!
-//! On interroge le service public ipinfo.io/json qui renvoie en une requete
-//! l'IP vue de l'exterieur ET son `hostname` (le reverse DNS / PTR), evitant
+//! On interroge le service public ipinfo.io/json qui renvoie en une requête
+//! l'IP vue de l'extérieur ET son `hostname` (le reverse DNS / PTR), évitant
 //! d'avoir a embarquer un resolveur DNS dans l'application.
 
 use serde::{Deserialize, Serialize};
 
-/// Resultat expose au frontend (serialise tel quel : `ip`, `reverse_dns`).
+/// Résultat expose au frontend (serialise tel quel : `ip`, `reverse_dns`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetworkInfo {
     /// IP publique sortante (telle que vue par les sites crawles).
@@ -17,7 +17,7 @@ pub struct NetworkInfo {
 
 /// Recupere l'IP publique sortante et son reverse DNS via ipinfo.io.
 pub async fn fetch() -> anyhow::Result<NetworkInfo> {
-    /// Sous-ensemble de la reponse JSON d'ipinfo.io qui nous interesse.
+    /// Sous-ensemble de la réponse JSON d'ipinfo.io qui nous interesse.
     #[derive(Deserialize)]
     struct IpInfoResponse {
         ip: String,

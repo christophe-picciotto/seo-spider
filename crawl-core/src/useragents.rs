@@ -1,6 +1,6 @@
-//! Pool de profils navigateur (user-agent + viewport) pour la rotation aleatoire.
+//! Pool de profils navigateur (user-agent + viewport) pour la rotation aléatoire.
 //!
-//! Un "profil" associe un user-agent realiste a des dimensions de fenetre
+//! Un "profil" associe un user-agent realiste a des dimensions de fenêtre
 //! coherentes (desktop large, laptop, tablette, mobile). La sonde HTTP n'utilise
 //! que le champ `ua` ; la sonde navigateur applique aussi width/height/mobile
 //! (emulation de l'appareil via le CDP).
@@ -81,29 +81,29 @@ pub const PROFILES: &[UaProfile] = &[
     UaProfile { ua: "Mozilla/5.0 (Linux; Android 14; SM-X710) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36", width: 800, height: 1280, mobile: true },
     UaProfile { ua: "Mozilla/5.0 (Linux; Android 13; Lenovo TB320FU) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36", width: 1200, height: 2000, mobile: true },
 
-    // ---- Desktop : Chrome (versions/resolutions supplementaires) ----
+    // ---- Desktop : Chrome (versions/resolutions supplémentaires) ----
     UaProfile { ua: "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36", width: 1280, height: 720, mobile: false },
     UaProfile { ua: "Mozilla/5.0 (Macintosh; Intel Mac OS X 12_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36", width: 1280, height: 800, mobile: false },
     UaProfile { ua: "Mozilla/5.0 (X11; Fedora; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36", width: 1920, height: 1200, mobile: false },
     UaProfile { ua: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36", width: 1360, height: 768, mobile: false },
     UaProfile { ua: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15", width: 1728, height: 1117, mobile: false },
 
-    // ---- Desktop : Firefox (supplementaires) ----
+    // ---- Desktop : Firefox (supplémentaires) ----
     UaProfile { ua: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:131.0) Gecko/20100101 Firefox/131.0", width: 1536, height: 864, mobile: false },
     UaProfile { ua: "Mozilla/5.0 (Macintosh; Intel Mac OS X 13.6; rv:132.0) Gecko/20100101 Firefox/132.0", width: 1512, height: 982, mobile: false },
 
-    // ---- Mobile : iPhone (supplementaires) ----
+    // ---- Mobile : iPhone (supplémentaires) ----
     UaProfile { ua: "Mozilla/5.0 (iPhone; CPU iPhone OS 16_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1", width: 390, height: 844, mobile: true },
     UaProfile { ua: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1", width: 430, height: 932, mobile: true },
 
-    // ---- Mobile : Android (supplementaires) ----
+    // ---- Mobile : Android (supplémentaires) ----
     UaProfile { ua: "Mozilla/5.0 (Linux; Android 12; SM-A325F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36", width: 360, height: 800, mobile: true },
     UaProfile { ua: "Mozilla/5.0 (Linux; Android 15; Pixel 8a) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Mobile Safari/537.36", width: 412, height: 915, mobile: true },
     UaProfile { ua: "Mozilla/5.0 (Linux; Android 14; CPH2451) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Mobile Safari/537.36", width: 360, height: 804, mobile: true },
     UaProfile { ua: "Mozilla/5.0 (Linux; Android 13; V2312A) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Mobile Safari/537.36", width: 392, height: 873, mobile: true },
 ];
 
-/// Generateur pseudo-aleatoire xorshift64 (evite d'ajouter la crate `rand`).
+/// Generateur pseudo-aléatoire xorshift64 (évite d'ajouter la crate `rand`).
 fn xorshift64(mut x: u64) -> u64 {
     if x == 0 {
         x = 0x9E3779B97F4A7C15; // graine de repli non nulle
@@ -114,8 +114,8 @@ fn xorshift64(mut x: u64) -> u64 {
     x
 }
 
-/// Choisit un profil a partir d'une graine (ex: compteur de requetes melange a
-/// une graine de depart). Deterministe pour une meme graine.
+/// Choisit un profil à partir d'une graine (ex: compteur de requêtes mélange a
+/// une graine de depart). Deterministe pour une même graine.
 pub fn pick(seed: u64) -> &'static UaProfile {
     let idx = (xorshift64(seed) % PROFILES.len() as u64) as usize;
     &PROFILES[idx]

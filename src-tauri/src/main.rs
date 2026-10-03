@@ -1,4 +1,4 @@
-// Pas de console Windows en release (fenetre GUI uniquement).
+// Pas de console Windows en release (fenêtre GUI uniquement).
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
@@ -7,7 +7,7 @@ use commands::CrawlState;
 
 fn main() {
     tauri::Builder::default()
-        // Etat partage : drapeau d'arret du crawl.
+        // État partage : drapeau d'arrêt du crawl.
         .manage(CrawlState::default())
         .plugin(tauri_plugin_dialog::init())
         // Commandes exposees au frontend.

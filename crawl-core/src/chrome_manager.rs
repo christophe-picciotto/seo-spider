@@ -2,9 +2,9 @@
 //!
 //! Deux responsabilites :
 //! - `find_chrome` : trouver un binaire Chrome (ou Edge en repli sous Windows)
-//!   sur le systeme hote, sans dependance externe.
-//! - `launch_browser` : demarrer un navigateur headless via chromiumoxide et
-//!   drainer son `Handler` dans une task tokio dediee (obligatoire : sans cela
+//!   sur le système hote, sans dependance externe.
+//! - `launch_browser` : démarrer un navigateur headless via chromiumoxide et
+//!   drainer son `Handler` dans une task tokio dédiée (obligatoire : sans cela
 //!   le navigateur ne traite jamais les messages CDP et se bloque).
 
 use std::path::PathBuf;
@@ -62,7 +62,7 @@ pub fn find_chrome() -> Option<PathBuf> {
     }
 }
 
-/// Cherche `name` dans chaque repertoire du `PATH` et renvoie le 1er existant.
+/// Cherche `name` dans chaque répertoire du `PATH` et renvoie le 1er existant.
 #[cfg(not(windows))]
 fn find_in_path(name: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
@@ -78,7 +78,7 @@ fn find_in_path(name: &str) -> Option<PathBuf> {
 
 /// Lance un navigateur headless et renvoie `(browser, join_handle)`.
 ///
-/// Le `Handler` retourne par `Browser::launch` DOIT etre draine en continu :
+/// Le `Handler` retourne par `Browser::launch` DOIT être draine en continu :
 /// on spawn une task tokio qui boucle `while let Some(_) = handler.next().await {}`.
 /// Son `JoinHandle` est renvoye pour que l'appelant puisse l'abandonner/attendre.
 pub async fn launch_browser() -> anyhow::Result<(Browser, tokio::task::JoinHandle<()>)> {
@@ -99,10 +99,10 @@ pub async fn launch_browser() -> anyhow::Result<(Browser, tokio::task::JoinHandl
     // `launch` est async et renvoie `Result<(Browser, Handler)>`.
     let (browser, mut handler) = Browser::launch(config)
         .await
-        .context("echec du lancement du navigateur (Chrome/Chromium introuvable ?)")?;
+        .context("échec du lancement du navigateur (Chrome/Chromium introuvable ?)")?;
 
     // Le `Handler` implemente `futures::Stream` (Item = Result<(), CdpError>) ;
-    // on le draine jusqu'a sa fin (lorsque le navigateur se ferme).
+    // on le draine jusqu'à sa fin (lorsque le navigateur se ferme).
     let join_handle = tokio::spawn(async move {
         while let Some(_event) = handler.next().await {}
     });

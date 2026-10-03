@@ -9,16 +9,16 @@ use crate::report::{AssetReport, LinkInfo, TypeStat};
 /// Number of asset downloads run concurrently.
 const ASSET_CONCURRENCY: usize = 8;
 
-/// Cache PARTAGE des poids d'assets deja mesures : `url -> octets`.
+/// Cache PARTAGE des poids d'assets déjà mesures : `url -> octets`.
 ///
 /// Un site partage son CSS, ses polices et ses bundles JS entre TOUTES ses
 /// pages. Sans ce cache, `measure_static_assets` retelechargeait chaque asset
-/// une fois par page : sur 500 pages avec 10 assets communs, 5 000 requetes et
-/// des centaines de Mo pour toujours le meme resultat — et le worker restait
+/// une fois par page : sur 500 pages avec 10 assets communs, 5 000 requêtes et
+/// des centaines de Mo pour toujours le même résultat — et le worker restait
 /// bloque dessus avant de pouvoir prendre la page suivante.
 ///
 /// Le poids reste compte dans CHAQUE page (le rapport « poids de la page »
-/// mesure ce qu'un visiteur telecharge) : seule la requete reseau est evitee.
+/// mesure ce qu'un visiteur télécharge) : seule la requête réseau est evitee.
 pub type AssetCache = tokio::sync::Mutex<HashMap<String, u64>>;
 
 /// Maximum number of redirect hops followed before giving up.
@@ -27,11 +27,11 @@ const MAX_REDIRECTS: usize = 10;
 /// Sauts de redirection suivis pour un ASSET (CDN, http->https, fingerprint).
 const MAX_ASSET_REDIRECTS: usize = 5;
 
-/// Resultat d'une mesure d'asset. La distinction stable / passager decide de ce
+/// Résultat d'une mesure d'asset. La distinction stable / passager decide de ce
 /// qui est CACHABLE, et elle seule :
-///   - `Ok` et `Broken` sont des verdicts du serveur, stables sur la duree d'un
-///     crawl -> mis en cache (mesurer 5 000 fois la meme 404 est du gaspillage) ;
-///   - `Transient` est un alea reseau -> jamais mis en cache, sinon un unique
+///   - `Ok` et `Broken` sont des verdicts du serveur, stables sur la durée d'un
+///     crawl -> mis en cache (mesurer 5 000 fois la même 404 est du gaspillage) ;
+///   - `Transient` est un alea réseau -> jamais mis en cache, sinon un unique
 ///     timeout amputerait le poids de toutes les pages suivantes, en silence.
 enum AssetMeasure {
     /// Poids mesure (`Content-Length` ou taille du corps).
@@ -39,7 +39,7 @@ enum AssetMeasure {
     /// Asset durablement inaccessible : 4xx/5xx, boucle de redirection,
     /// `Location` inexploitable, ou cible hors http(s) / locale.
     Broken,
-    /// Echec passager : DNS, timeout, connexion coupee, corps tronque.
+    /// Échec passager : DNS, timeout, connexion coupee, corps tronque.
     Transient,
 }
 
@@ -63,8 +63,8 @@ pub struct HttpProbeResult {
     pub first_status: Option<u16>,
     /// Final URL reached after following all redirects.
     pub final_url: String,
-    /// Temps total de la sonde HTTP en millisecondes : du debut de la 1ere requete
-    /// (chaine de redirections incluse) jusqu'a la lecture complete du corps final.
+    /// Temps total de la sonde HTTP en millisecondes : du début de la 1ere requête
+    /// (chaîne de redirections incluse) jusqu'à la lecture complète du corps final.
     pub response_time_ms: u64,
 }
 
@@ -86,12 +86,12 @@ fn resolve_url(base: &Url, raw: &str) -> Option<String> {
     }
 }
 
-/// `true` si l'IPv4 appartient a un reseau non routable sur Internet.
+/// `true` si l'IPv4 appartient à un réseau non routable sur Internet.
 ///
 /// Couvre le prive RFC 1918 (10/8, 172.16/12, 192.168/16), le loopback 127/8,
-/// le lien-local 169.254/16 (dont 169.254.169.254, les metadonnees cloud),
-/// `0.0.0.0`, et le CGNAT 100.64/10 — cette derniere plage est celle de
-/// **Tailscale**, tres courante sur un poste de dev et non couverte par
+/// le lien-local 169.254/16 (dont 169.254.169.254, les métadonnées cloud),
+/// `0.0.0.0`, et le CGNAT 100.64/10 — cette dernière plage est celle de
+/// **Tailscale**, très courante sur un poste de dev et non couverte par
 /// `is_private()`.
 fn is_local_v4(v4: std::net::Ipv4Addr) -> bool {
     let o = v4.octets();
@@ -102,13 +102,13 @@ fn is_local_v4(v4: std::net::Ipv4Addr) -> bool {
         || (o[0] == 100 && (64..128).contains(&o[1]))
 }
 
-/// `true` si l'URL vise la machine locale ou un reseau prive/lien-local.
+/// `true` si l'URL vise la machine locale ou un réseau prive/lien-local.
 ///
 /// Sert de garde-fou sur les REDIRECTIONS, que `same_domain_only` ne couvre
 /// pas : sans ca, un redirecteur ouvert sur le site crawle amenerait la sonde a
 /// interroger les services de dev, la box ou le NAS de l'utilisateur.
 fn is_local_host(u: &Url) -> bool {
-    // `Url::host()` distingue deja Ipv4 / Ipv6 / Domain. NE PAS passer par
+    // `Url::host()` distingue déjà Ipv4 / Ipv6 / Domain. NE PAS passer par
     // `host_str()` : il rend l'IPv6 sous sa forme URL, crochets compris
     // (`[::1]`), qui ne se parse pas en `IpAddr`.
     match u.host() {
@@ -141,11 +141,11 @@ fn is_local_host(u: &Url) -> bool {
 /// Idem [`resolve_url`], mais SANS le fragment.
 ///
 /// Le `#...` n'est jamais transmis au serveur (RFC 3986 : le fragment est
-/// purement cote client), donc deux URLs qui ne different que par leur fragment
-/// designent la MEME ressource et renvoient le MEME HTML. Sans ce nettoyage,
+/// purement côté client), donc deux URLs qui ne diffèrent que par leur fragment
+/// designent la MÊME ressource et renvoient le MÊME HTML. Sans ce nettoyage,
 /// chaque ancre du HTML entre dans la file comme une page distincte :
-///   - `href="#top"` present sur toutes les pages -> le crawl DOUBLE ;
-///   - la page fantome porte les memes title/meta/H1/contenu que la vraie ->
+///   - `href="#top"` présent sur toutes les pages -> le crawl DOUBLE ;
+///   - la page fantome porte les mêmes title/meta/H1/contenu que la vraie ->
 ///     faux positifs en masse dans les rapports "doublons" et "near-duplicates".
 ///
 /// C'est le comportement par defaut de Screaming Frog (option
@@ -171,7 +171,7 @@ pub async fn probe(
     client: &reqwest::Client,
     target: &str,
 ) -> anyhow::Result<HttpProbeResult> {
-    // Chrono : mesure le temps total de la sonde (toute la chaine de redirections
+    // Chrono : mesure le temps total de la sonde (toute la chaîne de redirections
     // + lecture du corps final), pour alimenter PageReport.response_time_ms.
     let probe_start = std::time::Instant::now();
 
@@ -220,13 +220,13 @@ pub async fn probe(
                     }
                 }
 
-                // On ne suit JAMAIS une redirection vers le reseau local.
+                // On ne suit JAMAIS une redirection vers le réseau local.
                 //
                 // Le filtre `same_domain_only` ne s'applique qu'aux liens
-                // EXTRAITS, jamais a la cible d'une redirection. Un redirecteur
+                // EXTRAITS, jamais à la cible d'une redirection. Un redirecteur
                 // ouvert sur le site crawle (`/go/?url=`, plugin de tracking)
-                // suffirait donc a faire requeter le reseau local de la
-                // machine — et la reponse serait stockee dans le fichier projet.
+                // suffirait donc a faire requeter le réseau local de la
+                // machine — et la réponse serait stockee dans le fichier projet.
                 if is_local_host(&next) {
                     let headers = resp.headers().clone();
                     let _ = resp.bytes().await;
@@ -260,7 +260,7 @@ pub async fn probe(
     // If there was no redirect, expose an empty chain (length-1 chains are noise).
     let redirect_chain = if chain.len() > 1 { chain } else { Vec::new() };
 
-    // Temps total ecoule depuis le debut de la sonde.
+    // Temps total ecoule depuis le début de la sonde.
     let response_time_ms = probe_start.elapsed().as_millis() as u64;
 
     Ok(HttpProbeResult {
@@ -280,7 +280,7 @@ pub async fn probe(
 ///
 /// Alimente la FILE de crawl : les fragments sont retires (cf.
 /// [`resolve_url_for_crawl`]), donc les N ancres d'un menu s'effondrent en une
-/// seule entree via le `HashSet` ci-dessous.
+/// seule entrée via le `HashSet` ci-dessous.
 ///
 /// Entirely synchronous: no `scraper` type escapes this function, so nothing
 /// non-`Send` is held across an `.await` in the caller.
@@ -462,7 +462,7 @@ fn push_asset(
 /// Measure the transferred size of every static asset referenced by `html`.
 ///
 /// Downloads each asset in parallel (`buffer_unordered`, ~8 at a time). For
-/// each asset the byte size is the `Content-Length` header when present,
+/// each asset the byte size is the `Content-Length` header when présent,
 /// otherwise the length of the downloaded body. Returns the per-asset reports,
 /// the aggregated `by_type` map and the total number of bytes.
 pub async fn measure_static_assets(
@@ -480,8 +480,8 @@ pub async fn measure_static_assets(
 
     // Download each asset concurrently and measure its transferred size.
     //
-    // Un asset deja mesure lors d'une page precedente est repris du cache sans
-    // requete reseau (cf. [`AssetCache`]).
+    // Un asset déjà mesure lors d'une page précédente est repris du cache sans
+    // requête réseau (cf. [`AssetCache`]).
     let reports: Vec<AssetReport> = stream::iter(asset_urls.into_iter())
         .map(|asset| {
             let client = client.clone();
@@ -490,20 +490,20 @@ pub async fn measure_static_assets(
                 let bytes = match known {
                     Some(b) => b,
                     None => {
-                        // Lock relache pendant le telechargement : deux workers
-                        // peuvent demander le meme asset en meme temps (au pire
+                        // Lock relache pendant le téléchargement : deux workers
+                        // peuvent demander le même asset en même temps (au pire
                         // il est mesure deux fois, jamais N fois), mais aucun ne
-                        // bloque les autres sur une E/S reseau.
+                        // bloque les autres sur une E/S réseau.
                         match fetch_asset_bytes(&client, &asset.url).await {
-                            // Succes : mesure fiable, on la partage.
+                            // Succès : mesure fiable, on la partage.
                             AssetMeasure::Ok(b) => {
                                 cache.lock().await.insert(asset.url.clone(), b);
                                 b
                             }
-                            // CASSE (statut non-2xx apres redirections) : c'est
+                            // CASSE (statut non-2xx après redirections) : c'est
                             // un verdict STABLE du serveur, pas un alea. On le
                             // met en cache pour ne pas redemander 5 000 fois la
-                            // meme 404 (un logo supprime reste dans le header de
+                            // même 404 (un logo supprime reste dans le header de
                             // toutes les pages du template).
                             AssetMeasure::Broken => {
                                 cache.lock().await.insert(asset.url.clone(), 0);
@@ -513,7 +513,7 @@ pub async fn measure_static_assets(
                             // pour CETTE page et on ne met RIEN en cache — la
                             // page suivante retentera.
                             //
-                            // Mettre un echec passager en cache figerait une
+                            // Mettre un échec passager en cache figerait une
                             // mesure fausse pour tout le reste du crawl : un
                             // seul timeout sur le CSS principal amputerait le
                             // poids de TOUTES les pages, en silence. Un cache
@@ -553,9 +553,9 @@ async fn fetch_asset_bytes(client: &reqwest::Client, url: &str) -> AssetMeasure 
     let mut current = url.to_string();
 
     for _ in 0..=MAX_ASSET_REDIRECTS {
-        // Meme garde-fou que sur les pages, applique des le PREMIER fetch : un
+        // Même garde-fou que sur les pages, applique des le PREMIER fetch : un
         // `<img src="http://192.168.1.1/x">` dans le HTML d'un site crawle
-        // partait jusqu'ici sans controle (seuls les hops de redirection
+        // partait jusqu'ici sans contrôle (seuls les hops de redirection
         // etaient filtres).
         if Url::parse(&current).map(|u| is_local_host(&u)).unwrap_or(false) {
             return AssetMeasure::Broken;
@@ -563,15 +563,15 @@ async fn fetch_asset_bytes(client: &reqwest::Client, url: &str) -> AssetMeasure 
 
         let resp = match client.get(&current).send().await {
             Ok(r) => r,
-            // Reseau : rien ne dit que ca se reproduira.
+            // Réseau : rien ne dit que ca se reproduira.
             Err(_) => return AssetMeasure::Transient,
         };
         let status = resp.status();
 
-        // Redirection : le client de la sonde a `Policy::none()` (necessaire
-        // pour observer les chaines de redirection des PAGES), donc c'est a nous
+        // Redirection : le client de la sonde a `Policy::none()` (nécessaire
+        // pour observer les chaînes de redirection des PAGES), donc c'est a nous
         // de suivre. Sans ca, un asset servi en 301 (CDN, http->https, version
-        // fingerprintee) etait compte comme "casse" et son poids reel jamais
+        // fingerprintee) etait compte comme "casse" et son poids réel jamais
         // mesure.
         if status.is_redirection() {
             let loc = resp
@@ -644,7 +644,7 @@ mod tests {
     }
 
     /// La FILE de crawl, elle, ne doit jamais voir de fragment : `#...` n'est pas
-    /// envoye au serveur, donc c'est la meme ressource.
+    /// envoye au serveur, donc c'est la même ressource.
     #[test]
     fn resolve_url_for_crawl_retire_le_fragment() {
         assert_eq!(
@@ -669,13 +669,13 @@ mod tests {
         assert!(resolve_url_for_crawl(&base(), "javascript:void(0)").is_none());
     }
 
-    /// REGRESSION : un menu d'ancres ne doit plus produire qu'UNE entree de file.
+    /// REGRESSION : un menu d'ancres ne doit plus produire qu'UNE entrée de file.
     /// Avant le correctif, ce HTML enfilait 4 URLs et faisait crawler la page
-    /// courante 3 fois de plus (meme title/H1/meta -> faux doublons partout).
+    /// courante 3 fois de plus (même title/H1/meta -> faux doublons partout).
     #[test]
     fn extract_links_effondre_les_ancres_d_un_menu() {
         // `r##"..."##` (double diese) obligatoire : `href="#haut"` contient la
-        // sequence `"#` qui refermerait un raw string `r#"..."#`.
+        // séquence `"#` qui refermerait un raw string `r#"..."#`.
         let html = r##"
             <a href="#haut">Haut</a>
             <a href="#tarifs">Tarifs</a>
@@ -692,7 +692,7 @@ mod tests {
         );
     }
 
-    /// Deux ancres vers la MEME page cible = une seule entree de file.
+    /// Deux ancres vers la MÊME page cible = une seule entrée de file.
     #[test]
     fn extract_links_dedoublonne_entre_pages() {
         let html = r##"
@@ -713,7 +713,7 @@ mod tests_local_host {
         is_local_host(&Url::parse(u).unwrap())
     }
 
-    /// Une redirection vers le reseau local ne doit jamais etre suivie :
+    /// Une redirection vers le réseau local ne doit jamais être suivie :
     /// `same_domain_only` ne couvre pas les cibles de redirection, donc un
     /// redirecteur ouvert sur le site crawle suffirait a atteindre les services
     /// de dev, la box ou le NAS de la machine.
@@ -745,13 +745,13 @@ mod tests_local_host {
         // IPv6 ULA et lien-local.
         assert!(local("http://[fd00::1]/"));
         assert!(local("http://[fe80::1]/"));
-        // Notations alternatives : normalisees par le parser WHATWG du crate
+        // Notations alternatives : normalisées par le parser WHATWG du crate
         // `url` (c'est ce que `host_str()` n'aurait pas donne).
         assert!(local("http://2130706433/"));
         assert!(local("http://0x7f.0.0.1/"));
     }
 
-    /// Les hotes publics restent evidemment suivis.
+    /// Les hotes publics restent évidemment suivis.
     #[test]
     fn laisse_passer_les_hotes_publics() {
         assert!(!local("https://site.fr/"));

@@ -1,13 +1,13 @@
 //! Detection de technologie par signatures (style Wappalyzer).
 //!
-//! Deux entrees publiques :
-//! - [`detect`] : inspecte les en-tetes HTTP et le HTML pour deviner la stack.
-//! - [`is_dynamic_request`] : heuristique "cette requete a-t-elle declenche du
+//! Deux entrées publiques :
+//! - [`detect`] : inspecte les en-têtes HTTP et le HTML pour deviner la stack.
+//! - [`is_dynamic_request`] : heuristique "cette requête a-t-elle declenche du
 //!   calcul serveur ?" (route API, RSC, ou cache CDN manque).
 
 use reqwest::header::HeaderMap;
 
-/// Recherche une valeur d'en-tete (par nom, insensible a la casse cote reqwest)
+/// Recherche une valeur d'en-tête (par nom, insensible à la casse côté reqwest)
 /// et renvoie sa valeur en minuscules pour une comparaison robuste.
 fn header_lower(headers: &HeaderMap, name: &str) -> Option<String> {
     headers
@@ -16,32 +16,32 @@ fn header_lower(headers: &HeaderMap, name: &str) -> Option<String> {
         .map(|v| v.to_ascii_lowercase())
 }
 
-/// Vrai si l'en-tete `name` existe et que sa valeur contient `needle`
-/// (comparaison insensible a la casse).
+/// Vrai si l'en-tête `name` existe et que sa valeur contient `needle`
+/// (comparaison insensible à la casse).
 fn header_contains(headers: &HeaderMap, name: &str, needle: &str) -> bool {
     header_lower(headers, name)
         .map(|v| v.contains(&needle.to_ascii_lowercase()))
         .unwrap_or(false)
 }
 
-/// Vrai si l'en-tete `name` est present (quelle que soit sa valeur).
+/// Vrai si l'en-tête `name` est présent (quelle que soit sa valeur).
 fn header_present(headers: &HeaderMap, name: &str) -> bool {
     headers.contains_key(name)
 }
 
-/// Detecte les technologies a partir des en-tetes HTTP et du corps HTML.
+/// Detecte les technologies à partir des en-têtes HTTP et du corps HTML.
 ///
-/// Le HTML est compare tel quel (les signatures fournies sont sensibles a la
+/// Le HTML est compare tel quel (les signatures fournies sont sensibles à la
 /// casse : `__NEXT_DATA__`, `wp-content`, `/_astro/`, ...). Les valeurs
-/// d'en-tetes sont comparees sans tenir compte de la casse car les serveurs
+/// d'en-têtes sont comparees sans tenir compte de la casse car les serveurs
 /// varient (`Vercel` / `vercel`, `cloudflare`, ...).
 ///
 /// La liste retournee est sans doublons et conserve l'ordre de detection.
 pub fn detect(headers: &HeaderMap, html: &str) -> Vec<String> {
     let mut found: Vec<String> = Vec::new();
     // Pas de `mut` : cette closure ne capture rien de son environnement —
-    // `found` lui est passe en ARGUMENT a chaque appel. C'est justement ce qui
-    // evite qu'elle ne le verrouille en emprunt mutable pour toute sa duree de
+    // `found` lui est passe en ARGUMENT à chaque appel. C'est justement ce qui
+    // évite qu'elle ne le verrouille en emprunt mutable pour toute sa durée de
     // vie, ce qui empecherait le reste de la fonction d'y toucher.
     let push = |tech: &str, found: &mut Vec<String>| {
         if !found.iter().any(|t| t == tech) {
@@ -51,7 +51,7 @@ pub fn detect(headers: &HeaderMap, html: &str) -> Vec<String> {
 
     // --- Frameworks JS / SSR ---
 
-    // Next.js : marqueur de donnees, dossier d'assets, ou en-tete x-powered-by.
+    // Next.js : marqueur de données, dossier d'assets, ou en-tête x-powered-by.
     if html.contains("__NEXT_DATA__")
         || html.contains("/_next/")
         || header_contains(headers, "x-powered-by", "Next.js")
@@ -91,9 +91,9 @@ pub fn detect(headers: &HeaderMap, html: &str) -> Vec<String> {
         push("WordPress", &mut found);
     }
 
-    // --- Librairies front (apres les frameworks, plus specifiques) ---
+    // --- Librairies front (après les frameworks, plus spécifiques) ---
 
-    // React : racine SSR explicite, ou conteneur racine + presence d'un bundle.
+    // React : racine SSR explicite, ou conteneur racine + présence d'un bundle.
     if html.contains("data-reactroot")
         || (html.contains("id=\"root\"") && html.contains("bundle"))
     {
@@ -105,9 +105,9 @@ pub fn detect(headers: &HeaderMap, html: &str) -> Vec<String> {
         push("Vue", &mut found);
     }
 
-    // --- Hebergeurs / CDN (en-tetes) ---
+    // --- Hebergeurs / CDN (en-têtes) ---
 
-    // Vercel : server = Vercel, ou en-tetes specifiques.
+    // Vercel : server = Vercel, ou en-têtes spécifiques.
     if header_contains(headers, "server", "Vercel")
         || header_present(headers, "x-vercel-id")
         || header_present(headers, "x-vercel-cache")
@@ -128,13 +128,13 @@ pub fn detect(headers: &HeaderMap, html: &str) -> Vec<String> {
     found
 }
 
-/// Heuristique : la requete a-t-elle probablement declenche du calcul serveur
+/// Heuristique : la requête a-t-elle probablement declenche du calcul serveur
 /// (invocation serverless) plutot qu'un simple hit de cache statique ?
 ///
 /// Vrai si :
 /// - l'URL contient `/api/` (route API),
 /// - l'URL contient `?_rsc=` ou `_rsc=` (React Server Components / navigation),
-/// - le cache Vercel (insensible a la casse) vaut `MISS`, `STALE` ou `PRERENDER`.
+/// - le cache Vercel (insensible à la casse) vaut `MISS`, `STALE` ou `PRERENDER`.
 ///
 /// Faux sinon (typiquement un `HIT` de cache).
 pub fn is_dynamic_request(url: &str, vercel_cache: Option<&str>) -> bool {
@@ -260,7 +260,7 @@ mod tests {
 
     #[test]
     fn detect_dedups_results() {
-        // x-powered-by ET html declenchent tous deux Next.js : une seule entree.
+        // x-powered-by ET html declenchent tous deux Next.js : une seule entrée.
         let h = headers_from(&[("x-powered-by", "Next.js")]);
         let techs = detect(&h, "/_next/ __NEXT_DATA__");
         let count = techs.iter().filter(|t| *t == "Next.js").count();

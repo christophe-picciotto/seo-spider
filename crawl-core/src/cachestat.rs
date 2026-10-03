@@ -1,21 +1,21 @@
-//! Statut de CACHE d'une reponse : qui l'a servie, et depuis son cache ou non.
+//! Statut de CACHE d'une réponse : qui l'a servie, et depuis son cache ou non.
 //!
-//! Savoir si une page a ete servie depuis un cache (HIT) ou recalculee par
-//! l'origine (MISS) dit deux choses a un audit :
+//! Savoir si une page a été servie depuis un cache (HIT) ou recalculee par
+//! l'origine (MISS) dit deux choses à un audit :
 //!
-//!   - le temps de reponse mesure n'a pas le meme sens — un HIT flatte la
+//!   - le temps de réponse mesure n'a pas le même sens — un HIT flatte la
 //!     vitesse, un MISS montre le vrai cout de l'origine ;
-//!   - un site cense etre entierement cache qui repond MISS partout revele une
-//!     regle de cache qui ne prend pas.
+//!   - un site cense être entierement cache qui repond MISS partout revele une
+//!     règle de cache qui ne prend pas.
 //!
-//! Aucun en-tete n'est normalise entre CDN : chacun a le sien, avec son propre
+//! Aucun en-tête n'est normalisé entre CDN : chacun a le sien, avec son propre
 //! vocabulaire (`HIT`, `TCP_MEM_HIT`, `Miss from cloudfront`...). `analyze` les
-//! essaie du plus exterieur au plus interne et en tire trois informations :
+//! essaie du plus extérieur au plus interne et en tire trois informations :
 //!
-//!   - `status`   : le verdict de la couche la plus EXTERIEURE (ce qu'a vecu
+//!   - `status`   : le verdict de la couche la plus EXTÉRIEURE (ce qu'a vecu
 //!                  le visiteur) ;
-//!   - `served_by`: qui a REELLEMENT servi la page — le premier cache en HIT,
-//!                  ou « origine » si la requete est allee jusqu'au serveur ;
+//!   - `served_by`: qui a RÉELLEMENT servi la page — le premier cache en HIT,
+//!                  ou « origine » si la requête est allée jusqu'au serveur ;
 //!   - `layers`   : toutes les couches traversees, pour voir ou ca coince.
 
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -24,17 +24,17 @@ use reqwest::header::HeaderMap;
 
 use crate::report::{CacheData, CacheLayer};
 
-/// En-tetes de statut de cache connus, du plus EXTERIEUR au plus interne, avec
+/// En-têtes de statut de cache connus, du plus EXTÉRIEUR au plus interne, avec
 /// le nom lisible du moteur derriere chacun.
 ///
-/// L'ordre compte : une reponse en porte souvent plusieurs — un WordPress
-/// derriere Cloudflare en expose deux — et c'est le cache le plus exterieur,
-/// celui qui a reellement repondu au visiteur, qui donne le verdict. Un HIT
+/// L'ordre compte : une réponse en porte souvent plusieurs — un WordPress
+/// derriere Cloudflare en expose deux — et c'est le cache le plus extérieur,
+/// celui qui a réellement repondu au visiteur, qui donne le verdict. Un HIT
 /// HiveCache sous un MISS Cloudflare reste un MISS pour le visiteur : la
-/// requete est bel et bien allee jusqu'au serveur.
+/// requête est bel et bien allée jusqu'au serveur.
 ///
-/// Un moteur vide signifie que l'en-tete est PARTAGE par plusieurs CDN et que
-/// le nom doit etre devine sur d'autres indices (cf. `guess_cdn`).
+/// Un moteur vide signifie que l'en-tête est PARTAGE par plusieurs CDN et que
+/// le nom doit être devine sur d'autres indices (cf. `guess_cdn`).
 const CACHE_HEADERS: &[(&str, &str)] = &[
     // --- Caches de peripherie (CDN) : ils repondent AVANT l'origine ---------
     ("cf-cache-status", "Cloudflare"),
@@ -55,7 +55,7 @@ const CACHE_HEADERS: &[(&str, &str)] = &[
     ("x-drupal-cache", "Drupal"),
 ];
 
-/// En-tetes portant un AGE de cache en secondes, par ordre de preference.
+/// En-têtes portant un AGE de cache en secondes, par ordre de préférence.
 ///
 /// `age` est le standard (RFC 9111) ; les caches d'origine exposent souvent le
 /// leur en plus, seule source disponible sur un site sans CDN devant.
@@ -65,7 +65,7 @@ const AGE_HEADERS: &[&str] = &["age", "x-hivecache-age", "x-cache-age"];
 ///
 /// `REVALIDATED` et `EXPIRED` n'en font pas partie : dans les deux cas le cache
 /// a contacte le serveur pour verifier sa copie. Pour la question « est-ce
-/// qu'on est alle taper le site ? », la reponse y est oui.
+/// qu'on est alle taper le site ? », la réponse y est oui.
 ///
 /// `EDGE` en fait partie pour une raison plus radicale : sur un hebergement de
 /// peripherie, il n'y a pas d'origine du tout (cf. `cloudflare_edge`).
@@ -74,13 +74,13 @@ const SERVED_FROM_CACHE: &[&str] = &["HIT", "STALE", "UPDATING", "EDGE"];
 /// Nom retenu quand aucun cache n'a servi : la page vient du serveur.
 const ORIGIN: &str = "origine";
 
-/// Ramene la valeur brute d'un en-tete de cache a un verdict court.
+/// Ramene la valeur brute d'un en-tête de cache à un verdict court.
 ///
-/// La valeur est decoupee en mots : `TCP_MEM_HIT` (Akamai), `Miss from
+/// La valeur est découpée en mots : `TCP_MEM_HIT` (Akamai), `Miss from
 /// cloudfront` (CloudFront) et `hit` (Cloudflare) portent tous leur verdict
 /// dans un mot isole. Le PREMIER mot reconnu tranche — Fastly repond
 /// « HIT, MISS » quand deux couches se repondent, et c'est la plus externe,
-/// donc la premiere, qui a servi le visiteur.
+/// donc la première, qui a servi le visiteur.
 ///
 /// `None` si aucun mot n'est reconnu : l'appelant conserve alors la valeur
 /// brute plutot que d'inventer un verdict.
@@ -97,8 +97,8 @@ fn normalize(raw: &str) -> Option<&'static str> {
             "updating" => return Some("UPDATING"),
             "prerender" => return Some("PRERENDER"),
             // Cloudflare : la ressource n'est pas eligible au cache (aucune
-            // regle ne la couvre). Ce n'est PAS un echec de cache, c'est
-            // l'absence de regle — distinction utile en audit.
+            // règle ne la couvre). Ce n'est PAS un échec de cache, c'est
+            // l'absence de règle — distinction utile en audit.
             "dynamic" => return Some("DYNAMIC"),
             "none" | "unknown" => return Some("NONE"),
             _ => {}
@@ -107,15 +107,15 @@ fn normalize(raw: &str) -> Option<&'static str> {
     None
 }
 
-/// Vrai si un nom d'en-tete ressemble a un statut de cache proprietaire.
+/// Vrai si un nom d'en-tête ressemble à un statut de cache propriétaire.
 ///
-/// Filet pour les caches maison et les plugins qui posent leur propre en-tete
+/// Filet pour les caches maison et les plugins qui posent leur propre en-tête
 /// (`x-wp-super-cache`...) : on ne peut pas tous les lister, mais leur nom
 /// contient « cache » et leur valeur dit hit/miss.
 ///
 /// `cache-control` est exclu explicitement : son nom correspond mais sa valeur
 /// est une DIRECTIVE (`max-age=600, public`), jamais un statut. Idem pour les
-/// en-tetes de cle, de duree ou d'age.
+/// en-têtes de clé, de durée ou d'age.
 fn looks_like_cache_header(name: &str) -> bool {
     if !name.contains("cache") {
         return false;
@@ -133,10 +133,10 @@ fn looks_like_cache_header(name: &str) -> bool {
     )
 }
 
-/// Nom lisible deduit d'un en-tete inconnu : `x-wp-super-cache` -> « Wp Super ».
+/// Nom lisible deduit d'un en-tête inconnu : `x-wp-super-cache` -> « Wp Super ».
 ///
 /// Approximatif par nature, mais toujours plus parlant que le nom brut, et
-/// l'en-tete d'origine reste disponible dans `CacheLayer::header`.
+/// l'en-tête d'origine reste disponible dans `CacheLayer::header`.
 fn engine_from_header(name: &str) -> String {
     let cleaned = name
         .trim_start_matches("x-")
@@ -161,10 +161,10 @@ fn engine_from_header(name: &str) -> String {
         .join(" ")
 }
 
-/// Devine le CDN derriere un en-tete partage (`x-cache` et consorts).
+/// Devine le CDN derriere un en-tête partage (`x-cache` et consorts).
 ///
 /// `x-cache` est utilise par CloudFront, Fastly, Akamai et Varnish sans qu'on
-/// puisse les distinguer sur sa seule valeur. On s'appuie donc sur les en-tetes
+/// puisse les distinguer sur sa seule valeur. On s'appuie donc sur les en-têtes
 /// signature que chacun ajoute par ailleurs.
 fn guess_cdn(headers: &HeaderMap) -> String {
     if headers.contains_key("x-amz-cf-id") || headers.contains_key("x-amz-cf-pop") {
@@ -198,7 +198,7 @@ fn guess_cdn(headers: &HeaderMap) -> String {
     "CDN".to_string()
 }
 
-/// Lit la valeur d'un header (insensible a la casse) en minuscules.
+/// Lit la valeur d'un header (insensible à la casse) en minuscules.
 fn header_lower(headers: &HeaderMap, name: &str) -> Option<String> {
     headers
         .get(name)
@@ -206,7 +206,7 @@ fn header_lower(headers: &HeaderMap, name: &str) -> Option<String> {
         .map(|v| v.trim().to_ascii_lowercase())
 }
 
-/// Age de l'entree en cache, en secondes, lu sur le premier en-tete disponible.
+/// Age de l'entrée en cache, en secondes, lu sur le premier en-tête disponible.
 fn read_age(headers: &HeaderMap) -> Option<u64> {
     for name in AGE_HEADERS {
         if let Some(v) = headers
@@ -223,19 +223,19 @@ fn read_age(headers: &HeaderMap) -> Option<u64> {
 /// Reconnait un hebergement de PERIPHERIE Cloudflare (Pages, Workers avec
 /// assets statiques), qui n'emet aucun statut de cache.
 ///
-/// LE FAIT, verifie sur le parc : Cloudflare Pages ne pose JAMAIS
-/// `cf-cache-status` sur le HTML — ni a la premiere requete, ni aux suivantes.
+/// LE FAIT, vérifié sur le parc : Cloudflare Pages ne pose JAMAIS
+/// `cf-cache-status` sur le HTML — ni à la première requête, ni aux suivantes.
 /// Un site proxifie classique en porte toujours un, ne serait-ce que `DYNAMIC`.
-/// L'ABSENCE de cet en-tete, conjuguee a la presence de `cf-ray` (l'identifiant
-/// de requete que Cloudflare ajoute systematiquement), est donc discriminante.
+/// L'ABSENCE de cet en-tête, conjuguée à la présence de `cf-ray` (l'identifiant
+/// de requête que Cloudflare ajoute systématiquement), est donc discriminante.
 ///
 /// POURQUOI ce n'est ni un HIT ni un MISS : sur ce type d'hebergement il n'y a
-/// pas d'origine a joindre. Le document EST sur le reseau, servi par le noeud le
+/// pas d'origine a joindre. Le document EST sur le réseau, servi par le noeud le
 /// plus proche. La question « le serveur a-t-il travaille ? » n'a pas de MISS
 /// possible — d'ou un verdict propre, `EDGE`, plutot qu'un HIT approximatif.
 ///
-/// PRECISION DU NOM : les en-tetes ne permettent pas de distinguer Pages d'un
-/// Worker servant des assets statiques — leurs reponses sont identiques. On s'en
+/// PRÉCISION DU NOM : les en-têtes ne permettent pas de distinguer Pages d'un
+/// Worker servant des assets statiques — leurs réponses sont identiques. On s'en
 /// tient donc a « Cloudflare edge », vrai dans les deux cas, plutot que de
 /// nommer un produit au hasard.
 fn cloudflare_edge(headers: &HeaderMap) -> Option<CacheLayer> {
@@ -246,16 +246,16 @@ fn cloudflare_edge(headers: &HeaderMap) -> Option<CacheLayer> {
     // Piste PRECISE, quand elle est disponible : `server-timing`.
     //
     // Cloudflare y decompose le temps de traitement — `cfEdge` (peripherie),
-    // `cfOrigin` (serveur d'origine), `cfWorker` (code execute au bord) :
+    // `cfOrigin` (serveur d'origine), `cfWorker` (code exécute au bord) :
     //
     //     server-timing: cfEdge;dur=13,cfOrigin;dur=0,cfWorker;dur=58
     //
-    // `cfOrigin;dur=0` DIT que l'origine n'a pas ete sollicitee — l'equivalent
+    // `cfOrigin;dur=0` DIT que l'origine n'a pas été sollicitée — l'équivalent
     // d'un HIT, exprime en temps plutot qu'en statut. Une valeur non nulle dit
     // l'inverse : le serveur a travaille, donc MISS.
     //
-    // ATTENTION : cet en-tete n'est emis que si la requete ressemble a une
-    // NAVIGATION, ce que Cloudflare juge sur l'en-tete `Accept`. Le crawler en
+    // ATTENTION : cet en-tête n'est emis que si la requête ressemble à une
+    // NAVIGATION, ce que Cloudflare juge sur l'en-tête `Accept`. Le crawler en
     // envoie donc un de navigateur (cf. `crawler.rs`) — sans lui, l'information
     // n'arrive jamais.
     if let Some(st) = header_lower(headers, "server-timing") {
@@ -276,19 +276,19 @@ fn cloudflare_edge(headers: &HeaderMap) -> Option<CacheLayer> {
         }
     }
 
-    // A defaut : la seule ABSENCE de statut malgre un `cf-ray`.
+    // à défaut : la seule ABSENCE de statut malgre un `cf-ray`.
     Some(CacheLayer {
         header: "cf-ray".to_string(),
         engine: "Cloudflare edge".to_string(),
-        raw: "servi par le reseau, sans origine (aucun cf-cache-status)".to_string(),
+        raw: "servi par le réseau, sans origine (aucun cf-cache-status)".to_string(),
         status: "EDGE".to_string(),
     })
 }
 
-/// Lit une duree dans un en-tete `server-timing` : `parse("cfEdge;dur=13,...",
+/// Lit une durée dans un en-tête `server-timing` : `parse("cfEdge;dur=13,...",
 /// "cfedge")` renvoie `Some(13.0)`.
 ///
-/// Le nom recherche doit etre donne en MINUSCULES (l'en-tete est deja abaisse
+/// Le nom recherche doit être donne en MINUSCULES (l'en-tête est déjà abaisse
 /// par `header_lower`).
 fn server_timing_dur(raw: &str, name: &str) -> Option<f64> {
     for entry in raw.split(',') {
@@ -308,11 +308,11 @@ fn server_timing_dur(raw: &str, name: &str) -> Option<f64> {
     None
 }
 
-/// Les `n` derniers octets d'une chaine, coupes sur une frontiere de caractere.
+/// Les `n` derniers octets d'une chaîne, coupes sur une frontière de caractère.
 ///
-/// `len()` compte des OCTETS : trancher a l'aveugle ferait paniquer des qu'un
-/// caractere multi-octets chevauche la borne. On recule donc jusqu'a la
-/// derniere frontiere valide (3 tours au pire).
+/// `len()` compte des OCTETS : trancher à l'aveugle ferait paniquer des qu'un
+/// caractère multi-octets chevauche la borne. On recule donc jusqu'à la
+/// dernière frontière valide (3 tours au pire).
 fn tail(s: &str, n: usize) -> &str {
     if s.len() <= n {
         return s;
@@ -324,9 +324,9 @@ fn tail(s: &str, n: usize) -> &str {
     &s[start..]
 }
 
-/// Detecte WP Rocket dans le HTML, faute d'en-tete HTTP.
+/// Detecte WP Rocket dans le HTML, faute d'en-tête HTTP.
 ///
-/// POURQUOI c'est necessaire : WP Rocket seul (mode PHP) n'emet AUCUN en-tete
+/// POURQUOI c'est nécessaire : WP Rocket seul (mode PHP) n'emet AUCUN en-tête
 /// de statut. Seule son extension serveur Rocket-Nginx pose un
 /// `x-rocket-nginx-serving-static`. Sans elle, une page parfaitement servie
 /// depuis le cache WP Rocket serait indiscernable d'une page non cachee. Le
@@ -337,15 +337,15 @@ fn tail(s: &str, n: usize) -> &str {
 /// ```
 ///
 /// COMMENT on tranche HIT/MISS : le `cached@<epoch>` date la creation du
-/// fichier de cache. Le comparer a l'heure courante donne l'age de l'entree —
-/// une page servie depuis le cache a un age de plusieurs secondes au moins,
-/// alors qu'une page qui vient d'etre generee (et qui PEUPLE le cache, en
-/// portant deja le commentaire) a un age quasi nul.
+/// fichier de cache. Le comparer à l'heure courante donne l'age de l'entrée —
+/// une page servie depuis le cache à un age de plusieurs secondes au moins,
+/// alors qu'une page qui vient d'être générée (et qui PEUPLE le cache, en
+/// portant déjà le commentaire) à un age quasi nul.
 ///
-/// LIMITE ASSUMEE : la comparaison se fait sur l'horloge LOCALE, pas sur celle
+/// LIMITE ASSUMÉE : la comparaison se fait sur l'horloge LOCALE, pas sur celle
 /// du serveur. Un decalage de quelques secondes est sans effet grace au seuil ;
 /// une machine franchement deregle rendrait le verdict inexploitable, et l'age
-/// aberrant est alors ecarte.
+/// aberrant est alors écarte.
 fn wp_rocket_from_html(html: &str) -> Option<CacheLayer> {
     // La signature est en FIN de document : inutile de scanner tout le HTML.
     let end = tail(html, 4096).to_ascii_lowercase();
@@ -353,14 +353,14 @@ fn wp_rocket_from_html(html: &str) -> Option<CacheLayer> {
         return None;
     }
 
-    // Age de l'entree, si le commentaire de debogage est present.
+    // Age de l'entrée, si le commentaire de debogage est présent.
     let age = end.find("cached@").and_then(|pos| {
         let rest = &end[pos + "cached@".len()..];
         let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
         let cached_at = digits.parse::<i64>().ok()?;
         let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs() as i64;
         let delta = now - cached_at;
-        // Age negatif (horloge locale en retard) ou superieur a un an :
+        // Age négatif (horloge locale en retard) ou supérieur à un an :
         // incoherent, on n'en tire rien.
         if (0..31_536_000).contains(&delta) {
             Some(delta as u64)
@@ -370,11 +370,11 @@ fn wp_rocket_from_html(html: &str) -> Option<CacheLayer> {
     });
 
     let status = match age {
-        // Entree deja ancienne : la page a bien ete servie depuis le cache.
+        // Entrée déjà ancienne : la page a bien été servie depuis le cache.
         Some(a) if a > 10 => "HIT",
-        // Entree creee a l'instant : c'est CETTE requete qui a peuple le cache.
+        // Entrée créée à l'instant : c'est CETTE requête qui a peuple le cache.
         Some(_) => "MISS",
-        // Signature presente mais pas de `cached@` : on sait que WP Rocket est
+        // Signature présente mais pas de `cached@` : on sait que WP Rocket est
         // actif, pas s'il a servi. Mieux vaut ne rien affirmer.
         None => "",
     };
@@ -390,20 +390,20 @@ fn wp_rocket_from_html(html: &str) -> Option<CacheLayer> {
     })
 }
 
-/// Determine le statut de cache d'une reponse a partir de ses en-tetes et,
+/// Determine le statut de cache d'une réponse à partir de ses en-têtes et,
 /// en dernier recours, de son HTML.
 ///
-/// Strategie en quatre passes, de la plus sure a la plus generale :
-///   1. les en-tetes connus, dans l'ordre du plus exterieur au plus interne ;
-///   2. tout en-tete dont le nom evoque un cache et dont la valeur dit hit/miss
+/// Stratégie en quatre passes, de la plus sure à la plus generale :
+///   1. les en-têtes connus, dans l'ordre du plus extérieur au plus interne ;
+///   2. tout en-tête dont le nom evoque un cache et dont la valeur dit hit/miss
 ///      (caches maison, plugins WordPress) ;
 ///   3. l'hebergement de peripherie Cloudflare (Pages, Workers), reconnaissable
-///      a l'ABSENCE de statut de cache malgre un `cf-ray` ;
-///   4. la signature HTML de WP Rocket, qui n'emet pas d'en-tete sans son
+///      à l'ABSENCE de statut de cache malgre un `cf-ray` ;
+///   4. la signature HTML de WP Rocket, qui n'emet pas d'en-tête sans son
 ///      module serveur ;
 ///   5. `Age` (RFC 9111) : un age > 0 PROUVE qu'un intermediaire a stocke puis
-///      servi la reponse, meme sans en-tete proprietaire. Un age de 0 ne prouve
-///      rien — une entree fraichement stockee vaut 0 elle aussi.
+///      servi la réponse, même sans en-tête propriétaire. Un age de 0 ne prouve
+///      rien — une entrée fraichement stockee vaut 0 elle aussi.
 ///
 /// `None` quand rien de tout cela n'aboutit : l'absence d'information n'est pas
 /// un MISS, et l'afficher comme tel serait faux.
@@ -411,7 +411,7 @@ pub fn analyze(headers: &HeaderMap, html: &str) -> Option<CacheData> {
     let age = read_age(headers);
     let mut layers: Vec<CacheLayer> = Vec::new();
 
-    // --- 1. En-tetes connus, dans l'ordre ---------------------------------
+    // --- 1. En-têtes connus, dans l'ordre ---------------------------------
     for (name, engine) in CACHE_HEADERS {
         let Some(raw) = headers.get(*name).and_then(|v| v.to_str().ok()) else {
             continue;
@@ -422,7 +422,7 @@ pub fn analyze(headers: &HeaderMap, html: &str) -> Option<CacheData> {
         }
         layers.push(CacheLayer {
             header: (*name).to_string(),
-            // Moteur vide dans la table = en-tete partage entre plusieurs CDN.
+            // Moteur vide dans la table = en-tête partage entre plusieurs CDN.
             engine: if engine.is_empty() { guess_cdn(headers) } else { (*engine).to_string() },
             raw: raw.to_string(),
             // Valeur non reconnue : on la remonte telle quelle plutot que de
@@ -433,11 +433,11 @@ pub fn analyze(headers: &HeaderMap, html: &str) -> Option<CacheData> {
         });
     }
 
-    // --- 2. Passe generique sur les en-tetes « *cache* » ------------------
+    // --- 2. Passe generique sur les en-têtes « *cache* » ------------------
     for (name, value) in headers.iter() {
         let n = name.as_str().to_ascii_lowercase();
         if !looks_like_cache_header(&n) || CACHE_HEADERS.iter().any(|(h, _)| *h == n) {
-            continue; // deja traite a la passe 1
+            continue; // déjà traite à la passe 1
         }
         let Some(raw) = value.to_str().ok().map(str::trim) else {
             continue;
@@ -456,11 +456,11 @@ pub fn analyze(headers: &HeaderMap, html: &str) -> Option<CacheData> {
 
     // --- 3. Hebergement de peripherie Cloudflare (Pages / Workers) ---------
     //
-    // UNIQUEMENT si aucun en-tete de statut n'a parle : c'est precisement leur
+    // UNIQUEMENT si aucun en-tête de statut n'a parle : c'est précisément leur
     // absence qui signe ce mode d'hebergement. Des qu'un `cf-cache-status`
-    // existe — meme `DYNAMIC` —, le site est proxifie et c'est lui qui fait foi.
+    // existe — même `DYNAMIC` —, le site est proxifie et c'est lui qui fait foi.
     //
-    // Insere EN TETE : le reseau de peripherie est la couche la plus exterieure
+    // Insere EN TÊTE : le réseau de peripherie est la couche la plus extérieure
     // de toutes, celle qui a repondu au visiteur.
     if layers.is_empty() {
         if let Some(l) = cloudflare_edge(headers) {
@@ -468,7 +468,7 @@ pub fn analyze(headers: &HeaderMap, html: &str) -> Option<CacheData> {
         }
     }
 
-    // --- 4. WP Rocket sans en-tete (signature HTML) ------------------------
+    // --- 4. WP Rocket sans en-tête (signature HTML) ------------------------
     // Ajoute en DERNIER : c'est un cache d'origine, le plus interne de tous.
     if !layers.iter().any(|l| l.engine == "WP Rocket") {
         if let Some(l) = wp_rocket_from_html(html) {
@@ -477,10 +477,10 @@ pub fn analyze(headers: &HeaderMap, html: &str) -> Option<CacheData> {
     }
 
     if !layers.is_empty() {
-        // Verdict = couche la plus exterieure (la premiere collectee).
+        // Verdict = couche la plus extérieure (la première collectee).
         let first = &layers[0];
-        // Qui a REELLEMENT servi : le premier cache a avoir repondu sans
-        // solliciter l'origine. Aucun -> la requete est allee au serveur.
+        // Qui a RÉELLEMENT servi : le premier cache a avoir repondu sans
+        // solliciter l'origine. Aucun -> la requête est allée au serveur.
         let served_by = layers
             .iter()
             .find(|l| SERVED_FROM_CACHE.contains(&l.status.as_str()))
@@ -584,7 +584,7 @@ mod tests {
     #[test]
     fn le_cache_le_plus_exterieur_donne_le_verdict() {
         // HiveCache a servi depuis son cache, mais Cloudflare a du aller
-        // jusqu'a l'origine : pour le visiteur, c'est un MISS.
+        // jusqu'à l'origine : pour le visiteur, c'est un MISS.
         let c = an(&[("x-hivecache", "hit"), ("cf-cache-status", "MISS")]).unwrap();
         assert_eq!(c.status, "MISS");
         assert_eq!(c.source, "cf-cache-status");
@@ -664,7 +664,7 @@ mod tests {
 
     #[test]
     fn wp_rocket_avec_rocket_nginx() {
-        // Le module serveur, lui, pose un vrai en-tete.
+        // Le module serveur, lui, pose un vrai en-tête.
         let c = an(&[("x-rocket-nginx-serving-static", "HIT")]).unwrap();
         assert_eq!(c.status, "HIT");
         assert_eq!(c.engine, "WP Rocket");
@@ -686,7 +686,7 @@ mod tests {
 
     #[test]
     fn wp_rocket_entree_creee_a_l_instant_est_un_miss() {
-        // C'est CETTE requete qui vient de peupler le cache.
+        // C'est CETTE requête qui vient de peupler le cache.
         let maintenant = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
         let html = format!("<!-- WP Rocket - Debug: cached@{maintenant} -->");
         let c = analyze(&HeaderMap::new(), &html).unwrap();
@@ -707,7 +707,7 @@ mod tests {
     fn en_tete_rocket_nginx_prime_sur_la_signature_html() {
         let html = "<!-- Performance optimized by WP Rocket -->";
         let c = analyze(&hm(&[("x-rocket-nginx-serving-static", "HIT")]), html).unwrap();
-        // Une seule couche WP Rocket, celle de l'en-tete (plus fiable).
+        // Une seule couche WP Rocket, celle de l'en-tête (plus fiable).
         assert_eq!(c.layers.len(), 1);
         assert_eq!(c.layers[0].header, "x-rocket-nginx-serving-static");
     }
@@ -719,8 +719,8 @@ mod tests {
 
     #[test]
     fn html_accentue_ne_fait_pas_paniquer_la_coupe() {
-        // Le HTML depasse la fenetre de queue et regorge d'accents : la
-        // troncature doit tomber sur une frontiere de caractere valide.
+        // Le HTML depasse la fenêtre de queue et regorge d'accents : la
+        // troncature doit tomber sur une frontière de caractère valide.
         let mut html = "é".repeat(5000);
         html.push_str("<!-- WP Rocket -->");
         let c = analyze(&HeaderMap::new(), &html).unwrap();
@@ -728,7 +728,7 @@ mod tests {
     }
 
     // --- Hebergement de peripherie Cloudflare ------------------------------
-    // En-tetes releves le 24/08/2026 sur amiante.guide et web-pulse.app.
+    // En-têtes releves le 24/08/2026 sur amiante.guide et web-pulse.app.
 
     #[test]
     fn cloudflare_pages_reconnu_malgre_l_absence_de_statut() {
@@ -741,13 +741,13 @@ mod tests {
         .unwrap();
         assert_eq!(c.status, "EDGE");
         assert_eq!(c.engine, "Cloudflare edge");
-        // Il n'y a pas d'origine a joindre : le document EST sur le reseau.
+        // Il n'y a pas d'origine a joindre : le document EST sur le réseau.
         assert_eq!(c.served_by, "Cloudflare edge");
     }
 
     #[test]
     fn un_cf_cache_status_meme_dynamic_prime_sur_la_signature_edge() {
-        // Site proxifie (Worker SSR) : l'en-tete existe, il fait foi, et la
+        // Site proxifie (Worker SSR) : l'en-tête existe, il fait foi, et la
         // detection de peripherie ne doit PAS se declencher.
         let c = an(&[("cf-ray", "a30423d6ba98acc1-CDG"), ("cf-cache-status", "DYNAMIC")]).unwrap();
         assert_eq!(c.status, "DYNAMIC");
@@ -795,7 +795,7 @@ mod tests {
     #[test]
     fn server_timing_d_un_autre_editeur_est_ignore() {
         // Beaucoup d'applications emettent leur propre `server-timing` : sans
-        // cle `cfOrigin`, on retombe sur la detection par absence de statut.
+        // clé `cfOrigin`, on retombe sur la detection par absence de statut.
         let c = an(&[("cf-ray", "abc"), ("server-timing", "db;dur=53, app;dur=47.2")]).unwrap();
         assert_eq!(c.status, "EDGE");
         assert_eq!(c.source, "cf-ray");
@@ -826,7 +826,7 @@ mod tests {
     #[test]
     fn sans_cf_ray_pas_de_verdict_de_peripherie() {
         // `server: cloudflare` seul ne suffit pas : il apparait aussi sur des
-        // reponses ou Cloudflare n'a fait que relayer.
+        // réponses ou Cloudflare n'a fait que relayer.
         assert!(an(&[("server", "cloudflare")]).is_none());
     }
 

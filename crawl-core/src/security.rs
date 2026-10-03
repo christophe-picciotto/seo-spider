@@ -1,14 +1,14 @@
-//! Analyse securite d'une page (HTTPS, mixed content, en-tetes manquants).
+//! Analyse sécurité d'une page (HTTPS, mixed content, en-têtes manquants).
 //!
-//! `analyze` inspecte l'URL, les en-tetes HTTP de la reponse et le HTML pour
+//! `analyze` inspecte l'URL, les en-têtes HTTP de la réponse et le HTML pour
 //! produire une `SecurityData` : statut HTTPS, ressources http:// chargees sur
-//! une page https (mixed content) et en-tetes de securite recommandes absents.
+//! une page https (mixed content) et en-têtes de sécurité recommandes absents.
 
 use scraper::{Html, Selector};
 
 use crate::report::SecurityData;
 
-/// En-tetes de securite recommandes verifies par `analyze`. HSTS
+/// En-têtes de sécurité recommandes verifies par `analyze`. HSTS
 /// (`Strict-Transport-Security`) n'est signale que sur une page HTTPS.
 const SECURITY_HEADERS: &[&str] = &[
     "Strict-Transport-Security",
@@ -24,7 +24,7 @@ fn sel(s: &str) -> Option<Selector> {
 }
 
 /// Une valeur d'attribut est-elle une ressource http:// non securisee ?
-/// (insensible a la casse, tolere les espaces de tete).
+/// (insensible à la casse, tolere les espaces de tête).
 fn is_insecure_resource(value: &str) -> bool {
     let v = value.trim();
     let lower = v.to_ascii_lowercase();
@@ -52,15 +52,15 @@ fn collect_insecure(
     }
 }
 
-/// Analyse la securite d'une page a partir de son URL, ses en-tetes HTTP
+/// Analyse la sécurité d'une page à partir de son URL, ses en-têtes HTTP
 /// et son HTML.
 ///
-/// - `https` : l'URL commence par `https://` (insensible a la casse) ;
-/// - `mixed_content` : si la page est en HTTPS, liste deduplicquee des
+/// - `https` : l'URL commence par `https://` (insensible à la casse) ;
+/// - `mixed_content` : si la page est en HTTPS, liste dédupliquée des
 ///   ressources `http://` referencees dans le HTML (src/href des img, script,
 ///   link). Vide si la page est servie en HTTP ;
-/// - `missing_headers` : parmi les en-tetes de securite recommandes, ceux
-///   absents de la reponse (comparaison insensible a la casse). HSTS n'est
+/// - `missing_headers` : parmi les en-têtes de sécurité recommandes, ceux
+///   absents de la réponse (comparaison insensible à la casse). HSTS n'est
 ///   signale que sur une page HTTPS.
 pub fn analyze(
     url: &str,
@@ -69,7 +69,7 @@ pub fn analyze(
 ) -> SecurityData {
     let https = url.trim().to_ascii_lowercase().starts_with("https://");
 
-    // --- mixed content (uniquement si la page elle-meme est en HTTPS) ------
+    // --- mixed content (uniquement si la page elle-même est en HTTPS) ------
     let mut mixed_content: Vec<String> = Vec::new();
     if https {
         let document = Html::parse_document(html);
@@ -84,14 +84,14 @@ pub fn analyze(
         collect_insecure(&document, "source[src]", "src", &mut seen, &mut mixed_content);
     }
 
-    // --- en-tetes de securite manquants -----------------------------------
+    // --- en-têtes de sécurité manquants -----------------------------------
     let mut missing_headers: Vec<String> = Vec::new();
     for header in SECURITY_HEADERS {
         // HSTS n'a de sens qu'en HTTPS : on ne le signale pas sur une page HTTP.
         if header.eq_ignore_ascii_case("Strict-Transport-Security") && !https {
             continue;
         }
-        // reqwest::HeaderMap::contains_key est insensible a la casse.
+        // reqwest::HeaderMap::contains_key est insensible à la casse.
         if !headers.contains_key(*header) {
             missing_headers.push((*header).to_string());
         }

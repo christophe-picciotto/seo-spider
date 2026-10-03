@@ -1,33 +1,33 @@
 //! Commandes Tauri v2 exposees au frontend.
 //!
-//! Contrat d'evenements (doivent correspondre aux `listen(...)` du frontend) :
+//! Contrat d'événements (doivent correspondre aux `listen(...)` du frontend) :
 //!   - `crawl:progress` : payload `crawl_core::CrawlProgress` (avancement)
-//!   - `crawl:page`     : payload `crawl_core::PageReport` (une page mesuree)
+//!   - `crawl:page`     : payload `crawl_core::PageReport` (une page mesurée)
 //!   - `crawl:done`     : payload `crawl_core::CrawlSummary` (resume final)
 //!   - `crawl:error`    : payload `String` (message d'erreur global)
 //!
 //! Commandes (doivent correspondre aux `invoke("...")` du frontend) :
 //!   - `start_crawl(config)` : DEMARRE un nouveau crawl, ou REPREND un crawl mis
-//!                             en pause (meme `seed_url` + file non vide).
-//!   - `stop_crawl()`        : met le crawl en PAUSE (l'etat est conserve, on peut
+//!                             en pause (même `seed_url` + file non vide).
+//!   - `stop_crawl()`        : met le crawl en PAUSE (l'état est conserve, on peut
 //!                             reprendre via un nouvel appel a `start_crawl`).
-//!   - `clear_crawl()`       : VIDE l'etat de crawl (apres ca, `start_crawl` repart
+//!   - `clear_crawl()`       : VIDE l'état de crawl (après ca, `start_crawl` repart
 //!                             de zero). Le bouton "Vider" de l'UI peut l'appeler.
 //!   - `open_external(url)`  : ouvre une URL http(s) dans le navigateur par
-//!                             defaut du systeme (impossible depuis la WebView).
+//!                             defaut du système (impossible depuis la WebView).
 //!
 //! ## Pause / reprise (Vague 4)
 //!
-//! L'etat du crawl ([`crawl_core::crawler::SharedState`]) est stocke dans l'etat
+//! L'état du crawl ([`crawl_core::crawler::SharedState`]) est stocke dans l'état
 //! applicatif Tauri ([`CrawlState`]) afin de SURVIVRE entre un `stop` (pause) et
 //! un `start` (reprise). `stop_crawl` ne fait que lever un drapeau : les workers
 //! finissent leur page courante puis sortent sans vider la file. Un `start_crawl`
-//! ulterieur, si un etat reprenable existe pour la meme seed, RELANCE les workers
-//! sur la file existante (reprise) ; sinon il initialise un etat neuf.
+//! ulterieur, si un état reprenable existe pour la même seed, RELANCE les workers
+//! sur la file existante (reprise) ; sinon il initialise un état neuf.
 //!
-//! Ceci corrige aussi le bug du bouton "Demarrer" inerte apres un "Stop" : comme
+//! Ceci corrige aussi le bug du bouton "Démarrer" inerte après un "Stop" : comme
 //! les workers s'arretent vraiment, `crawl:done` est emis rapidement et l'UI sort
-//! de l'etat "en cours" ; un nouvel appel a `start_crawl` repart (ou reprend).
+//! de l'état "en cours" ; un nouvel appel a `start_crawl` repart (ou reprend).
 
 use std::sync::Arc;
 
@@ -38,12 +38,12 @@ use crawl_core::crawler::SharedState;
 use crawl_core::report::{CrawlConfig, CrawlProgress, CrawlSummary, PageReport};
 use tauri_plugin_dialog::DialogExt;
 
-/// Etat partage gere par Tauri (via `.manage`). Porte l'etat du crawl COURANT
-/// (file + visited + agregats + navigateur), conserve entre pause et reprise.
+/// État partage gere par Tauri (via `.manage`). Porte l'état du crawl COURANT
+/// (file + visited + agrégats + navigateur), conserve entre pause et reprise.
 #[derive(Default)]
 pub struct CrawlState {
-    /// Etat du crawl courant, ou `None` si aucun crawl n'a (encore) ete lance /
-    /// si l'etat a ete vide via `clear_crawl`. Mutable derriere un `Mutex` car
+    /// État du crawl courant, ou `None` si aucun crawl n'a (encore) été lance /
+    /// si l'état a été vide via `clear_crawl`. Mutable derriere un `Mutex` car
     /// l'objet manage par Tauri est, lui, immuable.
     pub inner: Mutex<Option<Arc<SharedState>>>,
 }
@@ -51,9 +51,9 @@ pub struct CrawlState {
 /// Demarre un nouveau crawl, ou REPREND un crawl mis en pause.
 ///
 /// Heuristique de decision :
-///   - s'il existe un etat reprenable (`SharedState` deja initialise, file non
-///     vide) pour la MEME `seed_url` -> on REPREND sur cet etat ;
-///   - sinon -> on cree un etat NEUF a partir de la seed et on l'enregistre.
+///   - s'il existe un état reprenable (`SharedState` déjà initialise, file non
+///     vide) pour la MÊME `seed_url` -> on REPREND sur cet état ;
+///   - sinon -> on crée un état NEUF à partir de la seed et on l'enregistre.
 ///
 /// Dans les deux cas, on spawn une task qui appelle `crawler::run_shared` avec
 /// deux closures relayant l'avancement (`crawl:progress`) et chaque page
@@ -65,20 +65,20 @@ pub async fn start_crawl(
     config: CrawlConfig,
 ) -> Result<(), String> {
     // Seed nettoyee de son fragment (`#...`) AVANT tout : `SharedState::new` fait
-    // le meme nettoyage, donc sans ca la comparaison de reprise ligne ~73
-    // (`existing.seed_url == config.seed_url`) opposerait une seed normalisee a
+    // le même nettoyage, donc sans ca la comparaison de reprise ligne ~73
+    // (`existing.seed_url == config.seed_url`) opposerait une seed normalisée a
     // une seed brute et ne matcherait jamais.
     let config = CrawlConfig {
         seed_url: crawl_core::crawler::strip_fragment(&config.seed_url),
         ..config
     };
 
-    // --- Choix : reprise d'un etat existant, ou nouvel etat. ---
+    // --- Choix : reprise d'un état existant, ou nouvel état. ---
     let is_resume: bool;
     let shared: Arc<SharedState> = {
         let mut slot = state.inner.lock().await;
 
-        // Reprise possible ? Meme seed + etat encore reprenable (file non vide).
+        // Reprise possible ? Même seed + état encore reprenable (file non vide).
         let resume = match slot.as_ref() {
             Some(existing) => {
                 existing.seed_url == config.seed_url && existing.is_resumable().await
@@ -88,17 +88,17 @@ pub async fn start_crawl(
         is_resume = resume;
 
         if resume {
-            // REPREND : on reutilise l'etat partage existant tel quel.
+            // REPREND : on reutilise l'état partage existant tel quel.
             Arc::clone(slot.as_ref().unwrap())
         } else {
-            // NOUVEAU : on cree un etat neuf amorce avec la seed et on l'enregistre.
+            // NOUVEAU : on crée un état neuf amorce avec la seed et on l'enregistre.
             let fresh = Arc::new(SharedState::new(&config.seed_url));
             *slot = Some(Arc::clone(&fresh));
             fresh
         }
     };
 
-    // Sitemap : fetch au DEBUT (comme robots.txt), uniquement pour un NOUVEAU crawl.
+    // Sitemap : fetch au DÉBUT (comme robots.txt), uniquement pour un NOUVEAU crawl.
     let seed = config.seed_url.clone();
     let do_sitemap = !is_resume;
     let app_sitemap = app.clone();
@@ -117,9 +117,9 @@ pub async fn start_crawl(
         // site est mort — et, en mode multi-sites, le passage au suivant. Les
         // workers restaient inactifs pendant ce temps.
         //
-        // Le resultat est recupere juste avant d'emettre `crawl:done` : il a
+        // Le résultat est recupere juste avant d'emettre `crawl:done` : il a
         // largement eu le temps d'arriver, et l'onglet Sitemap se remplit des
-        // reception via l'evenement `crawl:sitemap`.
+        // reception via l'événement `crawl:sitemap`.
         let sitemap_task = if do_sitemap {
             Some(tauri::async_runtime::spawn(async move {
                 let urls = crawl_core::sitemap::fetch_default(&seed).await;
@@ -130,17 +130,17 @@ pub async fn start_crawl(
             None
         };
 
-        // Closure progression -> evenement "crawl:progress".
+        // Closure progression -> événement "crawl:progress".
         let on_progress = move |progress: CrawlProgress| {
             let _ = app_progress.emit("crawl:progress", progress);
         };
 
-        // Closure page -> evenement "crawl:page".
+        // Closure page -> événement "crawl:page".
         let on_page = move |page: PageReport| {
             let _ = app_page.emit("crawl:page", page);
         };
 
-        // Lancement (ou reprise) du crawl sur l'etat partage.
+        // Lancement (ou reprise) du crawl sur l'état partage.
         let crawl_result = crawl_core::crawler::run_shared(shared, config, on_progress, on_page).await;
 
         // Le sitemap tournait en parallele : on le recupere maintenant. Une
@@ -154,16 +154,16 @@ pub async fn start_crawl(
         match crawl_result {
             Ok(mut summary) => {
                 // On emet toujours le resume (fin naturelle OU pause) afin que l'UI
-                // sorte de l'etat "en cours". En cas de pause, le resume est partiel
-                // et l'etat reste reprenable via un nouvel appel a start_crawl.
+                // sorte de l'état "en cours". En cas de pause, le resume est partiel
+                // et l'état reste reprenable via un nouvel appel a start_crawl.
                 if !sitemap_urls.is_empty() {
                     summary.sitemap_urls = sitemap_urls;
                 }
                 let _ = app_done.emit("crawl:done", summary);
             }
             Err(e) => {
-                // Echec global : on remonte un resume vide marque comme termine,
-                // et on emet aussi un evenement d'erreur dedie.
+                // Échec global : on remonte un resume vide marque comme termine,
+                // et on emet aussi un événement d'erreur dedie.
                 let empty = CrawlSummary {
                     pages: Vec::new(),
                     total_bytes: 0,
@@ -181,9 +181,9 @@ pub async fn start_crawl(
     Ok(())
 }
 
-/// Met le crawl en cours en PAUSE : leve le drapeau d'arret de l'etat partage.
-/// Les workers finissent leur page courante puis sortent SANS vider l'etat ;
-/// un `start_crawl` ulterieur (meme seed) reprendra la ou on s'etait arrete.
+/// Met le crawl en cours en PAUSE : leve le drapeau d'arrêt de l'état partage.
+/// Les workers finissent leur page courante puis sortent SANS vider l'état ;
+/// un `start_crawl` ulterieur (même seed) reprendra la ou on s'etait arrete.
 #[tauri::command]
 pub async fn stop_crawl(state: State<'_, CrawlState>) -> Result<(), String> {
     if let Some(shared) = state.inner.lock().await.as_ref() {
@@ -192,8 +192,8 @@ pub async fn stop_crawl(state: State<'_, CrawlState>) -> Result<(), String> {
     Ok(())
 }
 
-/// VIDE l'etat de crawl : leve le drapeau d'arret du crawl courant (s'il existe)
-/// puis oublie l'etat partage. Apres cet appel, `start_crawl` repart de zero.
+/// VIDE l'état de crawl : leve le drapeau d'arrêt du crawl courant (s'il existe)
+/// puis oublié l'état partage. Après cet appel, `start_crawl` repart de zero.
 /// (Le bouton "Vider" de l'UI peut appeler cette commande ; l'UI actuelle se
 /// contente d'appeler `stop_crawl` + reset local, ce qui reste valable.)
 #[tauri::command]
@@ -206,13 +206,13 @@ pub async fn clear_crawl(state: State<'_, CrawlState>) -> Result<(), String> {
     Ok(())
 }
 
-/// Renvoie l'IP publique sortante + le reverse DNS (affiche dans l'en-tete).
+/// Renvoie l'IP publique sortante + le reverse DNS (affiche dans l'en-tête).
 #[tauri::command]
 pub async fn network_info() -> Result<crawl_core::netinfo::NetworkInfo, String> {
     crawl_core::netinfo::fetch().await.map_err(|e| e.to_string())
 }
 
-/// Chemin du fichier d'historique, dans le dossier de donnees de l'application.
+/// Chemin du fichier d'historique, dans le dossier de données de l'application.
 fn history_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     Ok(dir.join("history.json"))
@@ -253,7 +253,7 @@ pub fn open_history_folder(app: AppHandle) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     #[cfg(windows)]
     {
-        // .spawn() : explorer.exe renvoie souvent un code != 0 meme en succes.
+        // .spawn() : explorer.exe renvoie souvent un code != 0 même en succès.
         std::process::Command::new("explorer")
             .arg(dir)
             .spawn()
@@ -270,7 +270,7 @@ pub fn open_history_folder(app: AppHandle) -> Result<(), String> {
 }
 
 
-/// Dossier des crawls enregistres (sous le dossier de donnees de l'application).
+/// Dossier des crawls enregistres (sous le dossier de données de l'application).
 fn crawls_dir(app: &AppHandle, custom: &Option<String>) -> Result<std::path::PathBuf, String> {
     if let Some(d) = custom {
         if !d.trim().is_empty() {
@@ -306,7 +306,7 @@ pub fn save_crawl(app: AppHandle, id: String, json: String, dir: Option<String>)
     Ok(path.to_string_lossy().to_string())
 }
 
-/// Charge un crawl enregistre par son identifiant (URL de depart). Renvoie "" si absent.
+/// Charge un crawl enregistré par son identifiant (URL de depart). Renvoie "" si absent.
 #[tauri::command]
 pub fn load_crawl(app: AppHandle, id: String, dir: Option<String>) -> Result<String, String> {
     let d = crawls_dir(&app, &dir)?;
@@ -333,21 +333,21 @@ pub fn open_crawls_folder(app: AppHandle, dir: Option<String>) -> Result<(), Str
     Ok(())
 }
 
-/// Ouvre une URL dans le NAVIGATEUR PAR DEFAUT du systeme.
+/// Ouvre une URL dans le NAVIGATEUR PAR DEFAUT du système.
 ///
-/// POURQUOI une commande cote Rust : dans une WebView, un `<a target="_blank">`
-/// ne fait rien — il n'y a pas d'onglet ou aller. Seul le systeme peut ouvrir le
+/// POURQUOI une commande côté Rust : dans une WebView, un `<a target="_blank">`
+/// ne fait rien — il n'y a pas d'onglet ou aller. Seul le système peut ouvrir le
 /// navigateur, et seul le backend peut le lui demander.
 ///
-/// SECURITE — le schema est VERIFIE avant tout appel systeme. Ces URLs viennent
-/// de pages crawlees, donc de sources non maitrisees : sans ce filtre, un lien
-/// `file:///C:/...` ouvrirait un fichier local et un schema proprietaire
+/// SÉCURITÉ — le schéma est VÉRIFIÉ avant tout appel système. Ces URLs viennent
+/// de pages crawlées, donc de sources non maitrisees : sans ce filtre, un lien
+/// `file:///C:/...` ouvrirait un fichier local et un schema propriétaire
 /// (`ms-...`) declencherait le handler correspondant. Seuls `http` et `https`
 /// passent.
 ///
 /// Aucun shell n'est invoque (pas de `cmd /c start`) : l'URL est passee comme
-/// ARGUMENT au programme, jamais interpretee comme une ligne de commande, ce qui
-/// ecarte toute injection via `&`, `|` ou `^`.
+/// ARGUMENT au programme, jamais interprétée comme une ligne de commande, ce qui
+/// écarte toute injection via `&`, `|` ou `^`.
 #[tauri::command]
 pub fn open_external(url: String) -> Result<(), String> {
     let parsed = url::Url::parse(url.trim())
@@ -356,14 +356,14 @@ pub fn open_external(url: String) -> Result<(), String> {
         "http" | "https" => {}
         other => return Err(format!("schema refuse : {other}")),
     }
-    // On repasse par la forme normalisee par le parseur, jamais par la chaine
-    // brute recue du frontend.
+    // On repasse par la forme normalisée par le parseur, jamais par la chaîne
+    // brute reçue du frontend.
     let target = parsed.as_str();
 
     #[cfg(windows)]
     {
         // `explorer <url>` delegue au navigateur par defaut. Il rend un code de
-        // sortie non nul meme en cas de succes : on ne l'attend pas (`spawn`).
+        // sortie non nul même en cas de succès : on ne l'attend pas (`spawn`).
         std::process::Command::new("explorer").arg(target).spawn().map_err(|e| e.to_string())?;
     }
     #[cfg(target_os = "macos")]
@@ -410,14 +410,14 @@ pub async fn pick_open_project(app: AppHandle) -> Result<Option<String>, String>
 /// Ouvre un selecteur de fichier (.txt / .csv) et renvoie la LISTE DES URLs
 /// qu'il contient — une par ligne. `None` si l'utilisateur annule.
 ///
-/// Le parsing est fait cote Rust pour que le frontend recoive une liste deja
+/// Le parsing est fait côté Rust pour que le frontend recoive une liste déjà
 /// propre et dedoublonnee :
 ///   - lignes vides et commentaires (`#`) ignores ;
-///   - premiere colonne seulement si le fichier est un CSV (`,` ou `;`), ce qui
-///     permet de deposer un export tel quel sans le nettoyer a la main ;
+///   - première colonne seulement si le fichier est un CSV (`,` ou `;`), ce qui
+///     permet de deposer un export tel quel sans le nettoyer à la main ;
 ///   - `https://` ajoute quand le schema manque (`example.com` est accepte) ;
-///   - fragment retire et URL normalisee via le crate `url`, comme la seed d'un
-///     crawl normal — sinon deux lignes designant la meme ressource lanceraient
+///   - fragment retire et URL normalisée via le crate `url`, comme la seed d'un
+///     crawl normal — sinon deux lignes designant la même ressource lanceraient
 ///     deux crawls complets ;
 ///   - doublons ecartes en conservant l'ordre du fichier.
 #[tauri::command]
@@ -447,12 +447,12 @@ fn parse_url_list(content: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
 
     for raw in content.lines() {
-        // Retire un BOM eventuel en tete de fichier (export Windows/Excel).
+        // Retire un BOM eventuel en tête de fichier (export Windows/Excel).
         let line = raw.trim_start_matches('\u{feff}').trim();
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        // CSV : on ne garde que la premiere colonne.
+        // CSV : on ne garde que la première colonne.
         let first = line
             .split([',', ';'])
             .next()
@@ -473,7 +473,7 @@ fn parse_url_list(content: &str) -> Vec<String> {
         let normalized = match url::Url::parse(&candidate) {
             Ok(mut u) if matches!(u.scheme(), "http" | "https") && u.host().is_some() => {
                 // Un hote SANS POINT n'est pas un domaine public : c'est presque
-                // toujours un en-tete de colonne CSV ("URL", "Site", "Domaine"),
+                // toujours un en-tête de colonne CSV ("URL", "Site", "Domaine"),
                 // que le complement de schema transforme en `https://url/` —
                 // une URL parfaitement valide, et un crawl fantome garanti.
                 if !u.host_str().unwrap_or("").contains('.') {
@@ -483,8 +483,8 @@ fn parse_url_list(content: &str) -> Vec<String> {
                 let s: String = u.into();
                 s
             }
-            // Ligne inexploitable (texte libre, en-tete de colonne CSV...) :
-            // on l'ignore plutot que de lancer un crawl voue a l'echec.
+            // Ligne inexploitable (texte libre, en-tête de colonne CSV...) :
+            // on l'ignore plutot que de lancer un crawl voue à l'échec.
             _ => continue,
         };
         if seen.insert(normalized.clone()) {
@@ -511,14 +511,14 @@ mod tests {
         assert_eq!(parse_url_list(txt), vec!["https://a.fr/", "https://b.fr/"]);
     }
 
-    /// CSV : seule la premiere colonne est lue, guillemets retires.
+    /// CSV : seule la première colonne est lue, guillemets retires.
     #[test]
     fn parse_csv_premiere_colonne() {
         let txt = "\"https://a.fr/\",Lyon,42\nhttps://b.fr/;Nice;7\n";
         assert_eq!(parse_url_list(txt), vec!["https://a.fr/", "https://b.fr/"]);
     }
 
-    /// Schema manquant -> https ; doublons et fragments -> une seule entree.
+    /// Schema manquant -> https ; doublons et fragments -> une seule entrée.
     #[test]
     fn parse_complete_et_dedoublonne() {
         let txt = "example.com\nhttps://example.com/\nhttps://example.com/#top\nhttps://b.fr/\n";

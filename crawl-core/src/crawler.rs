@@ -1,40 +1,40 @@
 //! Orchestrateur du crawl — version CONCURRENTE (Vague 4).
 //!
-//! Pilote une exploration en largeur (BFS) a partir d'une URL seed, mais traite
-//! desormais jusqu'a `config.threads` pages EN PARALLELE :
-//!   1. Sonde HTTP legere de chaque page (`http_probe::probe`) -> statut, headers,
-//!      HTML, liens, temps de reponse.
+//! Pilote une exploration en largeur (BFS) à partir d'une URL seed, mais traite
+//! desormais jusqu'à `config.threads` pages EN PARALLELE :
+//!   1. Sonde HTTP légère de chaque page (`http_probe::probe`) -> statut, headers,
+//!      HTML, liens, temps de réponse.
 //!   2. Detection de techno (`techno::detect`).
 //!   3. DECISION de mesure :
-//!        - si `force_chrome` OU framework JS detecte -> mesure NAVIGATEUR reelle
+//!        - si `force_chrome` OU framework JS detecte -> mesure NAVIGATEUR réelle
 //!          (`chrome_probe::measure_page`, bande passante CDP) ;
 //!        - sinon -> mesure HTTP statique (`http_probe::measure_static_assets`).
 //!   4. Notifications via callbacks `on_page` puis `on_progress`.
-//!   5. Reinjection des liens internes (meme host si `same_domain_only`) tant que
+//!   5. Reinjection des liens internes (même host si `same_domain_only`) tant que
 //!      `depth < max_depth`, dans la file PARTAGEE.
 //!
 //! ## Concurrence
 //!
-//! Tout l'etat muable est porte par [`SharedState`], thread-safe :
+//! Tout l'état muable est porte par [`SharedState`], thread-safe :
 //!   - `queue`   : file BFS `(url, depth)` derriere un `tokio::sync::Mutex` ;
-//!   - `visited` : ensemble des URLs deja prises en charge (`Mutex<HashSet>`) ;
-//!   - `done` / `active` : compteurs atomiques (pages terminees / workers occupes) ;
-//!   - `summary` : agregats du resume derriere un `Mutex` ;
+//!   - `visited` : ensemble des URLs déjà prises en charge (`Mutex<HashSet>`) ;
+//!   - `done` / `active` : compteurs atomiques (pages terminées / workers occupés) ;
+//!   - `summary` : agrégats du resume derriere un `Mutex` ;
 //!   - `browser` : navigateur lance en lazy UNE fois, derriere un
 //!     `tokio::sync::Mutex<Option<Browser>>` — les sondes HTTP (majoritaires)
 //!     restent paralleles, seules les mesures Chrome se serialisent.
 //!
 //! `config.threads` workers `tokio::spawn` tournent en boucle : ils tirent une URL
-//! de la file, la traitent, et reinjectent ses liens. La fin est detectee quand la
+//! de la file, la traitent, et reinjectent ses liens. La fin est détectée quand la
 //! file est vide ET plus aucun worker n'est actif.
 //!
 //! ## Pause / reprise
 //!
 //! [`SharedState`] est concu pour SURVIVRE entre deux appels : `stop()` leve un
 //! drapeau `stop` (les workers finissent leur page courante puis sortent SANS
-//! vider la file/visited/summary). Un appel ulterieur a [`run_shared`] sur le meme
+//! vider la file/visited/summary). Un appel ulterieur a [`run_shared`] sur le même
 //! `SharedState` REPREND la ou on s'etait arrete (workers relances sur la file
-//! existante). [`run`] reste l'entree autonome historique (etat local jetable).
+//! existante). [`run`] reste l'entrée autonome historique (état local jetable).
 
 use std::collections::{HashSet, VecDeque};
 use std::num::NonZeroU32;
@@ -50,51 +50,51 @@ use crate::report::{
     AssetReport, CrawlConfig, CrawlProgress, CrawlSummary, PageReport, TypeStat,
 };
 
-/// User-agent par defaut (utilise quand la rotation aleatoire est desactivee).
+/// User-agent par defaut (utilise quand la rotation aléatoire est désactivée).
 const USER_AGENT: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) \
      Chrome/145.0.0.0 Safari/537.36";
 
-/// Debit utilise quand `config.no_rate_limit` est vrai : assez haut pour que le
+/// Débit utilise quand `config.no_rate_limit` est vrai : assez haut pour que le
 /// bucket ne bloque jamais, sans valeur extreme qui ferait deborder les calculs
 /// d'intervalle de `governor`.
 const NO_LIMIT_RPS: u32 = 100_000;
 
-/// Delai maximal pour ETABLIR la connexion (resolution DNS + TCP + TLS).
+/// Délai maximal pour ÉTABLIR la connexion (resolution DNS + TCP + TLS).
 ///
 /// CRITIQUE en mode multi-sites : sans ce plafond, un domaine dont le DNS ne
-/// resout pas bloque jusqu'au timeout du systeme (30-40 s), et ce TROIS fois
+/// resout pas bloque jusqu'au timeout du système (30-40 s), et ce TROIS fois
 /// par site (sitemap, robots.txt, puis la seed). Sur une liste de 150 domaines
 /// dont beaucoup sont morts, l'import passait ses heures a attendre.
 ///
-/// 8 s est tres large : un serveur vivant repond au connect en moins d'une
-/// seconde, meme charge.
+/// 8 s est très large : un serveur vivant repond au connect en moins d'une
+/// seconde, même charge.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 
-/// Delai maximal pour une requete COMPLETE (connexion + reponse + corps).
+/// Délai maximal pour une requête COMPLÈTE (connexion + réponse + corps).
 ///
 /// Plus genereux que `CONNECT_TIMEOUT` : une page lourde sur un mutualise
 /// fatigue peut legitimement mettre plusieurs secondes a rendre son HTML. On
 /// coupe ce qui ne repondra jamais, pas ce qui est lent.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Plafond ABSOLU de pages, applique MEME en mode "Tout le site" (`unlimited`).
+/// Plafond ABSOLU de pages, applique MÊME en mode "Tout le site" (`unlimited`).
 ///
 /// Ce n'est PAS une limite de capacite : c'est un garde-fou contre les pieges a
 /// crawler. Sur un site a facettes (`?couleur=X&taille=Y`) ou a calendrier, le
 /// nombre d'URLs distinctes est quasi infini — sans plafond le crawl ne
-/// s'arrete jamais de lui-meme, l'app finit tuee par l'OOM killer, et le crawl
-/// est INTEGRALEMENT perdu puisque la sauvegarde n'a lieu qu'a la fin.
+/// s'arrete jamais de lui-même, l'app finit tuee par l'OOM killer, et le crawl
+/// est INTÉGRALEMENT perdu puisque la sauvegarde n'a lieu qu'à la fin.
 ///
-/// Le risque memoire est reel car chaque page est stockee DEUX fois
-/// integralement (cote Rust dans `summary.pages`, jamais purge, et cote JS dans
+/// Le risque mémoire est réel car chaque page est stockee DEUX fois
+/// intégralement (côté Rust dans `summary.pages`, jamais purge, et côté JS dans
 /// `S.pages`), un `PageReport` portant ses outlinks, ses H2, ses images et le
 /// JSON-LD brut.
 ///
-/// **Valeur calibree sur des crawls REELS** (et non sur une estimation) :
+/// **Valeur calibree sur des crawls RÉELS** (et non sur une estimation) :
 /// 11,5 a 15,0 Ko par page en JSON serialise, mesures sur trois projets
 /// enregistres dont un de 4 035 pages (59 Mo). A 200 000 pages : ~3 Go de JSON,
-/// soit de l'ordre de 6 a 8 Go en memoire une fois compte le double stockage et
+/// soit de l'ordre de 6 a 8 Go en mémoire une fois compte le double stockage et
 /// l'overhead des objets. Aucun crawl legitime n'approche ce volume ; un piege
 /// a crawler, si.
 ///
@@ -103,38 +103,38 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// "Database Storage Mode" de Screaming Frog. Cf. AUDIT-SCREAMING-FROG.md.
 const HARD_MAX_PAGES: usize = 200_000;
 
-/// Frameworks dont la presence declenche la mesure NAVIGATEUR (rendu/hydratation
-/// cote client : la mesure HTTP statique sous-estimerait la bande passante reelle).
+/// Frameworks dont la présence declenche la mesure NAVIGATEUR (rendu/hydratation
+/// côté client : la mesure HTTP statique sous-estimerait la bande passante réelle).
 ///
-/// **React et Vue en ont ete RETIRES volontairement.** Leur detection
+/// **React et Vue en ont été RETIRES volontairement.** Leur detection
 /// (`techno.rs`) se declenche sur un simple `data-reactroot` / `#root` + bundle,
 /// ce qui matche un WordPress avec Gutenberg ou un Astro avec une seule ile
 /// React. Or la mesure Chrome est SERIALISEE (un seul navigateur derriere un
-/// Mutex) : un seul faux positif faisait tomber tout le crawl a une page a la
-/// fois, threads et debit ignores.
+/// Mutex) : un seul faux positif faisait tomber tout le crawl à une page à la
+/// fois, threads et débit ignores.
 ///
 /// Restent les meta-frameworks, ou le rendu client est structurel. Pour une SPA
 /// React/Vue pure, utiliser la case "Forcer Chrome" (`config.force_chrome`).
 const JS_FRAMEWORKS: [&str; 5] = ["Next.js", "Nuxt", "Gatsby", "SvelteKit", "Remix"];
 
-/// Vrai si l'une des technos detectees correspond a un framework JS connu.
+/// Vrai si l'une des technos détectées correspond à un framework JS connu.
 fn needs_chrome(tech: &[String]) -> bool {
     tech.iter().any(|t| JS_FRAMEWORKS.contains(&t.as_str()))
 }
 
-/// Vrai si la reponse est un DEFI anti-bot (Cloudflare et equivalents).
+/// Vrai si la réponse est un DEFI anti-bot (Cloudflare et equivalents).
 ///
 /// Un defi n'est pas une panne du site : c'est une page intermediaire qui exige
-/// l'execution d'un JavaScript pour delivrer un cookie de passage. Une sonde HTTP
+/// l'exécution d'un JavaScript pour delivrer un cookie de passage. Une sonde HTTP
 /// pure ne peut pas la franchir et enregistre un 403 trompeur — le site repond
 /// parfaitement 200 des qu'on l'interroge en direct.
 ///
 /// Trois signaux, du plus fiable au plus general :
-///   1. l'en-tete `cf-mitigated: challenge`, que Cloudflare pose explicitement ;
+///   1. l'en-tête `cf-mitigated: challenge`, que Cloudflare pose explicitement ;
 ///   2. le titre « Just a moment... » de sa page d'attente ;
 ///   3. un 403 servi par `server: cloudflare` sur un corps minuscule.
 ///
-/// Quand c'est vrai, on bascule sur Chrome : un vrai navigateur execute le defi,
+/// Quand c'est vrai, on bascule sur Chrome : un vrai navigateur exécute le defi,
 /// obtient le cookie, et le magasin de cookies du client le reutilise ensuite pour
 /// tout le reste du crawl.
 fn is_bot_challenge(status: u16, headers: &reqwest::header::HeaderMap, html: &str) -> bool {
@@ -147,11 +147,11 @@ fn is_bot_challenge(status: u16, headers: &reqwest::header::HeaderMap, html: &st
 
     // 2. Page d'attente reconnaissable.
     if status == 403 || status == 503 {
-        // `len()` compte des OCTETS, pas des caracteres : couper a l'aveugle au
+        // `len()` compte des OCTETS, pas des caractères : couper à l'aveugle au
         // 2048e ferait paniquer le worker si la borne tombe au milieu d'un
-        // caractere multi-octets — un seul accent dans une page 403 francaise
-        // suffit. On recule jusqu'a la derniere frontiere valide (3 tours au
-        // pire, un caractere UTF-8 pesant au plus 4 octets).
+        // caractère multi-octets — un seul accent dans une page 403 francaise
+        // suffit. On recule jusqu'à la dernière frontière valide (3 tours au
+        // pire, un caractère UTF-8 pesant au plus 4 octets).
         let mut cut = html.len().min(2048);
         while cut > 0 && !html.is_char_boundary(cut) {
             cut -= 1;
@@ -165,7 +165,7 @@ fn is_bot_challenge(status: u16, headers: &reqwest::header::HeaderMap, html: &st
         }
     }
 
-    // 3. 403 tres court servi par Cloudflare : signature d'une interstitielle.
+    // 3. 403 très court servi par Cloudflare : signature d'une interstitielle.
     if status == 403 && html.len() < 8192 {
         if let Some(server) = header_lower(headers, "server") {
             if server.contains("cloudflare") {
@@ -177,20 +177,20 @@ fn is_bot_challenge(status: u16, headers: &reqwest::header::HeaderMap, html: &st
     false
 }
 
-/// En-tetes par defaut d'une NAVIGATION, ajoutes a tous les clients HTTP.
+/// En-têtes par defaut d'une NAVIGATION, ajoutes a tous les clients HTTP.
 ///
-/// Un agent utilisateur realiste ne suffit pas : Cloudflare juge une requete sur
-/// son `Accept`. Sans en-tete `Accept` de document, il traite l'appel comme une
+/// Un agent utilisateur realiste ne suffit pas : Cloudflare juge une requête sur
+/// son `Accept`. Sans en-tête `Accept` de document, il traite l'appel comme une
 /// sonde et OMET son `server-timing` — celui qui expose `cfOrigin;dur=0`, seule
 /// facon de savoir si l'origine a travaille sur un hebergement de peripherie
 /// (Pages, Workers), ou aucun `cf-cache-status` n'est emis.
 ///
-/// Verifie le 24/08/2026 sur www.fuiterecherche.com : a UA identique, la
-/// presence du seul `Accept` fait apparaitre `server-timing`. Ni
+/// Vérifié le 24/08/2026 sur www.fuiterecherche.com : a UA identique, la
+/// présence du seul `Accept` fait apparaitre `server-timing`. Ni
 /// `Accept-Encoding`, ni `Accept-Language`, ni les `Sec-Fetch-*` n'ont cet effet.
 ///
 /// La valeur est celle de Chrome pour un document. Le `*/*;q=0.8` final laisse
-/// passer images, scripts et feuilles de style, que le meme client telecharge
+/// passer images, scripts et feuilles de style, que le même client télécharge
 /// pour mesurer le poids des pages.
 fn browser_headers() -> reqwest::header::HeaderMap {
     let mut h = reqwest::header::HeaderMap::new();
@@ -207,7 +207,7 @@ fn browser_headers() -> reqwest::header::HeaderMap {
     h
 }
 
-/// Petit generateur xorshift64 (pour les delais aleatoires "humains").
+/// Petit generateur xorshift64 (pour les délais aléatoires "humains").
 fn rng_next(mut x: u64) -> u64 {
     if x == 0 {
         x = 0x9E37_79B9_7F4A_7C15;
@@ -223,7 +223,7 @@ fn host_of(url: &str) -> Option<String> {
     Url::parse(url).ok().and_then(|u| u.host_str().map(|h| h.to_ascii_lowercase()))
 }
 
-/// Lit la valeur d'un header (insensible a la casse) en minuscules.
+/// Lit la valeur d'un header (insensible à la casse) en minuscules.
 fn header_lower(headers: &reqwest::header::HeaderMap, name: &str) -> Option<String> {
     headers
         .get(name)
@@ -232,10 +232,10 @@ fn header_lower(headers: &reqwest::header::HeaderMap, name: &str) -> Option<Stri
 }
 
 // =============================================================================
-// ETAT PARTAGE (survit aux pauses, partage entre workers)
+// ÉTAT PARTAGE (survit aux pauses, partage entre workers)
 // =============================================================================
 
-/// Etat complet et thread-safe d'un crawl. Concu pour etre stocke dans l'etat
+/// État complet et thread-safe d'un crawl. Concu pour être stocke dans l'état
 /// applicatif Tauri afin de SURVIVRE entre un `stop` (pause) et un `start`
 /// (reprise). Cree par [`SharedState::new`], pilote par [`run_shared`].
 pub struct SharedState {
@@ -243,51 +243,51 @@ pub struct SharedState {
     pub seed_url: String,
     /// File BFS des URLs a traiter, avec leur profondeur.
     pub queue: Mutex<VecDeque<(String, usize)>>,
-    /// URLs deja prises en charge (marquees AVANT traitement, anti-boucle).
+    /// URLs déjà prises en charge (marquees AVANT traitement, anti-boucle).
     pub visited: Mutex<HashSet<String>>,
-    /// URLs deja ENFILEES au moins une fois (seed comprise) — dedoublonnage de
-    /// la file contre elle-meme.
+    /// URLs déjà ENFILEES au moins une fois (seed comprise) — dedoublonnage de
+    /// la file contre elle-même.
     ///
     /// `visited` ne se remplit qu'au DEPILAGE : entre le moment ou une URL entre
     /// dans la file et celui ou un worker la traite, chaque page qui la
-    /// reference la reenfilait. Sur un site de 5 000 pages a menu commun, la
+    /// référence la reenfilait. Sur un site de 5 000 pages a menu commun, la
     /// file croissait en O(pages x liens) au lieu de O(URLs distinctes) et la
-    /// meme page etait re-sondee plusieurs fois.
+    /// même page etait re-sondee plusieurs fois.
     ///
-    /// C'est un SUR-ENSEMBLE de `visited` (toute URL depilee a forcement ete
+    /// C'est un SUR-ENSEMBLE de `visited` (toute URL depilee a forcement été
     /// enfilee), donc il suffit seul a decider de l'enfilage : voir la
     /// reinjection dans `process_one_page`.
     pub queued_set: Mutex<HashSet<String>>,
-    /// Nombre de pages terminees (emises).
+    /// Nombre de pages terminées (emises).
     pub done: AtomicUsize,
     /// Nombre de workers en train de traiter une page (detection de fin).
     pub active: AtomicUsize,
     /// Drapeau de pause : `true` => les workers finissent leur page puis sortent.
     pub stop: AtomicBool,
-    /// `true` une fois la seed enfilee (= etat initialise / non vierge).
+    /// `true` une fois la seed enfilee (= état initialise / non vierge).
     pub started: AtomicBool,
-    /// Agregats du resume (pages, totaux, technos) accumules au fil de l'eau.
+    /// Agrégats du resume (pages, totaux, technos) accumules au fil de l'eau.
     pub summary: Mutex<CrawlSummary>,
     /// Navigateur lance en lazy (une seule fois), partage entre workers.
     pub browser: Mutex<Option<chromiumoxide::Browser>>,
     /// `JoinHandle` de la task du navigateur (pour l'abandonner en fin de crawl).
     pub browser_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
-    /// Poids des assets statiques deja mesures (`url -> octets`), partage par
-    /// tous les workers : le CSS/JS commun a tout le site n'est telecharge
+    /// Poids des assets statiques déjà mesures (`url -> octets`), partage par
+    /// tous les workers : le CSS/JS commun a tout le site n'est télécharge
     /// qu'UNE fois pour l'ensemble du crawl. Cf. [`crate::http_probe::AssetCache`].
     pub asset_cache: crate::http_probe::AssetCache,
     /// Compteur pour la rotation de user-agents (partage entre workers).
     pub ua_counter: AtomicU64,
-    /// Compteur pour les delais aleatoires (partage entre workers).
+    /// Compteur pour les délais aléatoires (partage entre workers).
     pub delay_counter: AtomicU64,
-    /// Graine de base pour la rotation UA / les delais.
+    /// Graine de base pour la rotation UA / les délais.
     pub ua_seed_base: u64,
 }
 
 /// Retire le fragment (`#...`) d'une URL de depart.
 ///
 /// Le fragment n'est jamais envoye au serveur : le garder dans la seed la
-/// rendrait differente (au sens de `visited`) des liens extraits du HTML, qui
+/// rendrait différente (au sens de `visited`) des liens extraits du HTML, qui
 /// eux sont nettoyes par `http_probe`. Coller `https://site.fr/#accueil` dans
 /// la barre d'URL crawlerait donc l'accueil DEUX fois.
 pub fn strip_fragment(raw: &str) -> String {
@@ -303,7 +303,7 @@ pub fn strip_fragment(raw: &str) -> String {
 }
 
 impl SharedState {
-    /// Cree un etat NEUF amorce avec la seed (file = [seed @ depth 0]).
+    /// Cree un état NEUF amorce avec la seed (file = [seed @ depth 0]).
     pub fn new(seed_url: &str) -> Self {
         let seed_url = strip_fragment(seed_url);
         let seed_url = seed_url.as_str();
@@ -317,7 +317,7 @@ impl SharedState {
         queue.push_back((seed_url.to_string(), 0usize));
 
         // La seed entre dans la file SANS passer par la reinjection : elle doit
-        // etre inscrite ici, sinon un lien vers l'accueil la reenfilerait.
+        // être inscrite ici, sinon un lien vers l'accueil la reenfilerait.
         let mut queued = HashSet::new();
         queued.insert(seed_url.to_string());
 
@@ -348,13 +348,13 @@ impl SharedState {
     }
 
     /// Demande la PAUSE : les workers terminent leur page courante puis sortent,
-    /// sans toucher a la file / visited / summary (l'etat reste reprenable).
+    /// sans toucher à la file / visited / summary (l'état reste reprenable).
     pub fn request_stop(&self) {
         self.stop.store(true, Ordering::SeqCst);
     }
 
-    /// Vrai si l'etat contient encore du travail (crawl pause au milieu) :
-    /// la seed a ete amorcee ET il reste des URLs dans la file.
+    /// Vrai si l'état contient encore du travail (crawl pause au milieu) :
+    /// la seed a été amorcee ET il reste des URLs dans la file.
     pub async fn is_resumable(&self) -> bool {
         if !self.started.load(Ordering::SeqCst) {
             return false;
@@ -362,17 +362,17 @@ impl SharedState {
         !self.queue.lock().await.is_empty()
     }
 
-    /// Nombre de pages deja terminees (pour reprise / affichage).
+    /// Nombre de pages déjà terminées (pour reprise / affichage).
     pub fn done_count(&self) -> usize {
         self.done.load(Ordering::SeqCst)
     }
 }
 
-/// Construit un `PageReport` a partir d'une sonde HTTP (mesure statique).
+/// Construit un `PageReport` à partir d'une sonde HTTP (mesure statique).
 ///
 /// - `total_bytes` = octets du document (HTML) + octets de tous les assets statiques.
 /// - `request_count` = 1 (document) + nombre d'assets telecharges.
-/// - `dynamic_requests` = 1 si la page elle-meme est "dynamique" (route /api, RSC,
+/// - `dynamic_requests` = 1 si la page elle-même est "dynamique" (route /api, RSC,
 ///   ou cache Vercel MISS/STALE/PRERENDER), 0 sinon.
 /// - compteurs cache Vercel lus sur le header `x-vercel-cache` du document.
 async fn build_http_report(
@@ -422,7 +422,7 @@ async fn build_http_report(
         }
     }
 
-    // Dynamique ? (la page elle-meme : /api, RSC, ou cache manque).
+    // Dynamique ? (la page elle-même : /api, RSC, ou cache manque).
     let dynamic_requests =
         if crate::techno::is_dynamic_request(url, vercel_cache.as_deref()) { 1 } else { 0 };
 
@@ -444,16 +444,16 @@ async fn build_http_report(
 }
 
 // =============================================================================
-// ENTREES PUBLIQUES
+// ENTRÉES PUBLIQUES
 // =============================================================================
 
-/// Lance un crawl AUTONOME (etat local jetable) — entree historique.
+/// Lance un crawl AUTONOME (état local jetable) — entrée historique.
 ///
 /// Cree un [`SharedState`] interne et delegue a [`run_shared`]. A utiliser quand
 /// on n'a pas besoin de pause/reprise (tests, usage simple). Le navigateur est
-/// ferme et l'etat detruit a la fin.
+/// ferme et l'état detruit à la fin.
 ///
-/// `on_progress` est appele apres chaque page traitee, `on_page` avec le
+/// `on_progress` est appele après chaque page traitée, `on_page` avec le
 /// `PageReport` complet de chaque page. Les deux closures sont `Send + Sync +
 /// 'static`. Retourne le `CrawlSummary` agrege.
 pub async fn run<P, G>(
@@ -471,15 +471,15 @@ where
 
 /// Lance (ou REPREND) un crawl sur un [`SharedState`] PARTAGE.
 ///
-/// - Etat NEUF (file = seed) -> nouveau crawl.
-/// - Etat PAUSE non vide (file restante) -> REPREND la ou on s'etait arrete.
+/// - État NEUF (file = seed) -> nouveau crawl.
+/// - État PAUSE non vide (file restante) -> REPREND la ou on s'etait arrete.
 ///
 /// Spawn `config.threads` workers concurrents qui se partagent la file, sondent
 /// les pages, emettent les callbacks et reinjectent les liens internes. Termine :
 ///   - NATURELLEMENT (file vide + 0 worker actif) -> finalise (ferme le navigateur,
 ///     dedup technos, recupere les sitemaps) et renvoie le resume complet ;
 ///   - sur PAUSE (`state.stop` leve) -> renvoie le resume PARTIEL accumule SANS
-///     fermer le navigateur ni vider l'etat (reprise possible plus tard).
+///     fermer le navigateur ni vider l'état (reprise possible plus tard).
 pub async fn run_shared<P, G>(
     state: Arc<SharedState>,
     config: CrawlConfig,
@@ -490,29 +490,29 @@ where
     P: Fn(CrawlProgress) + Send + Sync + 'static,
     G: Fn(PageReport) + Send + Sync + 'static,
 {
-    // On (re)part d'un drapeau d'arret a false pour cette session de travail.
+    // On (re)part d'un drapeau d'arrêt a false pour cette session de travail.
     state.stop.store(false, Ordering::SeqCst);
     state.started.store(true, Ordering::SeqCst);
 
     // --- Client HTTP par defaut : compression negociee + UA Chrome realiste.
     //
-    //     COOKIE STORE ACTIVE (auparavant : aucun, chaque requete partait vierge).
+    //     COOKIE STORE ACTIVE (auparavant : aucun, chaque requête partait vierge).
     //
-    //     Motif : les defis anti-bot fonctionnent en DEUX temps. La premiere
-    //     requete recoit un 403 accompagne d'un cookie de passage — `cf_clearance`
-    //     chez Cloudflare — et les requetes suivantes doivent le presenter. Sans
-    //     magasin de cookies, ce jeton etait jete aussitot recu : chaque URL du
-    //     crawl repartait de zero et recoltait un 403, y compris apres que Chrome
-    //     eut resolu le defi.
+    //     Motif : les defis anti-bot fonctionnent en DEUX temps. La première
+    //     requête recoit un 403 accompagne d'un cookie de passage — `cf_clearance`
+    //     chez Cloudflare — et les requêtes suivantes doivent le presenter. Sans
+    //     magasin de cookies, ce jeton etait jete aussitot reçu : chaque URL du
+    //     crawl repartait de zero et recoltait un 403, y compris après que Chrome
+    //     eut résolu le defi.
     //
     //     Mesure du 08/08/2026 sur un parc de 7 sites derriere Cloudflare :
     //     200 depuis l'origine sur les 7, mais 403 via Cloudflare sur 5 d'entre
-    //     eux, tous avec l'en-tete `cf-mitigated: challenge`. L'agent utilisateur
+    //     eux, tous avec l'en-tête `cf-mitigated: challenge`. L'agent utilisateur
     //     n'y etait pour rien : Chrome/145, Screaming Frog et un UA vide donnaient
-    //     le meme resultat.
+    //     le même résultat.
     //
     //     Le magasin est propre au client, donc au crawl : rien ne persiste d'une
-    //     execution a l'autre. ---
+    //     exécution à l'autre. ---
     let client = reqwest::Client::builder()
         .user_agent(USER_AGENT)
         .cookie_store(true)
@@ -527,20 +527,20 @@ where
     // --- Rate-limiter (governor 0.7) PARTAGE. On clamp a >= 1 req/s. ---
     //
     // ATTENTION : c'est un bucket GLOBAL (`RateLimiter::direct`), pas un quota
-    // par worker. Tant qu'il est actif, le debit du crawl entier est plafonne a
-    // `requests_per_second` et le reglage "Threads" n'a plus AUCUN effet des que
-    // `threads > rps * temps_de_reponse` (avec 5 rps et 80 ms de reponse, il
+    // par worker. Tant qu'il est actif, le débit du crawl entier est plafonne a
+    // `requests_per_second` et le réglage "Threads" n'a plus AUCUN effet des que
+    // `threads > rps * temps_de_reponse` (avec 5 rps et 80 ms de réponse, il
     // suffit de 0,4 worker pour saturer le quota).
     //
-    // `no_rate_limit` leve ce plafond : on garde la meme mecanique (aucune
+    // `no_rate_limit` leve ce plafond : on garde la même mecanique (aucune
     // signature ne change) mais avec un quota assez grand pour que
-    // `until_ready()` rende la main immediatement. La vitesse est alors bornee
+    // `until_ready()` rende la main immédiatement. La vitesse est alors bornée
     // par `threads` et le serveur cible, comme dans Screaming Frog.
-    // --- Host de reference pour le filtre same_domain_only. ---
+    // --- Host de référence pour le filtre same_domain_only. ---
     let seed_host = host_of(&config.seed_url);
 
-    // --- robots.txt : telecharge + parse une fois pour tout le crawl si demande.
-    //     (Echec reseau / fichier absent -> Robots::empty() = tout autorise.)
+    // --- robots.txt : télécharge + parse une fois pour tout le crawl si demande.
+    //     (Échec réseau / fichier absent -> Robots::empty() = tout autorise.)
     //     Recupere AVANT de construire le limiteur : son `Crawl-delay` en fixe
     //     la cadence. ---
     let robots = if config.respect_robots {
@@ -549,18 +549,18 @@ where
         crate::robots::Robots::empty()
     };
 
-    // Le `Crawl-delay` du serveur PRIME sur les reglages, "Debit illimite"
+    // Le `Crawl-delay` du serveur PRIME sur les réglages, "Débit illimité"
     // compris : cocher "Respecter robots.txt" doit vouloir dire respecter
     // robots.txt en entier, pas seulement ses `Disallow`. Sans ca, un site
-    // mutualise declarant `Crawl-delay: 10` recevrait jusqu'a `threads`
-    // requetes simultanees — saturation, bannissement d'IP ou WAF, sur le site
+    // mutualise declarant `Crawl-delay: 10` recevrait jusqu'à `threads`
+    // requêtes simultanees — saturation, bannissement d'IP ou WAF, sur le site
     // d'un client, alors que l'utilisateur croit le menager.
     // Le `Crawl-delay` est un PLAFOND, jamais un plancher : on prend le `min`
-    // avec le reglage utilisateur.
+    // avec le réglage utilisateur.
     //
-    // Le prendre seul ACCELERERAIT un utilisateur prudent : regle a 2 rps sur un
+    // Le prendre seul ACCELERERAIT un utilisateur prudent : règle a 2 rps sur un
     // mutualise fragile, un `Crawl-delay: 0.1` (= 10 rps tolerees) l'aurait fait
-    // passer a 10 rps — le correctif anti-nuisance aurait cree la nuisance qu'il
+    // passer a 10 rps — le correctif anti-nuisance aurait créé la nuisance qu'il
     // visait. Le `min` borne aussi le cast `as u32` : un `Crawl-delay`
     // minuscule saturerait sinon vers `u32::MAX`.
     let user_rps = if config.no_rate_limit {
@@ -611,9 +611,9 @@ where
         let _ = w.await;
     }
 
-    // --- Si on s'est arrete sur une PAUSE : ne pas finaliser, garder l'etat. ---
+    // --- Si on s'est arrete sur une PAUSE : ne pas finaliser, garder l'état. ---
     if state.stop.load(Ordering::SeqCst) {
-        // Renvoie le resume PARTIEL accumule (l'etat reste reprenable).
+        // Renvoie le resume PARTIEL accumule (l'état reste reprenable).
         let summary = state.summary.lock().await.clone();
         return Ok(summary);
     }
@@ -640,7 +640,7 @@ where
         let mut summary = state.summary.lock().await;
         let techs = std::mem::take(&mut summary.tech_detected);
         summary.tech_detected = dedup_keep_order(techs);
-        // sitemap deplace au DEBUT du crawl (src-tauri/commands.rs + event crawl:sitemap)
+        // sitemap deplace au DÉBUT du crawl (src-tauri/commands.rs + event crawl:sitemap)
     }
 
     let summary = state.summary.lock().await.clone();
@@ -651,7 +651,7 @@ where
 // BOUCLE WORKER
 // =============================================================================
 
-/// Boucle d'un worker : tire des URLs de la file partagee et les traite jusqu'a
+/// Boucle d'un worker : tire des URLs de la file partagee et les traite jusqu'à
 /// epuisement (file vide + aucun worker actif) ou pause (`state.stop`).
 #[allow(clippy::too_many_arguments)]
 async fn worker_loop<P, G>(
@@ -674,13 +674,13 @@ async fn worker_loop<P, G>(
     G: Fn(PageReport) + Send + Sync + 'static,
 {
     loop {
-        // Pause demandee : on sort proprement (sans vider l'etat).
+        // Pause demandee : on sort proprement (sans vider l'état).
         if state.stop.load(Ordering::SeqCst) {
             return;
         }
 
         // Limite globale de pages atteinte : plus rien a faire.
-        // `HARD_MAX_PAGES` s'applique MEME en mode illimite (garde-fou memoire).
+        // `HARD_MAX_PAGES` s'applique MÊME en mode illimité (garde-fou mémoire).
         let done_now = state.done.load(Ordering::SeqCst);
         if done_now >= HARD_MAX_PAGES || (!config.unlimited && done_now >= config.max_pages) {
             return;
@@ -688,17 +688,17 @@ async fn worker_loop<P, G>(
 
         // --- Tirage d'une URL dans la file partagee. ---
         //
-        // INVARIANT ANTI-RACE : on incremente `active` SOUS LE MEME LOCK que le
-        // `pop_front` reussi. Ainsi un worker qui observe une file vide voit
+        // INVARIANT ANTI-RACE : on incremente `active` SOUS LE MÊME LOCK que le
+        // `pop_front` réussi. Ainsi un worker qui observe une file vide voit
         // forcement `active >= 1` tant qu'un autre worker, ayant tout juste
-        // depile la derniere URL, n'a pas encore reinjecte ses liens et decremente
+        // depile la dernière URL, n'a pas encore reinjecte ses liens et decremente
         // `active`. Sans ce couplage, un worker pourrait conclure a tort que le
-        // crawl est fini (file vide + active==0 vus dans une fenetre de course).
+        // crawl est fini (file vide + active==0 vus dans une fenêtre de course).
         let next = {
             let mut q = state.queue.lock().await;
-            // Borne stricte de pages : `done + active` = pages deja terminees +
-            // pages en cours de traitement (reservees). Tant que ce total atteint
-            // `max_pages`, on ne depile plus rien (evite le sur-crawl en parallele).
+            // Borne stricte de pages : `done + active` = pages déjà terminées +
+            // pages en cours de traitement (réservées). Tant que ce total atteint
+            // `max_pages`, on ne depile plus rien (évite le sur-crawl en parallele).
             let reserved = state.done.load(Ordering::SeqCst) + state.active.load(Ordering::SeqCst);
             if reserved >= HARD_MAX_PAGES || (!config.unlimited && reserved >= config.max_pages) {
                 None
@@ -716,7 +716,7 @@ async fn worker_loop<P, G>(
         let (url, depth) = match next {
             Some(item) => item,
             None => {
-                // File vide. Si plus aucun worker n'est actif -> fin reelle.
+                // File vide. Si plus aucun worker n'est actif -> fin réelle.
                 if state.active.load(Ordering::SeqCst) == 0 {
                     return;
                 }
@@ -728,7 +728,7 @@ async fn worker_loop<P, G>(
         };
 
         // Traite la page (sonde, mesure, emission, reinjection des liens).
-        // On dereference les Arc (`&*`) pour passer des references aux valeurs
+        // On dereference les Arc (`&*`) pour passer des références aux valeurs
         // sous-jacentes : `&*on_progress` est `&P` (pas `&Arc<P>`), ce que la
         // signature generique de `process_one_page` attend.
         process_one_page(
@@ -737,13 +737,13 @@ async fn worker_loop<P, G>(
         )
         .await;
 
-        // Page terminee : ce worker n'est plus actif.
+        // Page terminée : ce worker n'est plus actif.
         state.active.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
-/// Traite UNE page : robots, rate-limit/delai, sonde HTTP, decision Chrome vs
-/// HTTP, enrichissement SEO/securite/issues, emission des callbacks, et
+/// Traite UNE page : robots, rate-limit/délai, sonde HTTP, decision Chrome vs
+/// HTTP, enrichissement SEO/sécurité/issues, emission des callbacks, et
 /// reinjection des liens internes dans la file partagee.
 #[allow(clippy::too_many_arguments)]
 async fn process_one_page<P, G>(
@@ -765,7 +765,7 @@ async fn process_one_page<P, G>(
     P: Fn(CrawlProgress) + Send + Sync + 'static,
     G: Fn(PageReport) + Send + Sync + 'static,
 {
-    // Helper local : emet un rapport + met a jour le summary + emet la progression.
+    // Helper local : emet un rapport + met à jour le summary + emet la progression.
     async fn emit_report<P, G>(
         state: &Arc<SharedState>,
         on_page: &G,
@@ -802,12 +802,12 @@ async fn process_one_page<P, G>(
         });
     }
 
-    // Deja vu ? On marque AVANT TOUT traitement, controle robots inclus.
+    // Déjà vu ? On marque AVANT TOUT traitement, contrôle robots inclus.
     //
-    // Cette garde etait AUTREFOIS placee apres le controle robots : une URL
+    // Cette garde etait AUTREFOIS placee après le contrôle robots : une URL
     // interdite enfilee N fois (la file n'est pas dedoublonnee contre
-    // elle-meme) etait re-emise N fois, car le controle robots ne consulte pas
-    // `visited`. `done` etant incremente a chaque emission et pilotant la borne
+    // elle-même) etait re-emise N fois, car le contrôle robots ne consulte pas
+    // `visited`. `done` etant incremente à chaque emission et pilotant la borne
     // `max_pages`, le crawl s'arretait prematurement en croyant avoir traite
     // des pages fantomes.
     if !state.visited.lock().await.insert(url.clone()) {
@@ -815,7 +815,7 @@ async fn process_one_page<P, G>(
     }
 
     // Respect de robots.txt : si le path est interdit, on emet un rapport
-    // "bloque" et on s'arrete la pour cette URL (sans la sonder ni l'enfiler).
+    // "bloqué" et on s'arrête la pour cette URL (sans la sonder ni l'enfiler).
     if config.respect_robots {
         let path = Url::parse(&url)
             .ok()
@@ -829,7 +829,7 @@ async fn process_one_page<P, G>(
             })
             .unwrap_or_else(|| url.clone());
         if !robots.allowed(&path) {
-            // (deja marque visite ci-dessus : une seule emission par URL)
+            // (déjà marque visite ci-dessus : une seule emission par URL)
             let report = PageReport {
                 url: url.clone(),
                 status: 0,
@@ -842,7 +842,7 @@ async fn process_one_page<P, G>(
         }
     }
 
-    // Respect du rythme : delai aleatoire "humain" si demande, sinon rate-limit fixe.
+    // Respect du rythme : délai aléatoire "humain" si demande, sinon rate-limit fixe.
     if config.random_delay {
         let c = state.delay_counter.fetch_add(1, Ordering::SeqCst) + 1;
         let r = rng_next(
@@ -850,17 +850,17 @@ async fn process_one_page<P, G>(
                 .ua_seed_base
                 .wrapping_add(c.wrapping_mul(0xD1B5_4A32_D192_ED03)),
         );
-        let ms = 500 + (r % 4000); // 0,5 s a 4,5 s entre requetes
+        let ms = 500 + (r % 4000); // 0,5 s a 4,5 s entre requêtes
         tokio::time::sleep(Duration::from_millis(ms)).await;
     }
-    // Le quota s'applique TOUJOURS, delai aleatoire compris : c'est lui qui
+    // Le quota s'applique TOUJOURS, délai aléatoire compris : c'est lui qui
     // porte le `Crawl-delay` du serveur. Le mettre en `else` le rendait
-    // contournable — 5 workers en delai aleatoire montaient a ~2 req/s sur un
+    // contournable — 5 workers en délai aléatoire montaient a ~2 req/s sur un
     // site demandant 0,1 req/s. Les deux se cumulent : le plus contraignant
     // gagne, et hors `Crawl-delay` le quota reste celui choisi par l'utilisateur.
     limiter.until_ready().await;
 
-    // Profil UA pour cette page (rotation pseudo-aleatoire si demandee).
+    // Profil UA pour cette page (rotation pseudo-aléatoire si demandee).
     let profile = if config.random_user_agent {
         let c = state.ua_counter.fetch_add(1, Ordering::SeqCst) + 1;
         Some(*crate::useragents::pick(
@@ -876,13 +876,13 @@ async fn process_one_page<P, G>(
     let page_client = match &profile {
         Some(p) => reqwest::Client::builder()
             .user_agent(p.ua)
-            // Memes en-tetes de navigation que le client global : sans eux,
-            // cocher "UA aleatoire" ferait disparaitre le `server-timing` de
+            // Mêmes en-têtes de navigation que le client global : sans eux,
+            // cocher "UA aléatoire" ferait disparaitre le `server-timing` de
             // Cloudflare, donc la colonne Cache sur tout hebergement Pages.
             .default_headers(browser_headers())
             // Same manual-redirect policy AND same timeouts as the global
             // client : sans ca, la rotation d'UA reintroduirait l'attente
-            // illimitee sur un hote injoignable.
+            // illimitée sur un hote injoignable.
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(CONNECT_TIMEOUT)
             .timeout(REQUEST_TIMEOUT)
@@ -891,7 +891,7 @@ async fn process_one_page<P, G>(
         None => client.clone(),
     };
 
-    // 1. Sonde HTTP legere.
+    // 1. Sonde HTTP légère.
     let probe = match crate::http_probe::probe(&page_client, &url).await {
         Ok(p) => p,
         Err(e) => {
@@ -925,22 +925,22 @@ async fn process_one_page<P, G>(
     //    Le defi anti-bot est la troisieme raison de passer par Chrome, et la
     //    seule qui ne depende pas de la techno du site : sans lui, la sonde HTTP
     //    enregistrerait un 403 alors que la page est parfaitement servie. Chrome
-    //    execute le defi, et le cookie obtenu profite ensuite a tout le crawl
+    //    exécute le defi, et le cookie obtenu profite ensuite a tout le crawl
     //    grace au magasin de cookies du client.
     let challenged = is_bot_challenge(probe.status, &probe.headers, &probe.html);
     let use_chrome = config.force_chrome || needs_chrome(&tech) || challenged;
 
-    // On tente d'abord la mesure navigateur si demandee/necessaire, en notant
-    // toute raison d'echec pour basculer proprement sur le repli HTTP statique.
+    // On tente d'abord la mesure navigateur si demandee/nécessaire, en notant
+    // toute raison d'échec pour basculer proprement sur le repli HTTP statique.
     let mut report: Option<PageReport> = None;
     let mut chrome_error: Option<String> = None;
 
     if use_chrome {
-        // Acces au navigateur partage : on serialise UNIQUEMENT les mesures Chrome.
+        // Accès au navigateur partage : on serialise UNIQUEMENT les mesures Chrome.
         // Les sondes HTTP (majoritaires) restent paralleles.
         let mut browser_guard = state.browser.lock().await;
 
-        // Lance le navigateur a la demande (lazy), une seule fois pour tout le crawl.
+        // Lance le navigateur à la demande (lazy), une seule fois pour tout le crawl.
         if browser_guard.is_none() {
             match crate::chrome_manager::launch_browser().await {
                 Ok((b, h)) => {
@@ -954,7 +954,7 @@ async fn process_one_page<P, G>(
             }
         }
 
-        // Si le navigateur est dispo, on mesure reellement la page.
+        // Si le navigateur est dispo, on mesure réellement la page.
         if let Some(b) = browser_guard.as_ref() {
             match crate::chrome_probe::measure_page(b, &url, profile).await {
                 Ok(r) => report = Some(r),
@@ -994,17 +994,17 @@ async fn process_one_page<P, G>(
         report.seo = Some(crate::seo::extract_seo(&probe.html, &url, seed_host.as_deref()));
     }
 
-    // Temps de reponse de la sonde HTTP (Vague 4 : mesure de vitesse).
+    // Temps de réponse de la sonde HTTP (Vague 4 : mesure de vitesse).
     report.response_time_ms = probe.response_time_ms;
 
     // Liens sortants (avec ancre + rel) detectes sur la page.
     report.outlinks = probe.links_detailed.clone();
 
-    // Chaine de redirection (si la sonde HTTP en a traverse une).
+    // Chaîne de redirection (si la sonde HTTP en a traverse une).
     //   - redirect_chain : URLs traversees (vide si pas de redirection) ;
-    //   - redirect_to    : URL finale, si differente de l'URL demandee ;
-    //   - status         : code de la 1ere reponse 3xx en cas de redirection,
-    //                       sinon le statut de la reponse finale.
+    //   - redirect_to    : URL finale, si différente de l'URL demandée ;
+    //   - status         : code de la 1ere réponse 3xx en cas de redirection,
+    //                       sinon le statut de la réponse finale.
     if !probe.redirect_chain.is_empty() {
         report.redirect_chain = probe.redirect_chain.clone();
         if probe.final_url != url {
@@ -1015,23 +1015,23 @@ async fn process_one_page<P, G>(
         }
     }
 
-    // Indicateurs URL + securite (Vague 2). Calcules AVANT seo::analyze
+    // Indicateurs URL + sécurité (Vague 2). Calcules AVANT seo::analyze
     // pour que la generation d'issues puisse en tenir compte plus tard.
     report.url_flags = Some(crate::urlcheck::analyze(&url));
     report.security = Some(crate::security::analyze(&url, &probe.headers, &probe.html));
 
-    // Statut de cache (HIT/MISS/...) lu sur les en-tetes de la sonde HTTP.
+    // Statut de cache (HIT/MISS/...) lu sur les en-têtes de la sonde HTTP.
     //
     // Pose ICI, dans la zone commune aux deux chemins de mesure : la sonde HTTP
     // precede TOUJOURS la mesure navigateur, donc la colonne est renseignee des
-    // la premiere URL, y compris sur les pages finalement mesurees par Chrome.
+    // la première URL, y compris sur les pages finalement mesurées par Chrome.
     //
-    // Sur une chaine de redirection, ce sont les en-tetes de la reponse FINALE
-    // (cf. `http_probe::probe`) : le statut decrit la page reellement servie,
+    // Sur une chaîne de redirection, ce sont les en-têtes de la réponse FINALE
+    // (cf. `http_probe::probe`) : le statut decrit la page réellement servie,
     // pas le 301 qui y menait.
     //
     // Le HTML est passe en second : WP Rocket seul (sans son module serveur)
-    // n'emet aucun en-tete et ne se reconnait qu'a sa signature en fin de
+    // n'emet aucun en-tête et ne se reconnait qu'à sa signature en fin de
     // document.
     report.cache = crate::cachestat::analyze(&probe.headers, &probe.html);
     if let Some(seo) = report.seo.as_mut() {
@@ -1052,7 +1052,7 @@ async fn process_one_page<P, G>(
         // quel garantit l'absence de cycle, donc de deadlock.
         //
         // `visited` n'est PLUS consulte ici : `queued_set` en est un
-        // sur-ensemble (toute URL depilee a d'abord ete enfilee), donc son
+        // sur-ensemble (toute URL depilee a d'abord été enfilee), donc son
         // `insert` decide seul.
         let mut q = state.queue.lock().await;
         let mut queued = state.queued_set.lock().await;
@@ -1060,11 +1060,11 @@ async fn process_one_page<P, G>(
         // La DESTINATION d'une redirection est enfilee explicitement.
         //
         // Ne pas compter sur les ancres de la page pour l'y amener : une page
-        // sans lien vers elle-meme (one-pager sans ancre, page de contenu pur)
-        // ne serait alors JAMAIS crawlee en 200 et le rapport n'en garderait
-        // qu'une ligne 301 — l'onglet Sitemap la marquerait meme "orpheline".
+        // sans lien vers elle-même (one-pager sans ancre, page de contenu pur)
+        // ne serait alors JAMAIS crawlée en 200 et le rapport n'en garderait
+        // qu'une ligne 301 — l'onglet Sitemap la marquerait même "orpheline".
         // `queued_set` garantit une seule sonde pour tout le crawl, donc aucun
-        // trafic double. Profondeur INCHANGEE : c'est la meme ressource
+        // trafic double. Profondeur INCHANGEE : c'est la même ressource
         // logique, une redirection ne coute pas un niveau.
         if probe.final_url != url {
             let same_host = !config.same_domain_only
@@ -1078,16 +1078,16 @@ async fn process_one_page<P, G>(
         }
 
         for link in &probe.links {
-            // Une page ne se REENFILE JAMAIS elle-meme, sous sa propre URL.
+            // Une page ne se REENFILE JAMAIS elle-même, sous sa propre URL.
             //
             // Les liens sont resolus contre l'URL FINALE, donc sans redirection
             // (`url == final_url`) toute ancre `#...` resout vers `url` et est
             // filtree ici.
             //
-            // NE PAS filtrer aussi `final_url` : quand une redirection a ete
-            // traversee, c'est une URL DISTINCTE, qui doit etre enfilee une fois
-            // pour etre rapportee en 200. La filtrer supprimerait non pas un
-            // reenfilage redondant (`queued_set` s'en charge deja) mais le SEUL
+            // NE PAS filtrer aussi `final_url` : quand une redirection a été
+            // traversee, c'est une URL DISTINCTE, qui doit être enfilee une fois
+            // pour être rapportee en 200. La filtrer supprimerait non pas un
+            // reenfilage redondant (`queued_set` s'en charge déjà) mais le SEUL
             // enfilage — sur un site dont les liens internes omettent le slash
             // final (`/x` -> 301 -> `/x/`), le rapport ne contiendrait alors QUE
             // des 301 et pas une seule page canonique.
@@ -1095,12 +1095,12 @@ async fn process_one_page<P, G>(
             // `/contact` (301) et `/contact/` (200) doivent rester deux lignes
             // distinctes : c'est ce qu'attend un audit de redirections, et c'est
             // ce que fait Screaming Frog. Une fois `/contact/` depilee, ses
-            // propres ancres resolvent vers elle-meme et retombent sur le filtre
+            // propres ancres resolvent vers elle-même et retombent sur le filtre
             // ci-dessus : aucune boucle possible.
             if *link == url {
                 continue;
             }
-            // Filtre same-domain : meme host que le seed.
+            // Filtre same-domain : même host que le seed.
             if config.same_domain_only {
                 match (host_of(link), seed_host.as_deref()) {
                     (Some(h), Some(seed)) if h == seed => {}
@@ -1108,7 +1108,7 @@ async fn process_one_page<P, G>(
                     _ => continue,
                 }
             }
-            // `insert` renvoie false si l'URL a DEJA ete enfilee (par cette page
+            // `insert` renvoie false si l'URL a DÉJÀ été enfilee (par cette page
             // ou par n'importe quelle autre) : une URL n'entre dans la file
             // qu'UNE seule fois pour tout le crawl.
             if queued.insert(link.clone()) {
@@ -1123,8 +1123,8 @@ async fn process_one_page<P, G>(
 
 /// Cumule un `PageReport` dans le resume (pages, totaux, technos).
 ///
-/// Prend le rapport PAR VALEUR : les agregats sont lus d'abord, puis le rapport
-/// est deplace dans `summary.pages` sans clone supplementaire.
+/// Prend le rapport PAR VALEUR : les agrégats sont lus d'abord, puis le rapport
+/// est deplace dans `summary.pages` sans clone supplémentaire.
 fn merge_into_summary(summary: &mut CrawlSummary, report: PageReport) {
     summary.total_bytes = summary.total_bytes.saturating_add(report.total_bytes);
     summary.total_requests = summary.total_requests.saturating_add(report.request_count);
@@ -1139,7 +1139,7 @@ fn merge_into_summary(summary: &mut CrawlSummary, report: PageReport) {
     summary.pages.push(report);
 }
 
-/// Deduplique un `Vec<String>` en conservant l'ordre de premiere apparition.
+/// Dédupliqué un `Vec<String>` en conservant l'ordre de première apparition.
 fn dedup_keep_order(items: Vec<String>) -> Vec<String> {
     let mut seen: HashSet<String> = HashSet::new();
     let mut out: Vec<String> = Vec::with_capacity(items.len());
@@ -1155,7 +1155,7 @@ fn dedup_keep_order(items: Vec<String>) -> Vec<String> {
 mod tests {
     use super::*;
 
-    /// La seed doit etre nettoyee de son fragment, sinon elle ne correspond plus
+    /// La seed doit être nettoyee de son fragment, sinon elle ne correspond plus
     /// aux liens extraits du HTML (eux aussi nettoyes) et l'accueil serait
     /// crawle deux fois. Invariant dont depend aussi la reprise de crawl, qui
     /// compare `existing.seed_url == config.seed_url` (`commands.rs`).
@@ -1166,13 +1166,13 @@ mod tests {
             strip_fragment("https://site.fr/page/?a=1#bas"),
             "https://site.fr/page/?a=1"
         );
-        // Deja propre : inchangee (au detail pres de la normalisation `Url`).
+        // Déjà propre : inchangee (au détail pres de la normalisation `Url`).
         assert_eq!(strip_fragment("https://site.fr/page/"), "https://site.fr/page/");
         // Non parsable : passthrough, l'erreur sera signalee plus loin.
         assert_eq!(strip_fragment("pas une url"), "pas une url");
     }
 
-    /// `SharedState::new` doit appliquer la MEME normalisation que
+    /// `SharedState::new` doit appliquer la MÊME normalisation que
     /// `commands.rs`, sinon la comparaison de reprise ne matcherait jamais.
     #[test]
     fn shared_state_normalise_la_seed() {
@@ -1198,7 +1198,7 @@ mod tests {
         assert!(needs_chrome(&["SvelteKit".to_string()]));
         assert!(needs_chrome(&["Remix".to_string()]));
 
-        // Un meta-framework accompagne de React declenche quand meme Chrome.
+        // Un meta-framework accompagne de React declenche quand même Chrome.
         assert!(needs_chrome(&["React".to_string(), "Next.js".to_string()]));
         assert!(!needs_chrome(&[]));
     }

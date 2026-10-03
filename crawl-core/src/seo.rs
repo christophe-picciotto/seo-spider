@@ -14,7 +14,7 @@ use url::Url;
 /// Une galerie ou une page de listing peut en aligner des centaines ; au-dela
 /// de ce plafond, la liste ne sert plus a corriger et ne fait que gonfler les
 /// rapports enregistres. Le COMPTEUR (`images_missing_alt`) reste exact quoi
-/// qu'il arrive — seule la liste est bornee.
+/// qu'il arrive — seule la liste est bornée.
 const MAX_MISSING_ALT_URLS: usize = 200;
 
 /// Parse a constant selector string. The argument is always a hard-coded,
@@ -139,7 +139,7 @@ fn ld_obj_has_type(map: &serde_json::Map<String, serde_json::Value>) -> bool {
 /// Validate a single parsed JSON-LD `<script>` block (basic check).
 ///
 /// Rules: each described entity must carry `@type`, and `@context` must be
-/// present (either on the wrapper object or, for an array, on each entity).
+/// présent (either on the wrapper object or, for an array, on each entity).
 /// Returns a human-readable error string on the first problem, or `None` when
 /// the block is acceptable. The block may be a single object, an array of
 /// objects, or an object wrapping a `@graph` array.
@@ -165,7 +165,7 @@ fn validate_ld_block(value: &serde_json::Value) -> Option<String> {
                         }
                         None
                     }
-                    // @graph present but not an array: still require a @type somewhere.
+                    // @graph présent but not an array: still require a @type somewhere.
                     serde_json::Value::Object(node) => {
                         if ld_obj_has_type(node) {
                             None
@@ -419,8 +419,8 @@ pub fn extract_seo(html: &str, page_url: &str, seed_host: Option<&str>) -> SeoDa
     };
     data.indexable = !data.noindex && canonical_ok;
 
-    // canonicalised : un canonical est present ET pointe vers une AUTRE url
-    // (normalisee) que la page courante -> la page se declare non-indexable.
+    // canonicalised : un canonical est présent ET pointe vers une AUTRE url
+    // (normalisée) que la page courante -> la page se declare non-indexable.
     data.canonicalised = data.canonical.is_some() && !canonical_ok;
 
     // --- headings ---------------------------------------------------------
@@ -453,7 +453,7 @@ pub fn extract_seo(html: &str, page_url: &str, seed_host: Option<&str>) -> SeoDa
             //
             // Les images en chargement paresseux (lazy) portent souvent un `src`
             // vide ou un pixel transparent en `data:`, et le vrai chemin dans
-            // `data-src` : on prend le premier attribut exploitable. Resolu en
+            // `data-src` : on prend le premier attribut exploitable. Résolu en
             // absolu contre l'URL de la page quand c'est possible, sinon garde
             // tel quel plutot que perdu.
             let src = ["src", "data-src", "data-lazy-src"]
@@ -467,7 +467,7 @@ pub fn extract_seo(html: &str, page_url: &str, seed_host: Option<&str>) -> SeoDa
                         .as_ref()
                         .and_then(|b| resolve_url(b, src))
                         .unwrap_or_else(|| src.to_string());
-                    // La meme image (logo, pictogramme) revient souvent plusieurs
+                    // La même image (logo, pictogramme) revient souvent plusieurs
                     // fois dans une page : une seule ligne suffit pour la corriger.
                     if !data.images_missing_alt_urls.contains(&abs) {
                         data.images_missing_alt_urls.push(abs);
@@ -516,7 +516,7 @@ pub fn extract_seo(html: &str, page_url: &str, seed_host: Option<&str>) -> SeoDa
 
     // --- structured data (JSON-LD) ----------------------------------------
     // Pour chaque bloc : on collecte les @type et on valide basiquement
-    // (JSON parsable + @type/@context presents).
+    // (JSON parsable + @type/@context présents).
     let mut sd_types: Vec<String> = Vec::new();
     let mut sd_errors: Vec<String> = Vec::new();
     let mut sd_raw: Vec<String> = Vec::new();
@@ -528,7 +528,7 @@ pub fn extract_seo(html: &str, page_url: &str, seed_host: Option<&str>) -> SeoDa
             continue;
         }
         sd_block_index += 1;
-        // Texte brut du bloc, tel quel (deja trim) : l'UI le formattera/affichera.
+        // Texte brut du bloc, tel quel (déjà trim) : l'UI le formattera/affichera.
         sd_raw.push(raw.to_string());
         match serde_json::from_str::<serde_json::Value>(raw) {
             Ok(json) => {
@@ -593,9 +593,9 @@ pub fn analyze(report: &PageReport) -> Vec<Issue> {
 
     // --- Response code ----------------------------------------------------
     if report.status >= 400 {
-        push("critical", "Reponse", format!("Code reponse {}", report.status));
+        push("critical", "Réponse", format!("Code réponse {}", report.status));
     } else if report.status >= 300 {
-        push("warning", "Reponse", format!("Redirection {}", report.status));
+        push("warning", "Réponse", format!("Redirection {}", report.status));
     }
 
     // --- Title ------------------------------------------------------------
@@ -630,7 +630,7 @@ pub fn analyze(report: &PageReport) -> Vec<Issue> {
     if seo.h1_count == 0 {
         push("warning", "H1", "H1 manquant".to_string());
     } else if seo.h1_count > 1 {
-        push("warning", "H1", format!("{} H1 (devrait etre unique)", seo.h1_count));
+        push("warning", "H1", format!("{} H1 (devrait être unique)", seo.h1_count));
     }
 
     // --- Images -----------------------------------------------------------
@@ -652,16 +652,16 @@ pub fn analyze(report: &PageReport) -> Vec<Issue> {
         push("opportunity", "Canonical", "Canonical manquant".to_string());
     }
 
-    // --- Canonical : page canonicalisee (pointe vers une autre URL) -------
+    // --- Canonical : page canonicalisée (pointe vers une autre URL) -------
     if seo.canonicalised {
         push(
             "warning",
             "Canonical",
-            "Page canonicalisee (non-indexable)".to_string(),
+            "Page canonicalisée (non-indexable)".to_string(),
         );
     }
 
-    // --- Directives : X-Robots-Tag noindex (en-tete HTTP) -----------------
+    // --- Directives : X-Robots-Tag noindex (en-tête HTTP) -----------------
     if let Some(xrt) = seo.x_robots_tag.as_deref() {
         if xrt.to_ascii_lowercase().contains("noindex") {
             push("warning", "Directives", "X-Robots-Tag noindex".to_string());
@@ -673,7 +673,7 @@ pub fn analyze(report: &PageReport) -> Vec<Issue> {
         push("info", "Pagination", "Page paginee".to_string());
     }
 
-    // --- Donnees structurees ----------------------------------------------
+    // --- Données structurees ----------------------------------------------
     if !seo.structured_data_valid {
         let first = seo
             .structured_data_errors
@@ -682,17 +682,17 @@ pub fn analyze(report: &PageReport) -> Vec<Issue> {
             .unwrap_or_else(|| "erreur".to_string());
         push(
             "warning",
-            "Donnees structurees",
-            format!("Donnees structurees invalides ({})", first),
+            "Données structurees",
+            format!("Données structurees invalides ({})", first),
         );
     }
 
-    // --- Securite : mixed content + en-tetes manquants --------------------
+    // --- Sécurité : mixed content + en-têtes manquants --------------------
     if let Some(security) = report.security.as_ref() {
         if !security.mixed_content.is_empty() {
             push(
                 "warning",
-                "Securite",
+                "Sécurité",
                 format!(
                     "Contenu mixte ({} ressources http)",
                     security.mixed_content.len()
@@ -702,16 +702,16 @@ pub fn analyze(report: &PageReport) -> Vec<Issue> {
         for header in &security.missing_headers {
             push(
                 "info",
-                "Securite",
-                format!("En-tete securite manquant: {}", header),
+                "Sécurité",
+                format!("En-tête sécurité manquant: {}", header),
             );
         }
     }
 
-    // --- URL : qualite de l'URL -------------------------------------------
+    // --- URL : qualité de l'URL -------------------------------------------
     if let Some(flags) = report.url_flags.as_ref() {
         if flags.non_ascii {
-            push("info", "URL", "URL avec caracteres non-ASCII".to_string());
+            push("info", "URL", "URL avec caractères non-ASCII".to_string());
         }
         if flags.length > 115 {
             push("opportunity", "URL", format!("URL longue ({})", flags.length));
@@ -744,7 +744,7 @@ mod tests {
         let seo = extract_seo(html, "https://exemple.fr/page/", Some("exemple.fr"));
 
         assert_eq!(seo.images_total, 6);
-        // a, a, b (alt vide), lazy, sans src : seul c.webp a un alt.
+        // a, a, b (alt vide), lazy, sans src : seul c.webp à un alt.
         assert_eq!(seo.images_missing_alt, 5);
         assert_eq!(
             seo.images_missing_alt_urls,

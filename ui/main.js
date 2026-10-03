@@ -1,18 +1,18 @@
 /**
  * SEO Spider — Frontend vanilla (Tauri v2, withGlobalTauri = true)
- * Acces Tauri : window.__TAURI__.core.invoke / window.__TAURI__.event.listen
+ * Accès Tauri : window.__TAURI__.core.invoke / window.__TAURI__.event.listen
  *
  * Interface dense facon Screaming Frog :
  *   - barre du haut : URL + cases "Tout le site" (unlimited) / "robots.txt" ;
  *   - barre d'onglets avec compteurs en direct ;
- *   - grille dense triable (en-tete fige, colonnes selon l'onglet) ;
- *   - sidebar "Overview" : categories cliquables avec compteurs ;
+ *   - grille dense triable (en-tête fige, colonnes selon l'onglet) ;
+ *   - sidebar "Overview" : catégories cliquables avec compteurs ;
  *   - panneau de detail (Inlinks/Outlinks/SERP/Infos/Source) au clic ligne ;
- *   - barre de statut (progression / file / debit / poids total).
+ *   - barre de statut (progression / file / débit / poids total).
  *
  * Flux de crawl PRESERVE : invoke start_crawl/stop_crawl + listeners
  * crawl:progress / crawl:page / crawl:done / crawl:error. La logique de
- * mesure de bande passante (multi-run, agregats) est conservee a l'identique.
+ * mesure de bande passante (multi-run, agrégats) est conservée à l'identique.
  */
 
 (function () {
@@ -20,9 +20,9 @@
 
   var TAURI = window.__TAURI__;
 
-  // Plafond ABSOLU de pages applique par le backend, meme en mode "Tout le
+  // Plafond ABSOLU de pages applique par le backend, même en mode "Tout le
   // site". DOIT rester aligne sur `HARD_MAX_PAGES` (crawl-core/src/crawler.rs) :
-  // cette valeur n'est qu'un LIBELLE, elle ne limite rien cote UI.
+  // cette valeur n'est qu'un LIBELLÉ, elle ne limite rien côté UI.
   var MAX_PAGES_HARD = 200000;
   var MAX_PAGES_HARD_LABEL = MAX_PAGES_HARD.toLocaleString("fr-FR");
 
@@ -43,14 +43,14 @@
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
   }
-  // Tronque une URL pour l'affichage (l'attribut title garde la version complete).
+  // Tronque une URL pour l'affichage (l'attribut title garde la version complète).
   function truncUrl(url, maxLen) {
     maxLen = maxLen || 90;
     if (!url) return "";
     if (url.length <= maxLen) return url;
     return url.slice(0, maxLen - 3) + "...";
   }
-  // Hote d'une URL, pour les libelles courts (ex. "Site 12/40 · exemple.fr").
+  // Hote d'une URL, pour les libellés courts (ex. "Site 12/40 · exemple.fr").
   function hostOf(url) {
     try { return new URL(url).host; } catch (e) { return url || ""; }
   }
@@ -117,8 +117,8 @@
   }
   function seoOf(p) { return p && p.seo ? p.seo : null; }
 
-  // ----- VAGUE 4 (A) — Temps de reponse (response_time_ms) -----------------
-  // Lit le temps de reponse d'une page en millisecondes (0 si absent).
+  // ----- VAGUE 4 (A) — Temps de réponse (response_time_ms) -----------------
+  // Lit le temps de réponse d'une page en millisecondes (0 si absent).
   function respMs(p) {
     return p && p.response_time_ms != null ? (p.response_time_ms || 0) : 0;
   }
@@ -144,9 +144,9 @@
   }
 
   // ----- CACHE (cache.status) ----------------------------------------------
-  // Statut de cache de la reponse, lu par le backend sur les en-tetes
+  // Statut de cache de la réponse, lu par le backend sur les en-têtes
   // (cf-cache-status, x-hivecache, x-cache, age...). Renseigne des la sonde
-  // HTTP, donc present sur toute page crawlee.
+  // HTTP, donc présent sur toute page crawlée.
 
   // Objet cache d'une page, ou null.
   function cacheOf(p) { return p && p.cache ? p.cache : null; }
@@ -158,12 +158,12 @@
   }
 
   // Classe de couleur. Trois familles, pas une par valeur :
-  //   servi par le cache (vert) / alle jusqu'a l'origine (rouge) /
+  //   servi par le cache (vert) / alle jusqu'à l'origine (rouge) /
   //   ni l'un ni l'autre — non eligible, contourne (gris).
   function cacheClass(st) {
-    // EDGE : heberge sur le reseau (Cloudflare Pages/Workers). Aucune origine
-    // n'existe, donc aucune n'a ete sollicitee — meme famille qu'un HIT, avec
-    // sa teinte propre pour ne pas laisser croire a un cache classique.
+    // EDGE : heberge sur le réseau (Cloudflare Pages/Workers). Aucune origine
+    // n'existe, donc aucune n'a été sollicitée — même famille qu'un HIT, avec
+    // sa teinte propre pour ne pas laisser croire à un cache classique.
     if (st === "EDGE") return "cache--edge";
     if (st === "HIT") return "cache--hit";
     if (st === "MISS" || st === "EXPIRED") return "cache--miss";
@@ -173,8 +173,8 @@
     return "cache--none";   // BYPASS, DYNAMIC, NONE, valeur inconnue
   }
 
-  // Qui a REELLEMENT servi la page : "Cloudflare", "HiveCache", "WP Rocket"...
-  // ou "origine" quand la requete est allee jusqu'au serveur.
+  // Qui a RÉELLEMENT servi la page : "Cloudflare", "HiveCache", "WP Rocket"...
+  // ou "origine" quand la requête est allée jusqu'au serveur.
   function cacheServedBy(p) {
     var c = cacheOf(p);
     return c && c.served_by ? String(c.served_by) : "";
@@ -186,10 +186,10 @@
   function layerRole(st) {
     if (st === "HIT" || st === "EDGE" || st === "STALE" || st === "UPDATING") return "a fourni la page";
     if (st === "MISS" || st === "EXPIRED") return "n'avait pas la page";
-    if (st === "REVALIDATED") return "a verifie aupres du serveur";
-    if (st === "BYPASS") return "a ete contourne";
+    if (st === "REVALIDATED") return "a vérifié auprès du serveur";
+    if (st === "BYPASS") return "a été contourne";
     if (st === "DYNAMIC") return "ne met pas cette page en cache";
-    if (!st) return "present, sans indication";
+    if (!st) return "présent, sans indication";
     return "";
   }
 
@@ -207,29 +207,29 @@
   function cacheMeaning(st) {
     switch (st) {
       case "HIT":
-        return "Page servie depuis le cache : le serveur n'a pas ete sollicite.";
+        return "Page servie depuis le cache : le serveur n'a pas été sollicité.";
       case "MISS":
-        return "Le cache n'avait pas la page : le serveur a du la generer.";
+        return "Le cache n'avait pas la page : le serveur a dû la générer.";
       case "EDGE":
-        return "Page hebergee sur le reseau Cloudflare (Pages / Workers).\n" +
+        return "Page hébergée sur le réseau Cloudflare (Pages / Workers).\n" +
                "Il n'y a pas de serveur d'origine a solliciter : ni HIT ni MISS possibles.";
       case "EXPIRED":
-        return "Le cache avait la page mais perimee : il est alle la revalider aupres du serveur.";
+        return "Le cache avait la page mais périmée : il est allé la revalider auprès du serveur.";
       case "REVALIDATED":
-        return "Le cache a verifie sa copie aupres du serveur, qui l'a confirmee a jour.";
+        return "Le cache a vérifié sa copie auprès du serveur, qui l'a confirmée à jour.";
       case "STALE":
-        return "Page servie perimee pendant que le cache la rafraichit en arriere-plan.";
+        return "Page servie périmée pendant que le cache la rafraîchit en arrière-plan.";
       case "UPDATING":
-        return "Page servie perimee, sa mise a jour est en cours.";
+        return "Page servie périmée, sa mise à jour est en cours.";
       case "BYPASS":
-        return "Le cache a ete contourne : une regle, un cookie ou un en-tete l'a interdit.";
+        return "Le cache a été contourne : une règle, un cookie ou un en-tête l'a interdit.";
       case "DYNAMIC":
-        return "Cloudflare ne met pas cette page en cache : aucune regle ne la couvre.\n" +
+        return "Cloudflare ne met pas cette page en cache : aucune règle ne la couvre.\n" +
                "Chaque visite atteint le serveur.";
       case "PRERENDER":
-        return "Page pre-generee servie telle quelle.";
+        return "Page pré-générée servie telle quelle.";
       case "NONE":
-        return "Aucune mise en cache pour cette reponse.";
+        return "Aucune mise en cache pour cette réponse.";
       default:
         return "";
     }
@@ -239,13 +239,13 @@
   //
   //   cfEdge;dur=6,cfOrigin;dur=0,cfWorker;dur=18
   //
-  // ne dit rien tel quel. Chaque cle designe une etape du trajet de la requete,
-  // et `cfOrigin` est la plus parlante : a zero, le serveur n'a pas ete touche.
+  // ne dit rien tel quel. Chaque clé designe une étape du trajet de la requête,
+  // et `cfOrigin` est la plus parlante : a zero, le serveur n'a pas été touche.
   function serverTimingLines(raw) {
     var LABELS = {
-      cfedge:   "au point de presence Cloudflare le plus proche",
+      cfedge:   "au point de présence Cloudflare le plus proche",
       cforigin: "sur le serveur d'origine",
-      cfworker: "dans un Worker (code execute sur le reseau Cloudflare)",
+      cfworker: "dans un Worker (code exécute sur le réseau Cloudflare)",
       cfcachestatus: null
     };
     var out = [];
@@ -258,9 +258,9 @@
       var label = LABELS[key];
       if (!label) continue;
       var line = "   " + ms + " ms  " + label;
-      // La ligne qui repond a la question qu'on se pose vraiment.
+      // La ligne qui repond à la question qu'on se pose vraiment.
       if (key === "cforigin") {
-        line += ms > 0 ? "  <- il a travaille" : "  <- il n'a pas ete sollicite";
+        line += ms > 0 ? "  <- il a travaille" : "  <- il n'a pas été sollicité";
       }
       out.push(line);
     }
@@ -273,9 +273,9 @@
   function cacheTitle(p) {
     var c = cacheOf(p);
     if (!c) {
-      return "Aucun en-tete de cache dans la reponse.\n" +
+      return "Aucun en-tête de cache dans la réponse.\n" +
              "Impossible de conclure — et ce n'est PAS un MISS : " +
-             "le serveur n'a simplement rien dit a ce sujet.";
+             "le serveur n'a simplement rien dit à ce sujet.";
     }
     var parts = [];
 
@@ -313,7 +313,7 @@
     var layers = Array.isArray(c.layers) ? c.layers : [];
     if (layers.length > 1) {
       parts.push("");
-      parts.push("Couches traversees, de l'exterieur vers le serveur :");
+      parts.push("Couches traversees, de l'extérieur vers le serveur :");
       for (var i = 0; i < layers.length; i++) {
         parts.push("   " + (i + 1) + ". " + layerText(layers[i]));
       }
@@ -322,7 +322,7 @@
     // 5) La source, pour qui veut verifier.
     if (c.source) {
       parts.push("");
-      parts.push("(lu dans l'en-tete " + c.source + ")");
+      parts.push("(lu dans l'en-tête " + c.source + ")");
     }
     return parts.join("\n");
   }
@@ -336,11 +336,11 @@
     return (s / 86400).toFixed(1).replace(".", ",") + " j";
   }
 
-  // Ligne "Cache" du panneau de detail : verdict, en-tete qui a tranche, age,
+  // Ligne "Cache" du panneau de detail : verdict, en-tête qui a tranche, age,
   // puis TOUTES les couches quand il y en a plusieurs.
   function cacheInfoText(p) {
     var c = cacheOf(p);
-    if (!c) return "— aucun en-tete de cache (ce n'est pas un MISS : le serveur n'a rien dit)";
+    if (!c) return "— aucun en-tête de cache (ce n'est pas un MISS : le serveur n'a rien dit)";
     var out = (c.status || "?");
     var meaning = cacheMeaning(c.status);
     // L'explication d'abord : le code seul ne parle qu'aux inities.
@@ -358,7 +358,7 @@
     return out;
   }
 
-  // Cellule HTML "cache" (pastille coloree). "—" quand aucun en-tete ne permet
+  // Cellule HTML "cache" (pastille coloree). "—" quand aucun en-tête ne permet
   // de conclure : l'absence d'information n'est pas un MISS.
   function cacheCellHtml(p) {
     var st = cacheStatus(p);
@@ -368,7 +368,7 @@
   }
 
   // Cellule "Servi par" : le moteur qui a fourni la page. "origine" est mis en
-  // evidence — c'est le cas ou le serveur a reellement travaille, donc celui
+  // evidence — c'est le cas ou le serveur a réellement travaille, donc celui
   // qui coute et qu'on cherche a reduire.
   function cacheByCellHtml(p) {
     var by = cacheServedBy(p);
@@ -381,7 +381,7 @@
   //
   // Le `href` est CONSERVE bien qu'il ne soit jamais suivi : il donne au lien
   // son apparence et son curseur, alimente le menu contextuel ("Copier
-  // l'adresse du lien") et sert de source a l'ouverture. C'est le gestionnaire
+  // l'adresse du lien") et sert de source à l'ouverture. C'est le gestionnaire
   // delegue (cf. initExternalLinks) qui intercepte le clic et confie l'URL au
   // navigateur par defaut, la WebView n'ayant nulle part ou ouvrir un onglet.
   function urlCellHtml(url) {
@@ -394,14 +394,14 @@
     return '<span class="state-pill state-pill--' + kind + '">' + esc(label) + '</span>';
   }
 
-  // Normalisation legere d'URL (comparer canonical vs URL de page, dedup inlinks).
+  // Normalisation légère d'URL (comparer canonical vs URL de page, dedup inlinks).
   function normUrl(u) {
     if (!u) return "";
     return String(u).trim().replace(/#.*$/, "").replace(/\/+$/, "").toLowerCase();
   }
 
   // ----- Extraction des valeurs servant au calcul des DOUBLONS (Vague 2) ----
-  // Comparaison EXACTE (apres trim). Une cle vide ne compte jamais comme doublon.
+  // Comparaison EXACTE (après trim). Une clé vide ne compte jamais comme doublon.
   function dupKeyTitle(p) { var s = seoOf(p); return s && s.title ? s.title.trim() : ""; }
   function dupKeyMeta(p)  { var s = seoOf(p); return s && s.meta_description ? s.meta_description.trim() : ""; }
   function dupKeyH1(p)    {
@@ -410,11 +410,11 @@
     return arr.length && arr[0] ? String(arr[0]).trim() : "";
   }
 
-  // Acces aux nouveaux objets Vague 2 (peuvent etre null cote backend).
+  // Accès aux nouveaux objets Vague 2 (peuvent être null côté backend).
   function secOf(p)   { return p && p.security ? p.security : null; }
   function flagsOf(p) { return p && p.url_flags ? p.url_flags : null; }
 
-  // Nombre d'en-tetes manquants (tableau security.missing_headers).
+  // Nombre d'en-têtes manquants (tableau security.missing_headers).
   function missingHeadersOf(p) {
     var sec = secOf(p);
     return sec && Array.isArray(sec.missing_headers) ? sec.missing_headers : [];
@@ -428,32 +428,32 @@
   // =========================================================================
   // VAGUE 3 — Near-duplicates (empreinte simhash 64 bits)
   // -------------------------------------------------------------------------
-  // Chaque page expose seo.simhash : une chaine HEXADECIMALE de 16 caracteres
+  // Chaque page expose seo.simhash : une chaîne HEXADÉCIMALE de 16 caractères
   // representant une empreinte de 64 bits du contenu visible. Deux pages au
-  // contenu tres proche ont des simhash dont peu de bits different.
+  // contenu très proche ont des simhash dont peu de bits different.
   //
   // PRINCIPE de la DISTANCE DE HAMMING :
   //   distance = nombre de bits qui different entre les deux empreintes
   //            = popcount( simhashA XOR simhashB )   (sur 64 bits)
   // On la calcule via BigInt : BigInt("0x"+hex) donne l'entier 64 bits exact
-  // (les nombres JS classiques perdent en precision au-dela de 53 bits).
+  // (les nombres JS classiques perdent en précision au-dela de 53 bits).
   //   - XOR bit a bit : (a ^ b) met a 1 chaque bit qui differe ;
   //   - popcount : on compte ces bits a 1 en consommant l'entier 16 bits par
   //     16 bits (masque 0xFFFF) avec une table de comptage precalculee, ce qui
-  //     evite une boucle sur 64 bits a chaque comparaison.
-  // Seuil : distance <= NEAR_DUP_BITS bits => pages considerees quasi-dupliquees.
+  //     évite une boucle sur 64 bits à chaque comparaison.
+  // Seuil : distance <= NEAR_DUP_BITS bits => pages considerees quasi-dupliquées.
   // =========================================================================
-  var NEAR_DUP_BITS = 6;          // <= 6 bits de difference = quasi-duplique
+  var NEAR_DUP_BITS = 6;          // <= 6 bits de difference = quasi-dupliqué
   var NEAR_DUP_MAX_PAGES = 2000;  // au-dela, on saute le calcul O(n^2) (cf. note UI)
 
   // ----- Cadence des rendus PENDANT un crawl -------------------------------
-  // Deux plafonds distincts, parce que les deux couts n'ont pas le meme ordre
+  // Deux plafonds distincts, parce que les deux couts n'ont pas le même ordre
   // de grandeur. Ils ne s'appliquent QUE tant que le crawl tourne : hors
-  // crawl, tri, filtre et recherche restent instantanes.
+  // crawl, tri, filtre et recherche restent instantanés.
   var RENDER_MIN_INTERVAL_MS = 350;    // rendu complet : ~3/s au lieu de ~60/s
   var NEAR_DUP_MIN_INTERVAL_MS = 3000; // calcul O(n^2) : au plus une fois / 3 s
 
-  // Table de popcount sur 16 bits (65536 entrees) : POPCNT16[x] = nb de bits a 1.
+  // Table de popcount sur 16 bits (65536 entrées) : POPCNT16[x] = nb de bits a 1.
   // Construite une seule fois ; rend popcountBig() quasi O(1) par comparaison.
   var POPCNT16 = (function () {
     var t = new Uint8Array(65536);
@@ -476,8 +476,8 @@
   function simhashOf(p) {
     var s = seoOf(p);
     var h = s && s.simhash ? String(s.simhash).trim().toLowerCase() : "";
-    // On exige une chaine hexa non nulle (un simhash "0000...0" signale un
-    // contenu vide cote backend : on l'ignore pour ne pas tout regrouper).
+    // On exige une chaîne hexa non nulle (un simhash "0000...0" signale un
+    // contenu vide côté backend : on l'ignore pour ne pas tout regrouper).
     if (!h || !/^[0-9a-f]{1,16}$/.test(h)) return "";
     if (/^0+$/.test(h)) return "";
     return h;
@@ -486,17 +486,17 @@
   // Convertit un simhash hex en BigInt 64 bits (prefixe 0x).
   function simhashBig(hex) { return BigInt("0x" + hex); }
 
-  // Renvoie la liste (memorisee) des URLs quasi-dupliquees a la page p.
+  // Renvoie la liste (memorisee) des URLs quasi-dupliquées à la page p.
   function nearDupOf(p) {
     var arr = S.nearDup[normUrl(p.url)];
     return Array.isArray(arr) ? arr : [];
   }
 
   // =========================================================================
-  // Etat global
+  // État global
   // =========================================================================
   var S = {
-    pages: [],            // tous les PageReport bruts recus (verbatim serde)
+    pages: [],            // tous les PageReport bruts reçus (verbatim serde)
     byUrl: {},            // index normUrl -> PageReport (pour le panneau detail)
     pageIndex: {},        // index normUrl -> position dans S.pages (ingestion idempotente)
     issues: [],           // toutes les issues agregees {url,severity,category,message}
@@ -508,46 +508,46 @@
     sitemapView: "all",                 // Vague 3 : "all" | "notin" (onglet Sitemap)
     sort: { key: null, dir: null },     // tri de la grille (par onglet courant)
 
-    // Selection de CELLULES par colonne (clic, Shift+clic, Ctrl+clic) -> copie.
-    // Une seule colonne a la fois : c'est ce qu'on copie. Cles = normUrl de la
+    // Sélection de CELLULES par colonne (clic, Shift+clic, Ctrl+clic) -> copie.
+    // Une seule colonne à la fois : c'est ce qu'on copie. Clés = normUrl de la
     // ligne, pour survivre aux re-rendus de la grille pendant un crawl.
     sel: { col: -1, keys: {}, anchor: null },
     gridRows: [],                       // [{key, texts:[...par colonne]}] dans l'ORDRE AFFICHE
 
     // Filtre pousse par la sidebar Overview : { predicate(p)->bool, label } ou null
     catFilter: null,
-    catId: null,                        // identifiant de la categorie active
+    catId: null,                        // identifiant de la catégorie active
 
-    selectedUrl: null,                  // URL de la ligne selectionnee (detail)
+    selectedUrl: null,                  // URL de la ligne sélectionnée (detail)
     detailTab: "inlinks",
 
     // Inlinks : index inverse normUrl(cible) -> [{from, anchor, rel}]
     inlinksIndex: {},
 
-    // Cartes de doublons (Vague 2) : valeur normalisee -> nombre de pages.
-    // Reconstruites une fois par cycle de rendu (evite O(n^2) par ligne).
+    // Cartes de doublons (Vague 2) : valeur normalisée -> nombre de pages.
+    // Reconstruites une fois par cycle de rendu (évite O(n^2) par ligne).
     dupMaps: { title: {}, meta: {}, h1: {} },
 
     // ----- Vague 3 -----
-    // Near-duplicates : normUrl(page) -> [urls quasi-dupliquees] (distance de
+    // Near-duplicates : normUrl(page) -> [urls quasi-dupliquées] (distance de
     // Hamming <= NEAR_DUP_BITS sur le simhash 64 bits). Reconstruit une fois par
     // cycle de rendu, en O(n^2) BORNE (cf. NEAR_DUP_MAX_PAGES).
     nearDup: {},
-    nearDupSkipped: false,         // vrai si trop de pages -> calcul desactive
+    nearDupSkipped: false,         // vrai si trop de pages -> calcul désactivé
 
     // Hreflang reciproque : normUrl(page) -> { declared:[langs], missingBack:[urls] }
-    // missingBack = pages cibles crawlees qui ne declarent PAS de retour vers nous.
+    // missingBack = pages cibles crawlées qui ne declarent PAS de retour vers nous.
     hreflangRecip: {},
-    // Issues hreflang derivees cote JS (categorie "Hreflang"), reconstruites a
-    // chaque cycle et FUSIONNEES a la lecture (jamais poussees dans S.issues
+    // Issues hreflang dérivées côté JS (catégorie "Hreflang"), reconstruites a
+    // chaque cycle et FUSIONNEES à la lecture (jamais poussees dans S.issues
     // pour ne pas doublonner ni polluer l'agregat backend).
     hreflangIssues: [],
 
-    // Sitemap (recu via crawl:done) : liste brute + Set normalise pour les jointures.
-    sitemapUrls: [],               // URLs telles que declarees dans le sitemap
+    // Sitemap (reçu via crawl:done) : liste brute + Set normalisé pour les jointures.
+    sitemapUrls: [],               // URLs telles que déclarées dans le sitemap
     sitemapSet: {},                // normUrl(sitemapUrl) -> true (appartenance O(1))
 
-    // Mesure de bande passante (run courant + agregats multi-run)
+    // Mesure de bande passante (run courant + agrégats multi-run)
     bw: { totalBytes: 0, maxWeight: 0 },
     multi: {
       target: 0, done: 0,
@@ -563,12 +563,12 @@
     lastNearDupAt: 0,                   // horodatage du dernier calcul O(n^2)
     running: false,
     paused: false,                      // VAGUE 4 (C) : crawl mis en pause (Stop)
-    rateStartTs: 0,                     // pour estimer le debit pages/seconde
+    rateStartTs: 0,                     // pour estimer le débit pages/seconde
 
     unlisteners: []
   };
 
-  // Historique persistant (liste de sequences).
+  // Historique persistant (liste de séquences).
   var history = [];
 
   // =========================================================================
@@ -577,7 +577,7 @@
   // row(p) qui renvoie, pour chaque colonne, { html, text, sort }. "html" pour
   // l'affichage, "text" pour l'export CSV, "sort" pour le tri (valeur brute).
   // Les onglets sur les pages utilisent kind:"pages". L'onglet "links" liste
-  // tous les outlinks (kind:"links"), "issues" liste les problemes (kind:"issues").
+  // tous les outlinks (kind:"links"), "issues" liste les problèmes (kind:"issues").
   // =========================================================================
   var TABS = {
 
@@ -607,13 +607,13 @@
           { html: httpCodeHtml(p.status),
             text: String(p.status || 0), sort: p.status || 0 },
           // Statut de cache. Le tri regroupe par verdict ; les pages sans
-          // information ("") tombent ensemble, en tete ou en queue.
+          // information ("") tombent ensemble, en tête ou en queue.
           { html: cacheCellHtml(p), text: cacheStatus(p), sort: cacheStatus(p) },
           // Qui a fourni la page : trier ici isole d'un coup toutes les pages
           // servies par "origine", celles qui font travailler le serveur.
           { html: cacheByCellHtml(p), text: cacheServedBy(p), sort: cacheServedBy(p) },
           { html: esc(shortType(p.content_type)), text: p.content_type || "", sort: p.content_type || "" },
-          // VAGUE 4 (A) : temps de reponse colore (vert/orange/rouge), triable.
+          // VAGUE 4 (A) : temps de réponse colore (vert/orange/rouge), triable.
           { html: '<span class="col-num">' + speedCellHtml(respMs(p)) + '</span>',
             text: respMs(p) ? String(respMs(p)) : "", sort: respMs(p) },
           { html: '<span class="col-num">' + words + '</span>', text: String(words), sort: words },
@@ -647,8 +647,8 @@
     },
 
     // ----- URL (Vague 2) : analyse de la forme des adresses -----
-    // Colonnes : Adresse, Longueur, non-ASCII, Underscores, Majuscules, Parametres.
-    // Une ligne est en alerte si l'URL depasse 115 caracteres OU contient du non-ASCII.
+    // Colonnes : Adresse, Longueur, non-ASCII, Underscores, Majuscules, Paramètres.
+    // Une ligne est en alerte si l'URL depasse 115 caractères OU contient du non-ASCII.
     url: {
       kind: "pages",
       columns: [
@@ -658,11 +658,11 @@
         { key: "underscores", label: "Underscores" },
         { key: "uppercase",  label: "Majuscules" },
         { key: "slashes",    label: "Slashes //" },
-        { key: "params",     label: "Parametres" }
+        { key: "params",     label: "Paramètres" }
       ],
       row: function (p) {
         var f = flagsOf(p);
-        // Repli sur l'URL elle-meme si le backend n'a pas (encore) rempli url_flags.
+        // Repli sur l'URL elle-même si le backend n'a pas (encore) rempli url_flags.
         var len = f && f.length != null ? f.length : (p.url ? p.url.length : 0);
         var nonAscii = f ? !!f.non_ascii : false;
         var underscores = f ? !!f.underscores : false;
@@ -687,7 +687,7 @@
             text: params ? "oui" : "non", sort: params ? 1 : 0 }
         ];
       },
-      // Surligne la ligne entiere si alerte (URL trop longue, non-ASCII ou double slash).
+      // Surligne la ligne entière si alerte (URL trop longue, non-ASCII ou double slash).
       rowClass: function (p) {
         var f = flagsOf(p);
         var len = f && f.length != null ? f.length : (p.url ? p.url.length : 0);
@@ -697,22 +697,22 @@
       }
     },
 
-    // ----- Securite (Vague 2) : HTTPS, contenu mixte, en-tetes manquants -----
-    // Une ligne est en alerte si la page presente du contenu mixte.
+    // ----- Sécurité (Vague 2) : HTTPS, contenu mixte, en-têtes manquants -----
+    // Une ligne est en alerte si la page présente du contenu mixte.
     security: {
       kind: "pages",
       columns: [
         { key: "url",     label: "Adresse" },
         { key: "https",   label: "HTTPS" },
         { key: "mixed",   label: "Contenu mixte", num: true },
-        { key: "headers", label: "En-tetes manquants" }
+        { key: "headers", label: "En-têtes manquants" }
       ],
       row: function (p) {
         var sec = secOf(p);
         var https = sec ? !!sec.https : (p.url ? /^https:/i.test(p.url) : false);
         var mixed = mixedContentOf(p);
         var headers = missingHeadersOf(p);
-        // Liste courte des en-tetes manquants (max 3 affiches, reste en "+N").
+        // Liste courte des en-têtes manquants (max 3 affiches, reste en "+N").
         var headHtml, headText;
         if (!headers.length) { headHtml = '<span class="bool-no">—</span>'; headText = ""; }
         else {
@@ -731,7 +731,7 @@
           { html: headHtml, text: headText, sort: headers.length }
         ];
       },
-      // Surligne la ligne entiere si contenu mixte present.
+      // Surligne la ligne entière si contenu mixte présent.
       rowClass: function (p) { return mixedContentOf(p).length ? "row--alert" : ""; }
     },
 
@@ -742,15 +742,15 @@
         { key: "url",   label: "Adresse" },
         { key: "title", label: "Title" },
         { key: "len",   label: "Longueur", num: true },
-        { key: "dup",   label: "Duplique" },
-        { key: "state", label: "Etat" }
+        { key: "dup",   label: "Dupliqué" },
+        { key: "state", label: "État" }
       ],
       row: function (p) {
         var s = seoOf(p);
         var title = s && s.title ? s.title : "";
         var len = s ? (s.title_len || 0) : 0;
         var st = titleState(title, len);
-        var dup = isDup("title", dupKeyTitle, p);   // doublon exact calcule cote JS
+        var dup = isDup("title", dupKeyTitle, p);   // doublon exact calcule côté JS
         return [
           { html: urlCellHtml(p.url), text: p.url || "", sort: p.url || "" },
           { html: esc(title || "—"), text: title, sort: title },
@@ -769,15 +769,15 @@
         { key: "url",  label: "Adresse" },
         { key: "meta", label: "Meta Description" },
         { key: "len",  label: "Longueur", num: true },
-        { key: "dup",  label: "Duplique" },
-        { key: "state", label: "Etat" }
+        { key: "dup",  label: "Dupliqué" },
+        { key: "state", label: "État" }
       ],
       row: function (p) {
         var s = seoOf(p);
         var meta = s && s.meta_description ? s.meta_description : "";
         var len = s ? (s.meta_description_len || 0) : 0;
         var st = metaState(meta, len);
-        var dup = isDup("meta", dupKeyMeta, p);     // doublon exact calcule cote JS
+        var dup = isDup("meta", dupKeyMeta, p);     // doublon exact calcule côté JS
         return [
           { html: urlCellHtml(p.url), text: p.url || "", sort: p.url || "" },
           { html: esc(meta || "—"), text: meta, sort: meta },
@@ -796,8 +796,8 @@
         { key: "url",   label: "Adresse" },
         { key: "h1",    label: "Premier H1" },
         { key: "count", label: "Nombre", num: true },
-        { key: "dup",   label: "Duplique" },
-        { key: "state", label: "Etat" }
+        { key: "dup",   label: "Dupliqué" },
+        { key: "state", label: "État" }
       ],
       row: function (p) {
         var s = seoOf(p);
@@ -830,7 +830,7 @@
       row: function (p) {
         var s = seoOf(p);
         var words = s ? (s.word_count || 0) : 0;
-        var sims = nearDupOf(p);                 // URLs quasi-dupliquees (memorise)
+        var sims = nearDupOf(p);                 // URLs quasi-dupliquées (memorise)
         var n = sims.length;
         var ndHtml = n
           ? '<span class="state-pill state-pill--warn">Oui (' + n + ')</span>'
@@ -838,12 +838,12 @@
         return [
           { html: urlCellHtml(p.url), text: p.url || "", sort: p.url || "" },
           { html: '<span class="col-num">' + words + '</span>', text: String(words), sort: words },
-          // tri par nombre de similaires (desc = les plus dupliquees en tete) ;
+          // tri par nombre de similaires (desc = les plus dupliquées en tête) ;
           // le texte CSV liste les URLs similaires pour exploitation hors-ligne.
           { html: ndHtml, text: n ? (n + " : " + sims.join(" | ")) : "0", sort: n }
         ];
       },
-      // Surligne la ligne si la page a au moins une quasi-dupliquee.
+      // Surligne la ligne si la page a au moins une quasi-dupliquée.
       rowClass: function (p) { return nearDupOf(p).length ? "row--alert" : ""; }
     },
 
@@ -854,7 +854,7 @@
         { key: "url",     label: "Adresse" },
         { key: "total",   label: "Images", num: true },
         { key: "missing", label: "Sans alt", num: true },
-        { key: "state",   label: "Etat" }
+        { key: "state",   label: "État" }
       ],
       row: function (p) {
         var s = seoOf(p);
@@ -902,12 +902,12 @@
         { key: "indexable", label: "Indexable" },
         { key: "noindex",   label: "Noindex" },
         { key: "nofollow",  label: "Nofollow" },
-        { key: "canonsd",   label: "Canonicalisee" }
+        { key: "canonsd",   label: "Canonicalisée" }
       ],
       row: function (p) {
         var s = seoOf(p);
         var robots = s && s.meta_robots ? s.meta_robots : "";
-        var xrobots = s && s.x_robots_tag ? s.x_robots_tag : "";    // en-tete HTTP (Vague 2)
+        var xrobots = s && s.x_robots_tag ? s.x_robots_tag : "";    // en-tête HTTP (Vague 2)
         var indexable = s ? !!s.indexable : false;
         var noindex = s ? !!s.noindex : false;
         var nofollow = s ? !!s.nofollow : false;
@@ -929,9 +929,9 @@
     },
 
     // ----- Hreflang (Vague 3 : + colonne Reciproque) -----
-    // Reciproque = OK si toutes les cibles hreflang crawlees pointent en retour
-    // vers cette page ; Manquant si au moins une cible crawlee n'a pas de lien
-    // retour ; "—" si la page ne declare aucun hreflang. Calcul cote JS dans
+    // Reciproque = OK si toutes les cibles hreflang crawlées pointent en retour
+    // vers cette page ; Manquant si au moins une cible crawlée n'a pas de lien
+    // retour ; "—" si la page ne declare aucun hreflang. Calcul côté JS dans
     // rebuildHreflangRecip() (S.hreflangRecip).
     hreflang: {
       kind: "pages",
@@ -951,7 +951,7 @@
           }).join(" ");
           text = hl.map(function (h) { return h.lang + " -> " + h.href; }).join(" | ");
         }
-        // Etat de reciprocite.
+        // État de reciprocite.
         var r = S.hreflangRecip[normUrl(p.url)];
         var recipHtml, recipText, recipSort;
         if (!hl.length) { recipHtml = '<span class="muted">—</span>'; recipText = ""; recipSort = -1; }
@@ -977,7 +977,7 @@
     // N'affiche QUE les pages ayant au moins l'un des deux liens de pagination.
     pagination: {
       kind: "pages",
-      // Filtre specifique a l'onglet : conserve seulement les pages paginees.
+      // Filtre spécifique à l'onglet : conserve seulement les pages paginees.
       filter: function (p) {
         var s = seoOf(p);
         return !!(s && (s.pagination_prev || s.pagination_next));
@@ -1001,7 +1001,7 @@
 
     // ----- Structured Data -----
     // Colonnes : Adresse, Types, Valide (structured_data_valid), Erreurs (structured_data_errors).
-    // Une ligne est en alerte si la page a des donnees structurees invalides.
+    // Une ligne est en alerte si la page a des données structurees invalides.
     schema: {
       kind: "pages",
       columns: [
@@ -1022,12 +1022,12 @@
               return '<span class="badge badge--schema" title="Voir le JSON-LD brut">' + esc(t) + '</span>';
             }).join(" ")
           : '<span class="muted">—</span>';
-        // "Valide" n'a de sens que si la page porte des donnees structurees.
+        // "Valide" n'a de sens que si la page porte des données structurees.
         var validHtml, validText, validSort;
         if (!hasData) { validHtml = '<span class="bool-no">—</span>'; validText = ""; validSort = -1; }
         else if (valid) { validHtml = pill("ok", "oui"); validText = "oui"; validSort = 1; }
         else { validHtml = pill("err", "non"); validText = "non"; validSort = 0; }
-        // Erreurs : nombre + premiere erreur en infobulle.
+        // Erreurs : nombre + première erreur en infobulle.
         var errHtml, errText;
         if (!errors.length) { errHtml = '<span class="col-num">0</span>'; errText = "0"; }
         else {
@@ -1041,7 +1041,7 @@
           { html: errHtml, text: errText, sort: errors.length }
         ];
       },
-      // Surligne la ligne si la page a des donnees structurees invalides.
+      // Surligne la ligne si la page a des données structurees invalides.
       rowClass: function (p) {
         var s = seoOf(p);
         var types = s && Array.isArray(s.structured_data_types) ? s.structured_data_types : [];
@@ -1072,12 +1072,12 @@
       }
     },
 
-    // ----- Problemes : issues agregees -----
+    // ----- Problèmes : issues agregees -----
     issues: {
       kind: "issues",
       columns: [
-        { key: "severity", label: "Severite" },
-        { key: "category", label: "Categorie" },
+        { key: "severity", label: "Sévérité" },
+        { key: "category", label: "Catégorie" },
         { key: "url",      label: "Adresse" },
         { key: "message",  label: "Message" }
       ],
@@ -1092,16 +1092,16 @@
     },
 
     // ----- Sitemap (Vague 3) -----
-    // Source dediee (kind "sitemap") : voir sitemapItems(). Trois vues commutables
+    // Source dédiée (kind "sitemap") : voir sitemapItems(). Trois vues commutables
     // via le sous-filtre S.sitemapView :
-    //   "all"    : toutes les URLs du sitemap + statut Crawlee / Orpheline ;
+    //   "all"    : toutes les URLs du sitemap + statut Crawlée / Orpheline ;
     //   "orphan" : SEULES les URLs du sitemap jamais atteintes par le crawl ;
-    //   "notin"  : pages crawlees ABSENTES du sitemap (couverture inverse).
+    //   "notin"  : pages crawlées ABSENTES du sitemap (couverture inverse).
     sitemap: {
       kind: "sitemap",
       columns: [
         { key: "url",    label: "Adresse" },
-        { key: "status", label: "Etat" },
+        { key: "status", label: "État" },
         { key: "code",   label: "Code HTTP", num: true }
       ],
       row: function (it) {
@@ -1109,15 +1109,15 @@
         var stHtml, stText, stSort;
         if (it.kind === "orphan") {
           // Dans le sitemap mais jamais atteinte par le crawl.
-          stHtml = '<span class="state-pill state-pill--warn" title="Declaree dans le sitemap mais non atteinte par le crawl">Orpheline</span>';
-          stText = "Orpheline (sitemap, non crawlee)"; stSort = 1;
+          stHtml = '<span class="state-pill state-pill--warn" title="Déclarée dans le sitemap mais non atteinte par le crawl">Orpheline</span>';
+          stText = "Orpheline (sitemap, non crawlée)"; stSort = 1;
         } else if (it.kind === "notin") {
-          // Crawlee mais absente du sitemap.
+          // Crawlée mais absente du sitemap.
           stHtml = '<span class="state-pill state-pill--muted" title="Page atteinte par le crawl mais absente du sitemap">Hors sitemap</span>';
           stText = "Hors sitemap"; stSort = 2;
         } else {
-          // Dans le sitemap ET crawlee.
-          stHtml = pill("ok", "Crawlee"); stText = "Crawlee"; stSort = 0;
+          // Dans le sitemap ET crawlée.
+          stHtml = pill("ok", "Crawlée"); stText = "Crawlée"; stSort = 0;
         }
         var codeHtml = it.crawled
           ? httpCodeHtml(it.status)
@@ -1133,7 +1133,7 @@
       }
     },
 
-    // ----- Bande passante : tableau de mesure (poids transfere reel) -----
+    // ----- Bande passante : tableau de mesure (poids transfere réel) -----
     bandwidth: {
       kind: "pages",
       columns: [
@@ -1142,7 +1142,7 @@
         { key: "weight", label: "Poids total", num: true },
         { key: "speed",  label: "Vitesse", num: true },
         { key: "imgs",   label: "Images", num: true },
-        { key: "req",    label: "Requetes", num: true },
+        { key: "req",    label: "Requêtes", num: true },
         { key: "dyn",    label: "dont dyn.", num: true },
         { key: "miss",   label: "Cache MISS", num: true },
         { key: "probe",  label: "Sonde" },
@@ -1161,7 +1161,7 @@
           { html: tech.length ? tech.map(function (t) { return '<span class="badge">' + esc(t) + '</span>'; }).join("")
                               : '<span class="muted">—</span>', text: tech.join(", "), sort: tech.join(",") },
           { html: '<span class="col-num">' + fmtBytes(weight) + '</span>', text: String(weight), sort: weight },
-          // VAGUE 4 (A) : temps de reponse colore, triable.
+          // VAGUE 4 (A) : temps de réponse colore, triable.
           { html: '<span class="col-num">' + speedCellHtml(respMs(p)) + '</span>',
             text: respMs(p) ? String(respMs(p)) : "", sort: respMs(p) },
           { html: '<span class="col-num">' + imgs.length + " / " + fmtBytes(imgBytes) + '</span>',
@@ -1190,7 +1190,7 @@
     return ct.split(";")[0];
   }
 
-  // ----- Logique d'etat (manquant / court / long / ok) ---------------------
+  // ----- Logique d'état (manquant / court / long / ok) ---------------------
   function titleState(title, len) {
     if (!title) return { kind: "err",  label: "Manquant" };
     if (len < 30) return { kind: "warn", label: "Court" };
@@ -1238,8 +1238,8 @@
   function ingestPage(payload) {
     var p = payload || {};
     var key = normUrl(p.url);
-    // IDEMPOTENT (Vague 4 / point C) : si l'URL est deja connue (cas d'une
-    // REPRISE qui re-crawle), on REMPLACE l'entree en place au lieu d'empiler
+    // IDEMPOTENT (Vague 4 / point C) : si l'URL est déjà connue (cas d'une
+    // REPRISE qui re-crawle), on REMPLACE l'entrée en place au lieu d'empiler
     // un doublon. En crawl normal chaque URL est unique : comportement inchange.
     var existing = S.byUrl[key];
     if (existing && S.pageIndex[key] != null) {
@@ -1250,17 +1250,17 @@
     }
     S.byUrl[key] = p;
 
-    // Les agregats derives (inlinks, issues, severites, bande passante) sont
+    // Les agrégats derives (inlinks, issues, severites, bande passante) sont
     // desormais RECALCULES par frame dans rebuildAggregates() — ainsi une page
     // re-ingeree ne double pas les compteurs.
     scheduleRender();
   }
 
-  // (Re)construit en O(total) les agregats derives de S.pages :
+  // (Re)construit en O(total) les agrégats derives de S.pages :
   //   - inlinksIndex : index inverse cible -> [{from, anchor, rel}] ;
-  //   - issues + sevCounts : problemes backend agreges par severite ;
+  //   - issues + sevCounts : problèmes backend agreges par sévérité ;
   //   - bw : poids total cumule + poids max d'une page (barre bande passante).
-  // Recalcule a chaque cycle de rendu => robuste a la re-ingestion (reprise).
+  // Recalcule à chaque cycle de rendu => robuste à la re-ingestion (reprise).
   function rebuildAggregates() {
     var inlinks = {};
     var issues = [];
@@ -1302,19 +1302,19 @@
 
   // =========================================================================
   // RENDU BATCH (performant pour gros crawls)
-  // On marque l'etat "dirty" et on declenche un seul rendu par frame.
+  // On marque l'état "dirty" et on declenche un seul rendu par frame.
   // =========================================================================
   function scheduleRender() {
     S.dirty = true;
     if (S.rafPending) return;
 
     // Pendant un crawl, les pages arrivent en continu : sans plafond, on
-    // reconstruisait TOUT a chaque frame (agregats sur toutes les pages et
-    // tous leurs liens, near-duplicates en O(n^2), tri, grille entiere). Le
+    // reconstruisait TOUT à chaque frame (agrégats sur toutes les pages et
+    // tous leurs liens, near-duplicates en O(n^2), tri, grille entière). Le
     // thread principal n'avait plus une milliseconde pour traiter un clic —
     // d'ou l'impression que l'interface "coince" quand on trie en cours de
     // crawl. On plafonne donc la cadence tant que le crawl tourne ; hors
-    // crawl (tri, filtre, recherche), le rendu reste immediat.
+    // crawl (tri, filtre, recherche), le rendu reste immédiat.
     var wait = 0;
     if (S.running) {
       var since = Date.now() - S.lastRenderAt;
@@ -1335,7 +1335,7 @@
         renderTabCounts();
         renderOverview();
         renderGrid();
-        // Si une ligne est selectionnee, on rafraichit le panneau de detail :
+        // Si une ligne est sélectionnée, on rafraîchit le panneau de detail :
         // les Inlinks peuvent grossir au fil du crawl (nouvelles pages liantes).
         if (S.selectedUrl) renderDetail();
       });
@@ -1347,11 +1347,11 @@
   // Near-duplicates : calcul O(n^2) espace pendant le crawl.
   //
   // A 2000 pages, `rebuildNearDup` compare 2 millions de paires en BigInt
-  // (XOR + popcount) : le refaire a chaque cycle de rendu bloquait le thread
+  // (XOR + popcount) : le refaire à chaque cycle de rendu bloquait le thread
   // principal a lui seul. Pendant le crawl on l'espace donc fortement — la
-  // carte affichee a au pire quelques secondes de retard, ce qui est sans
+  // carte affichée a au pire quelques secondes de retard, ce qui est sans
   // consequence pour un indicateur qui evolue de page en page. Hors crawl
-  // (donc a la fin, et a chaque interaction), le calcul reste systematique et
+  // (donc à la fin, et à chaque interaction), le calcul reste systématique et
   // la carte est exacte.
   function maybeRebuildNearDup() {
     if (S.running) {
@@ -1364,9 +1364,9 @@
 
   // Rendu complet SANS plafond de cadence.
   //
-  // A appeler quand l'affichage doit etre exact et non plus seulement frais :
-  // en fin de sequence, la carte des near-duplicates volontairement espacee
-  // pendant le crawl doit etre recalculee sur la totalite des pages.
+  // A appeler quand l'affichage doit être exact et non plus seulement frais :
+  // en fin de séquence, la carte des near-duplicates volontairement espacee
+  // pendant le crawl doit être recalculee sur la totalite des pages.
   function renderNow() {
     S.lastRenderAt = 0;     // plus d'attente
     S.lastNearDupAt = 0;    // force le recalcul O(n^2)
@@ -1374,11 +1374,11 @@
   }
 
   // =========================================================================
-  // SOURCES DE LIGNES selon l'onglet (avec filtres recherche/categorie/sev)
+  // SOURCES DE LIGNES selon l'onglet (avec filtres recherche/catégorie/sev)
   // =========================================================================
 
-  // Pages filtrees par recherche d'URL + filtre de categorie (sidebar) +
-  // filtre propre a l'onglet courant (ex: Pagination ne montre que les pages
+  // Pages filtrees par recherche d'URL + filtre de catégorie (sidebar) +
+  // filtre propre à l'onglet courant (ex: Pagination ne montre que les pages
   // ayant rel=prev/next).
   function pagesFiltered() {
     var q = S.search ? S.search.toLowerCase() : "";
@@ -1412,19 +1412,19 @@
   }
 
   // Lignes de l'onglet Sitemap (Vague 3) selon la vue S.sitemapView :
-  //   "all"    : chaque URL declaree dans le sitemap, marquee Crawlee/Orpheline ;
-  //   "orphan" : seules les URLs du sitemap qu'aucune page crawlee ne couvre ;
-  //   "notin"  : pages crawlees absentes du sitemap.
+  //   "all"    : chaque URL déclarée dans le sitemap, marquee Crawlée/Orpheline ;
+  //   "orphan" : seules les URLs du sitemap qu'aucune page crawlée ne couvre ;
+  //   "notin"  : pages crawlées absentes du sitemap.
   // Filtre de recherche d'URL applique dans les trois cas.
   function sitemapItems() {
     var q = S.search ? S.search.toLowerCase() : "";
     var out = [];
     if (S.sitemapView === "notin") {
-      // Couverture inverse : pages crawlees qui ne figurent pas dans le sitemap.
+      // Couverture inverse : pages crawlées qui ne figurent pas dans le sitemap.
       for (var i = 0; i < S.pages.length; i++) {
         var p = S.pages[i];
         var key = normUrl(p.url);
-        if (S.sitemapSet[key]) continue;                 // presente -> on ignore
+        if (S.sitemapSet[key]) continue;                 // présente -> on ignore
         if (q && (p.url || "").toLowerCase().indexOf(q) === -1) continue;
         out.push({ url: p.url, inSitemap: false, crawled: true,
                    status: p.status || 0, kind: "notin" });
@@ -1433,7 +1433,7 @@
     }
     // Vues "all" et "orphan" : on parcourt les URLs du sitemap.
     //
-    // En vue "orphan", seules celles qu'aucune page crawlee ne couvre sont
+    // En vue "orphan", seules celles qu'aucune page crawlée ne couvre sont
     // gardees. Avant, cliquer « Orphelines » basculait sur "all" et se contentait
     // de les SURLIGNER au milieu des autres : impossible de les isoler, de les
     // compter dans la grille ou de les exporter seules.
@@ -1442,8 +1442,8 @@
       var u = S.sitemapUrls[s];
       if (!u) continue;
       if (q && u.toLowerCase().indexOf(q) === -1) continue;
-      var pg = S.byUrl[normUrl(u)];                       // page crawlee correspondante
-      if (onlyOrphans && pg) continue;                    // crawlee -> pas orpheline
+      var pg = S.byUrl[normUrl(u)];                       // page crawlée correspondante
+      if (onlyOrphans && pg) continue;                    // crawlée -> pas orpheline
       out.push({
         url: u,
         inSitemap: true,
@@ -1455,9 +1455,9 @@
     return out;
   }
 
-  // Issues filtrees par recherche d'URL + filtre de severite.
-  // Fusionne les issues backend (S.issues) avec les issues hreflang derivees
-  // cote JS (S.hreflangIssues, categorie "Hreflang") — cf. rebuildHreflangRecip.
+  // Issues filtrees par recherche d'URL + filtre de sévérité.
+  // Fusionne les issues backend (S.issues) avec les issues hreflang dérivées
+  // côté JS (S.hreflangIssues, catégorie "Hreflang") — cf. rebuildHreflangRecip.
   function issuesFiltered() {
     var q = S.search ? S.search.toLowerCase() : "";
     var all = S.issues.concat(S.hreflangIssues);
@@ -1488,29 +1488,29 @@
     if (!def || !head || !body) return;
 
     // Bandeau d'information contextuel. Cas Vague 3 : sur l'onglet Contenu, si le
-    // calcul des near-duplicates a ete saute (trop de pages), on le signale —
+    // calcul des near-duplicates a été saute (trop de pages), on le signale —
     // sinon l'absence de near-dup serait trompeuse.
     var banner = $("grid-banner");
     if (banner) {
       if (S.activeTab === "content" && S.nearDupSkipped) {
         banner.hidden = false;
-        banner.textContent = "Detection des near-duplicates desactivee : plus de " +
+        banner.textContent = "Detection des near-duplicates désactivée : plus de " +
           NEAR_DUP_MAX_PAGES + " pages (le calcul O(n^2) serait trop couteux).";
       } else {
         banner.hidden = true;
       }
     }
 
-    // --- En-tete (colonnes triables au clic) ---
+    // --- En-tête (colonnes triables au clic) ---
     //
-    // L'en-tete n'est REECRIT que si son contenu logique change : onglet, tri,
-    // ou largeurs enregistrees. Le reconstruire a chaque rendu — donc a chaque
-    // page recue pendant un crawl — detruisait les <th> en continu, avec deux
+    // L'en-tête n'est RÉÉCRIT que si son contenu logique change : onglet, tri,
+    // ou largeurs enregistrées. Le reconstruire à chaque rendu — donc à chaque
+    // page reçue pendant un crawl — detruisait les <th> en continu, avec deux
     // consequences visibles :
     //   - un clic de tri etait AVALE quand le remplacement tombait entre le
     //     mousedown et le mouseup (le navigateur n'emet `click` que si les deux
-    //     visent le meme element) ;
-    //   - un redimensionnement en cours perdait sa reference `rz.th`, qui
+    //     visent le même element) ;
+    //   - un redimensionnement en cours perdait sa référence `rz.th`, qui
     //     pointait alors sur un noeud detache.
     var widthsSig = "";
     var savedTab = PREFS.colWidths && PREFS.colWidths[S.activeTab];
@@ -1570,8 +1570,8 @@
       var cells = mapped[r].cells;
       var item = mapped[r].item;
       var rowUrl = item.url || item.from || "";   // pages/issues -> url ; liens -> from
-      // Classes cumulees : selection (ligne ouverte dans le detail) + alerte
-      // eventuelle propre a l'onglet (URL trop longue, contenu mixte...).
+      // Classes cumulees : sélection (ligne ouverte dans le detail) + alerte
+      // eventuelle propre à l'onglet (URL trop longue, contenu mixte...).
       var classes = [];
       var rowKey = normUrl(rowUrl);
       gridRows.push({ key: rowKey, texts: cells.map(function (c) { return c.text; }) });
@@ -1597,27 +1597,27 @@
       else {
         empty.hidden = false;
         if (def.kind === "sitemap") {
-          // Distingue "pas de sitemap du tout" de "vue/filtre sans resultat".
+          // Distingue "pas de sitemap du tout" de "vue/filtre sans résultat".
           if (S.sitemapView === "all" && !S.sitemapUrls.length) {
             empty.textContent = S.pages.length
-              ? "Aucun sitemap trouve pour ce site."
+              ? "Aucun sitemap trouvé pour ce site."
               : "Lancez un crawl pour analyser le sitemap.";
           } else if (S.sitemapView === "orphan" && S.sitemapUrls.length && !S.search) {
-            empty.textContent = "Aucune orpheline : toutes les URLs du sitemap ont ete atteintes par le crawl.";
+            empty.textContent = "Aucune orpheline : toutes les URLs du sitemap ont été atteintes par le crawl.";
           } else {
-            empty.textContent = "Aucune URL ne correspond a cette vue.";
+            empty.textContent = "Aucune URL ne correspond à cette vue.";
           }
         } else {
           empty.textContent = S.pages.length
             ? "Aucune ligne ne correspond au filtre."
-            : "Lancez un crawl pour voir les resultats ici.";
+            : "Lancez un crawl pour voir les résultats ici.";
         }
       }
     }
   }
 
   // =========================================================================
-  // COMPTEURS DES ONGLETS (mis a jour en direct)
+  // COMPTEURS DES ONGLETS (mis à jour en direct)
   // Compteur = nombre de lignes affichables (avant filtre recherche, pour
   // refleter le volume total ; SF affiche le total de l'onglet).
   // =========================================================================
@@ -1645,10 +1645,10 @@
       pagination: nPagination,
       schema: nPages,
       bandwidth: nPages,
-      // Sitemap : compteur = nombre d'URLs declarees dans le sitemap.
+      // Sitemap : compteur = nombre d'URLs déclarées dans le sitemap.
       sitemap: S.sitemapUrls.length,
       links: S.pages.reduce(function (s, p) { return s + (Array.isArray(p.outlinks) ? p.outlinks.length : 0); }, 0),
-      // Problemes : issues backend + issues hreflang derivees cote JS.
+      // Problèmes : issues backend + issues hreflang dérivées côté JS.
       issues: S.issues.length + S.hreflangIssues.length
     };
     document.querySelectorAll(".tab-count").forEach(function (el) {
@@ -1658,14 +1658,14 @@
   }
 
   // =========================================================================
-  // SIDEBAR OVERVIEW : categories cliquables avec compteurs en direct.
-  // Chaque categorie a un predicate(p) ; cliquer applique catFilter +
+  // SIDEBAR OVERVIEW : catégories cliquables avec compteurs en direct.
+  // Chaque catégorie à un predicate(p) ; cliquer applique catFilter +
   // bascule sur l'onglet pertinent.
   // =========================================================================
-  // Definition des categories (groupes -> lignes).
+  // Definition des catégories (groupes -> lignes).
   var OVERVIEW = [
-    { group: "Codes de reponse", tab: "response", rows: [
-      { id: "resp2xx", label: "Succes (2xx)", tone: "ok",   pred: function (p) { return p.status >= 200 && p.status < 300; } },
+    { group: "Codes de réponse", tab: "response", rows: [
+      { id: "resp2xx", label: "Succès (2xx)", tone: "ok",   pred: function (p) { return p.status >= 200 && p.status < 300; } },
       { id: "resp3xx", label: "Redirections (3xx)", tone: "warn", pred: function (p) { return p.status >= 300 && p.status < 400; } },
       { id: "resp4xx", label: "Erreurs client (4xx)", tone: "err", pred: function (p) { return p.status >= 400 && p.status < 500; } },
       { id: "resp5xx", label: "Erreurs serveur (5xx)", tone: "err", pred: function (p) { return p.status >= 500; } }
@@ -1674,18 +1674,18 @@
       { id: "titleMissing", label: "Manquant", tone: "err",  pred: function (p) { var s = seoOf(p); return !s || !s.title; } },
       { id: "titleLong",    label: "> 60 car.", tone: "warn", pred: function (p) { var s = seoOf(p); return s && s.title && s.title_len > 60; } },
       { id: "titleShort",   label: "< 30 car.", tone: "warn", pred: function (p) { var s = seoOf(p); return s && s.title && s.title_len < 30; } },
-      { id: "titleDup",     label: "Duplique", tone: "warn", pred: dupPred("title", dupKeyTitle) }
+      { id: "titleDup",     label: "Dupliqué", tone: "warn", pred: dupPred("title", dupKeyTitle) }
     ]},
     { group: "Meta Description", tab: "meta", rows: [
       { id: "metaMissing", label: "Manquant", tone: "err",  pred: function (p) { var s = seoOf(p); return !s || !s.meta_description; } },
       { id: "metaLong",    label: "> 160 car.", tone: "warn", pred: function (p) { var s = seoOf(p); return s && s.meta_description && s.meta_description_len > 160; } },
       { id: "metaShort",   label: "< 70 car.", tone: "warn", pred: function (p) { var s = seoOf(p); return s && s.meta_description && s.meta_description_len < 70; } },
-      { id: "metaDup",     label: "Duplique", tone: "warn", pred: dupPred("meta", dupKeyMeta) }
+      { id: "metaDup",     label: "Dupliqué", tone: "warn", pred: dupPred("meta", dupKeyMeta) }
     ]},
     { group: "H1", tab: "h1", rows: [
       { id: "h1Missing",  label: "Manquant", tone: "err",  pred: function (p) { var s = seoOf(p); return !s || (s.h1_count || 0) === 0; } },
       { id: "h1Multiple", label: "Multiple", tone: "warn", pred: function (p) { var s = seoOf(p); return s && (s.h1_count || 0) > 1; } },
-      { id: "h1Dup",      label: "Duplique", tone: "warn", pred: dupPred("h1", dupKeyH1) }
+      { id: "h1Dup",      label: "Dupliqué", tone: "warn", pred: dupPred("h1", dupKeyH1) }
     ]},
     { group: "Contenu", tab: "content", rows: [
       { id: "nearDup", label: "Near-duplicates", tone: "warn", pred: function (p) { return nearDupOf(p).length > 0; } }
@@ -1695,7 +1695,7 @@
     ]},
     { group: "Canonicals", tab: "canonical", rows: [
       { id: "canonMissing", label: "Manquant", tone: "warn", pred: function (p) { var s = seoOf(p); return !s || !s.canonical; } },
-      { id: "canonicalised", label: "Canonicalisees", tone: "warn", pred: function (p) { var s = seoOf(p); return !!(s && s.canonicalised); } }
+      { id: "canonicalised", label: "Canonicalisées", tone: "warn", pred: function (p) { var s = seoOf(p); return !!(s && s.canonicalised); } }
     ]},
     { group: "Indexabilite", tab: "directives", rows: [
       { id: "idxYes", label: "Indexable", tone: "ok",  pred: function (p) { var s = seoOf(p); return s && s.indexable; } },
@@ -1710,9 +1710,9 @@
           return len > 115;
       } }
     ]},
-    { group: "Securite", tab: "security", rows: [
+    { group: "Sécurité", tab: "security", rows: [
       { id: "secMixed",   label: "Contenu mixte", tone: "err",  pred: function (p) { return mixedContentOf(p).length > 0; } },
-      { id: "secHeaders", label: "En-tetes manquants", tone: "warn", pred: function (p) { return missingHeadersOf(p).length > 0; } }
+      { id: "secHeaders", label: "En-têtes manquants", tone: "warn", pred: function (p) { return missingHeadersOf(p).length > 0; } }
     ]},
     { group: "Hreflang", tab: "hreflang", rows: [
       { id: "hreflangNoBack", label: "Sans lien retour", tone: "warn", pred: function (p) { return hasHreflangMissingBack(p); } }
@@ -1720,7 +1720,7 @@
   ];
 
   // (Re)construit les cartes de doublons (title / meta / 1er h1) en UN passage
-  // O(n) sur S.pages. Cle = valeur exacte (trim) -> nombre de pages partageant
+  // O(n) sur S.pages. Clé = valeur exacte (trim) -> nombre de pages partageant
   // cette valeur. Appelee une fois par cycle de rendu (cf. scheduleRender).
   function rebuildDupMaps() {
     var maps = { title: {}, meta: {}, h1: {} };
@@ -1734,15 +1734,15 @@
   }
 
   // Vrai si la page p partage sa valeur (title/meta/h1) avec au moins une autre.
-  // Lit la carte pre-calculee S.dupMaps[mapKey] (pas de boucle interne).
+  // Lit la carte pre-calculée S.dupMaps[mapKey] (pas de boucle interne).
   function isDup(mapKey, keyFn, p) {
     var val = keyFn(p);
     if (!val) return false;
     return (S.dupMaps[mapKey][val] || 0) >= 2;
   }
 
-  // Fabrique un predicate "duplique" pour la sidebar Overview, base sur les
-  // cartes pre-calculees (>= 2 pages partageant la valeur exacte).
+  // Fabrique un prédicat "dupliqué" pour la sidebar Overview, base sur les
+  // cartes pre-calculées (>= 2 pages partageant la valeur exacte).
   function dupPred(mapKey, keyFn) {
     return function (p) { return isDup(mapKey, keyFn, p); };
   }
@@ -1752,7 +1752,7 @@
   // O(n^2) BORNE : pour chaque paire de pages portant un simhash valide, on
   // calcule la distance de Hamming (popcount du XOR). Si <= NEAR_DUP_BITS, on
   // enregistre la reciprocite (A->B et B->A). On precalcule une seule fois les
-  // BigInt par page pour ne pas reparser le hex a chaque comparaison.
+  // BigInt par page pour ne pas reparser le hex à chaque comparaison.
   // Garde-fou : au-dela de NEAR_DUP_MAX_PAGES pages avec simhash, on saute le
   // calcul (le cout n^2 deviendrait prohibitif) et on leve un drapeau affiche
   // dans l'UI.
@@ -1793,17 +1793,17 @@
   // -------------------------------------------------------------------------
   // VAGUE 3 — (Re)construction de la carte HREFLANG RECIPROQUE
   // Pour chaque page A qui declare un hreflang vers une URL B :
-  //   - si B est CRAWLEE (presente dans S.byUrl) ET que B ne declare PAS de
-  //     hreflang retour vers A  => "lien retour manquant" (probleme SEO).
-  //   - si B n'est pas crawlee, on ne peut pas conclure (ignore ici).
-  // On indexe d'abord, par page, l'ensemble des cibles hreflang declarees
-  // (normalisees), puis on teste la reciprocite en O(liens).
-  // Resultat : normUrl(A) -> { count, missingBack:[urls B sans retour] }.
+  //   - si B est CRAWLÉE (présente dans S.byUrl) ET que B ne declare PAS de
+  //     hreflang retour vers A  => "lien retour manquant" (problème SEO).
+  //   - si B n'est pas crawlée, on ne peut pas conclure (ignore ici).
+  // On indexe d'abord, par page, l'ensemble des cibles hreflang déclarées
+  // (normalisées), puis on teste la reciprocite en O(liens).
+  // Résultat : normUrl(A) -> { count, missingBack:[urls B sans retour] }.
   // -------------------------------------------------------------------------
   function rebuildHreflangRecip() {
     var recip = {};
 
-    // 1) Index : normUrl(page) -> Set des cibles hreflang declarees (normalisees).
+    // 1) Index : normUrl(page) -> Set des cibles hreflang déclarées (normalisées).
     var declares = {};
     for (var i = 0; i < S.pages.length; i++) {
       var p = S.pages[i];
@@ -1816,7 +1816,7 @@
       }
     }
 
-    // 2) Test de reciprocite : pour A->B, B crawlee mais B ne pointe pas vers A.
+    // 2) Test de reciprocite : pour A->B, B crawlée mais B ne pointe pas vers A.
     for (var j = 0; j < S.pages.length; j++) {
       var pa = S.pages[j];
       var sa = seoOf(pa);
@@ -1829,9 +1829,9 @@
         var href = hla[m] && hla[m].href ? hla[m].href : "";
         if (!href) continue;
         var bKey = normUrl(href);
-        if (bKey === aKey) continue;            // auto-reference : ignoree
+        if (bKey === aKey) continue;            // auto-référence : ignorée
         if (seen[bKey]) continue; seen[bKey] = true;
-        if (!S.byUrl[bKey]) continue;           // cible non crawlee : indecidable
+        if (!S.byUrl[bKey]) continue;           // cible non crawlée : indecidable
         var bDecl = declares[bKey];
         if (!bDecl || !bDecl[aKey]) missing.push(href);  // pas de retour vers A
       }
@@ -1839,9 +1839,9 @@
     }
     S.hreflangRecip = recip;
 
-    // Derive les issues "Hreflang sans lien retour" (severite warning) pour
-    // l'onglet Problemes. Une issue par page concernee, message listant les
-    // cibles sans reciprocite. Recalculee a chaque cycle (pas d'accumulation).
+    // Derive les issues "Hreflang sans lien retour" (sévérité warning) pour
+    // l'onglet Problèmes. Une issue par page concernee, message listant les
+    // cibles sans reciprocite. Recalculee à chaque cycle (pas d'accumulation).
     var issues = [];
     for (var u = 0; u < S.pages.length; u++) {
       var pp = S.pages[u];
@@ -1880,7 +1880,7 @@
     }
     return n;
   }
-  // Hors sitemap : pages crawlees absentes du sitemap (uniquement si on a un sitemap).
+  // Hors sitemap : pages crawlées absentes du sitemap (uniquement si on à un sitemap).
   function countNotInSitemap() {
     if (!S.sitemapUrls.length) return 0;
     var n = 0;
@@ -1891,7 +1891,7 @@
   }
 
   // Fabrique une ligne d'Overview pour le groupe Sitemap (data-sm = vue cible).
-  // Chaque ligne a SA vue — "orphan" comprise, qui n'est plus un simple
+  // Chaque ligne à sa vue — "orphan" comprise, qui n'est plus un simple
   // raccourci vers "all". is-active suit S.activeTab + S.sitemapView.
   function smRow(view, label, n, tone) {
     var toneCls = n > 0 && tone ? (" ov-" + tone) : "";
@@ -1936,8 +1936,8 @@
 
     tree.innerHTML = html;
 
-    // Compteurs des filtres de severite (onglet Problemes). Les issues hreflang
-    // derivees cote JS sont toutes de severite "warning" : on les ajoute au
+    // Compteurs des filtres de sévérité (onglet Problèmes). Les issues hreflang
+    // dérivées côté JS sont toutes de sévérité "warning" : on les ajoute au
     // total et au compteur "warning".
     var nHreflangIss = S.hreflangIssues.length;
     setSevCount("all", S.issues.length + nHreflangIss);
@@ -1946,13 +1946,13 @@
     setSevCount("opportunity", S.sevCounts.opportunity || 0);
   }
 
-  // Met a jour un <span data-sevcount="X"> (compteurs des filtres de severite).
+  // Met à jour un <span data-sevcount="X"> (compteurs des filtres de sévérité).
   function setSevCount(val, n) {
     var el = document.querySelector('[data-sevcount="' + val + '"]');
     if (el) el.textContent = n;
   }
 
-  // Retrouve la definition d'une categorie par son id.
+  // Retrouve la definition d'une catégorie par son id.
   function findCat(id) {
     for (var g = 0; g < OVERVIEW.length; g++) {
       for (var r = 0; r < OVERVIEW[g].rows.length; r++) {
@@ -1965,29 +1965,29 @@
   }
 
   // =========================================================================
-  // PANNEAU DE DETAIL (au clic sur une ligne de page)
+  // PANNEAU DE DÉTAIL (au clic sur une ligne de page)
   // =========================================================================
   // =========================================================================
-  // SELECTION DE CELLULES PAR COLONNE + COPIE
+  // SÉLECTION DE CELLULES PAR COLONNE + COPIE
   //
-  // Modele « tableur » : un clic prend une cellule (et pose l'ancre),
-  // Shift+clic etend la plage de l'ancre a la ligne cliquee DANS LA COLONNE
+  // Modèle « tableur » : un clic prend une cellule (et pose l'ancre),
+  // Shift+clic etend la plage de l'ancre à la ligne cliquee DANS LA COLONNE
   // cliquee, Ctrl+clic ajoute ou retire une ligne, Ctrl+A prend toute la
-  // colonne affichee, Echap deselectionne. Ctrl+C, le bouton Copier ou le
+  // colonne affichée, Échap deselectionne. Ctrl+C, le bouton Copier ou le
   // clic droit > Copier recopient les valeurs de la colonne, une par ligne.
   //
-  // UNE SEULE COLONNE a la fois : c'est ce qu'on veut copier — toutes les
-  // adresses, ou toutes les meta descriptions, jamais un melange. Le lien
+  // UNE SEULE COLONNE à la fois : c'est ce qu'on veut copier — toutes les
+  // adresses, ou toutes les meta descriptions, jamais un mélange. Le lien
   // d'une adresse ne s'ouvre plus qu'au DOUBLE-clic : au simple clic, il
-  // rendait cette colonne impossible a selectionner.
+  // rendait cette colonne impossible a sélectionner.
   //
-  // Les cles sont les URLs normalisees, pas des noeuds DOM : la grille est
-  // reconstruite a chaque rendu pendant un crawl, la selection est re-appliquee.
+  // Les clés sont les URLs normalisées, pas des noeuds DOM : la grille est
+  // reconstruite à chaque rendu pendant un crawl, la sélection est re-appliquée.
   // =========================================================================
   function selCount() { return Object.keys(S.sel.keys).length; }
 
   // Re-applique .is-multi sur les CELLULES sans reconstruire la grille (le
-  // clic doit repondre a l'instant, pas au prochain rendu).
+  // clic doit répondre à l'instant, pas au prochain rendu).
   function applySelClasses() {
     var col = S.sel.col;
     document.querySelectorAll("#grid-body tr[data-url]").forEach(function (tr) {
@@ -2003,14 +2003,14 @@
     applySelClasses(); updateSelBar(); hideCtxMenu();
   }
 
-  // Une seule cellule : point de depart de toute selection.
+  // Une seule cellule : point de depart de toute sélection.
   function selOne(col, key) {
     S.sel.col = col; S.sel.keys = {}; S.sel.keys[key] = true; S.sel.anchor = key;
     applySelClasses(); updateSelBar();
   }
 
-  // Plage [ancre .. cle] dans l'ordre affiche, dans la colonne donnee. Remplace
-  // la selection courante, comme dans un tableur.
+  // Plage [ancre .. clé] dans l'ordre affiche, dans la colonne donnée. Remplace
+  // la sélection courante, comme dans un tableur.
   function selRange(col, fromKey, toKey) {
     var rows = S.gridRows, a = -1, b = -1;
     for (var i = 0; i < rows.length; i++) {
@@ -2025,7 +2025,7 @@
     for (var j = lo; j <= hi; j++) S.sel.keys[rows[j].key] = true;
   }
 
-  // Toute la colonne affichee (tri + filtre compris).
+  // Toute la colonne affichée (tri + filtre compris).
   function selAllColumn(col) {
     if (col < 0 || !S.gridRows.length) return;
     S.sel.col = col; S.sel.keys = {};
@@ -2033,8 +2033,8 @@
     applySelClasses(); updateSelBar();
   }
 
-  // Valeurs de la colonne selectionnee, dans l'ordre affiche, dedoublonnees
-  // (l'onglet Liens porte plusieurs lignes pour une meme source).
+  // Valeurs de la colonne sélectionnée, dans l'ordre affiche, dedoublonnees
+  // (l'onglet Liens porte plusieurs lignes pour une même source).
   function selTexts() {
     var out = [], seen = {}, col = S.sel.col;
     if (col < 0) return out;
@@ -2085,11 +2085,11 @@
     var label = selColumnLabel();
     copyText(lines.join("\n"), function (ok) {
       // Retour VISIBLE : le presse-papiers est invisible, sans message rien ne
-      // dit que la copie a eu lieu ni ce qui a ete copie.
-      toast(ok ? (lines.length + " valeur(s) copiee(s) \u2014 colonne " + label) : "Echec de la copie");
+      // dit que la copie a eu lieu ni ce qui a été copie.
+      toast(ok ? (lines.length + " valeur(s) copiee(s) \u2014 colonne " + label) : "Échec de la copie");
       var b = $("multi-sel-copy");
       if (b) {
-        b.textContent = ok ? "Copie !" : "Echec";
+        b.textContent = ok ? "Copie !" : "Échec";
         b.classList.toggle("is-done", ok);
         setTimeout(function () { b.textContent = "Copier"; b.classList.remove("is-done"); }, 1600);
       }
@@ -2105,7 +2105,7 @@
     setText("multi-sel-col", selColumnLabel());
   }
 
-  // Message flottant bref, en bas de la fenetre.
+  // Message flottant bref, en bas de la fenêtre.
   function toast(msg) {
     var t = $("toast");
     if (!t) return;
@@ -2125,7 +2125,7 @@
     var open = $("ctx-open");
     if (open) open.hidden = !(S.sel.col === 0 && selCount() === 1);
     m.hidden = false;
-    // Garder le menu dans la fenetre.
+    // Garder le menu dans la fenêtre.
     var w = m.offsetWidth, h = m.offsetHeight;
     m.style.left = Math.max(0, Math.min(x, window.innerWidth - w - 4)) + "px";
     m.style.top  = Math.max(0, Math.min(y, window.innerHeight - h - 4)) + "px";
@@ -2142,14 +2142,14 @@
   function initMultiSelect() {
     var body = $("grid-body");
 
-    // Shift+clic : le navigateur voudrait etendre une selection de TEXTE entre
-    // les deux clics. On la coupe a la racine, sur le mousedown.
+    // Shift+clic : le navigateur voudrait étendre une sélection de TEXTE entre
+    // les deux clics. On la coupe à la racine, sur le mousedown.
     body.addEventListener("mousedown", function (e) {
       if (e.shiftKey && e.target.closest("tr[data-url]")) e.preventDefault();
     });
 
-    // Clic droit : la cellule visee rejoint la selection si elle n'y est pas
-    // deja (sinon on perdrait une plage qu'on vient de construire), puis menu.
+    // Clic droit : la cellule visee rejoint la sélection si elle n'y est pas
+    // déjà (sinon on perdrait une plage qu'on vient de construire), puis menu.
     body.addEventListener("contextmenu", function (e) {
       var td = e.target.closest("td"), tr = e.target.closest("tr[data-url]");
       if (!td || !tr) return;
@@ -2179,7 +2179,7 @@
       if (tag === "input" || tag === "textarea" || tag === "select" || (t && t.isContentEditable)) return;
       var mod = e.ctrlKey || e.metaKey;
       if (mod && (e.key === "c" || e.key === "C")) {
-        // Sans cellules selectionnees, on laisse Ctrl+C copier le texte surligne.
+        // Sans cellules sélectionnées, on laisse Ctrl+C copier le texte surligne.
         if (selCount()) { e.preventDefault(); copySelection(); }
       } else if (mod && (e.key === "a" || e.key === "A")) {
         if (S.gridRows.length) { e.preventDefault(); selAllColumn(S.sel.col >= 0 ? S.sel.col : 0); }
@@ -2196,7 +2196,7 @@
     S.selectedUrl = url;
     var detail = $("detail");
     if (detail) detail.hidden = false;
-    // Marque la ligne selectionnee dans la grille.
+    // Marque la ligne sélectionnée dans la grille.
     document.querySelectorAll("#grid-body tr").forEach(function (tr) {
       tr.classList.toggle("is-selected", normUrl(tr.getAttribute("data-url")) === normUrl(url));
     });
@@ -2223,7 +2223,7 @@
     setText("dt-inlinks-count", inl.length);
     setText("dt-outlinks-count", outs.length);
     setText("dt-images-count", imagesMissingAltOf(p).length);
-    // D) Compteur de blocs JSON-LD bruts presents sur la page.
+    // D) Compteur de blocs JSON-LD bruts présents sur la page.
     setText("dt-schema-count", structuredRawOf(p).length);
 
     // Onglets actifs.
@@ -2239,7 +2239,7 @@
         inl.map(function (x) { return { url: x.from, anchor: x.anchor, rel: x.rel }; }),
         ["Source (qui pointe ici)", "Ancre", "Rel"],
         ["url", "anchor", "rel"],
-        "Aucun lien entrant detecte parmi les pages crawlees."
+        "Aucun lien entrant detecte parmi les pages crawlées."
       );
     } else if (S.detailTab === "outlinks") {
       body.innerHTML = renderLinkTable(
@@ -2261,31 +2261,31 @@
     }
   }
 
-  // ----- VAGUE 4 (D) — Donnees structurees brutes (blocs JSON-LD) -----------
-  // Lit seo.structured_data_raw (tableau de chaines JSON-LD brutes), ou [].
+  // ----- VAGUE 4 (D) — Données structurees brutes (blocs JSON-LD) -----------
+  // Lit seo.structured_data_raw (tableau de chaînes JSON-LD brutes), ou [].
   function structuredRawOf(p) {
     var s = seoOf(p);
     return s && Array.isArray(s.structured_data_raw) ? s.structured_data_raw : [];
   }
 
-  // Tente d'extraire un libelle de type lisible d'un objet JSON-LD parse
-  // (champ @type, qui peut etre une chaine ou un tableau). Renvoie "" sinon.
+  // Tente d'extraire un libellé de type lisible d'un objet JSON-LD parse
+  // (champ @type, qui peut être une chaîne ou un tableau). Renvoie "" sinon.
   function jsonLdTypeLabel(obj) {
     if (!obj || typeof obj !== "object") return "";
     var t = obj["@type"];
-    if (!t && obj["@graph"]) return "@graph";   // graphe : types multiples a l'interieur
+    if (!t && obj["@graph"]) return "@graph";   // graphe : types multiples à l'intérieur
     if (Array.isArray(t)) return t.join(", ");
     return t ? String(t) : "";
   }
 
-  // Rendu du sous-onglet "Donnees structurees" : pour chaque bloc JSON-LD brut,
+  // Rendu du sous-onglet "Données structurees" : pour chaque bloc JSON-LD brut,
   // on tente JSON.parse + JSON.stringify(obj, null, 2) (indente, lisible) ; si le
   // parse echoue (JSON-LD malforme), on affiche le texte brut tel quel. Chaque
-  // bloc est precede d'un petit en-tete (index + type detecte via @type).
+  // bloc est precede d'un petit en-tête (index + type detecte via @type).
   function renderStructuredData(p) {
     var raw = structuredRawOf(p);
     if (!raw.length) {
-      // Repli informatif : on signale les types detectes meme sans bloc brut
+      // Repli informatif : on signale les types detectes même sans bloc brut
       // (utile si le backend ne fournit pas structured_data_raw pour cette page).
       var s = seoOf(p);
       var types = s && Array.isArray(s.structured_data_types) ? s.structured_data_types : [];
@@ -2294,7 +2294,7 @@
                types.map(function (t) { return '<span class="badge">' + esc(t) + '</span>'; }).join(" ") +
                '<br>Aucun bloc JSON-LD brut fourni pour cette page.</div>';
       }
-      return '<div class="detail-empty">Aucune donnee structuree (JSON-LD) sur cette page.</div>';
+      return '<div class="detail-empty">Aucune donnée structuree (JSON-LD) sur cette page.</div>';
     }
     var html = '<div class="sd-list">';
     for (var i = 0; i < raw.length; i++) {
@@ -2348,7 +2348,7 @@
 
   // Sous-onglet "Images sans alt" : la LISTE des images en defaut, pas seulement
   // leur nombre — c'est elle qu'il faut pour corriger. Chaque URL s'ouvre dans le
-  // navigateur ; le nom de fichier seul est repete a cote, pour reperer l'image
+  // navigateur ; le nom de fichier seul est repete a côté, pour reperer l'image
   // d'un coup d'oeil quand l'URL est longue.
   function renderImagesMissingAlt(p) {
     var urls = imagesMissingAltOf(p);
@@ -2359,17 +2359,17 @@
       return { url: u, file: file };
     });
     var emptyMsg = missing > 0
-      // Le compteur est la mais pas la liste : rapport enregistre AVANT que le
+      // Le compteur est la mais pas la liste : rapport enregistré AVANT que le
       // backend ne remonte les URLs. Le dire, sinon on cherche un bug ailleurs.
-      ? missing + " image(s) sans alt comptee(s), mais aucune URL enregistree : ce crawl est anterieur a cette version, relancez-le."
+      ? missing + " image(s) sans alt comptee(s), mais aucune URL enregistrée : ce crawl est anterieur à cette version, relancez-le."
       : "Toutes les images de cette page ont un attribut alt.";
     var h = renderLinkTable(items, ["Image (src)", "Fichier"], ["url", "file"], emptyMsg);
     // Le compteur peut depasser la liste : doublons fusionnes, plafond backend,
-    // ou `src` vide. On l'explique plutot que de laisser croire a une liste
+    // ou `src` vide. On l'explique plutot que de laisser croire à une liste
     // tronquee par erreur.
     if (items.length && missing > items.length) {
       h += '<div class="detail-empty">' + esc(missing + " sans alt au total, " + items.length +
-           " URL(s) distincte(s) : la meme image repetee ne compte qu'une ligne.") + '</div>';
+           " URL(s) distincte(s) : la même image répétée ne compte qu'une ligne.") + '</div>';
     }
     return h;
   }
@@ -2386,11 +2386,11 @@
            '<div class="serp-url">' + esc(pretty) + '</div>' +
            '<div class="serp-title">' + esc(title) + '</div>' +
            '<div class="serp-desc">' + esc(meta) + '</div>' +
-           '<div class="serp-note">Apercu indicatif du rendu dans les resultats Google.</div>' +
+           '<div class="serp-note">Apercu indicatif du rendu dans les résultats Google.</div>' +
            '</div>';
   }
 
-  // --- Helpers texte pour les champs Securite du panneau Infos (Vague 2) ---
+  // --- Helpers texte pour les champs Sécurité du panneau Infos (Vague 2) ---
   // Repli sur le schema de l'URL si l'objet security n'est pas fourni.
   function secInfoHttps(p) {
     var sec = secOf(p);
@@ -2408,8 +2408,8 @@
     var h = missingHeadersOf(p);
     return h.length ? h.join(", ") : "Aucun";
   }
-  // --- Helpers texte pour les donnees structurees (Vague 2) ---
-  // "Valide" n'a de sens que si la page porte des donnees structurees.
+  // --- Helpers texte pour les données structurees (Vague 2) ---
+  // "Valide" n'a de sens que si la page porte des données structurees.
   function schemaInfoValid(p) {
     var s = seoOf(p);
     var types = s && Array.isArray(s.structured_data_types) ? s.structured_data_types : [];
@@ -2423,12 +2423,12 @@
   }
 
   // --- Helpers panneau detail (Vague 3) ---
-  // Liste HTML des URLs quasi-dupliquees a la page p (liens cliquables), ou "—".
+  // Liste HTML des URLs quasi-dupliquées à la page p (liens cliquables), ou "—".
   function nearDupHtml(p) {
     var sims = nearDupOf(p);
     if (!sims.length) return '<span class="muted">Aucune</span>';
-    // Les cles memorisees sont des URLs normalisees ; on retrouve l'URL d'origine
-    // via S.byUrl pour un affichage propre (sinon on retombe sur la cle).
+    // Les clés memorisees sont des URLs normalisées ; on retrouve l'URL d'origine
+    // via S.byUrl pour un affichage propre (sinon on retombe sur la clé).
     var parts = sims.map(function (k) {
       var pg = S.byUrl[k];
       var u = pg && pg.url ? pg.url : k;
@@ -2436,7 +2436,7 @@
     });
     return sims.length + ' page(s) : ' + parts.join("  |  ");
   }
-  // Texte de l'etat de reciprocite hreflang pour la page p.
+  // Texte de l'état de reciprocite hreflang pour la page p.
   function hreflangRecipHtml(p) {
     var s = seoOf(p);
     var hl = s && Array.isArray(s.hreflang) ? s.hreflang : [];
@@ -2449,7 +2449,7 @@
     return '<span style="color:var(--ok);font-weight:600">OK (reciproque)</span>';
   }
 
-  // Vue "Infos / En-tetes" : liste cle/valeur.
+  // Vue "Infos / En-têtes" : liste clé/valeur.
   function renderInfo(p) {
     var s = seoOf(p);
     var rows = [
@@ -2459,11 +2459,11 @@
       ["Content-Type", p.content_type || "—"],
       ["Sonde", probeLabel(p.measured_with)],
       ["Poids total", fmtBytes(p.total_bytes || 0)],
-      ["Requetes", String(p.request_count || 0) + " (dont " + (p.dynamic_requests || 0) + " dyn.)"],
+      ["Requêtes", String(p.request_count || 0) + " (dont " + (p.dynamic_requests || 0) + " dyn.)"],
       ["Redirige vers", p.redirect_to || "—"],
-      ["Chaine de redirection", (Array.isArray(p.redirect_chain) && p.redirect_chain.length) ? p.redirect_chain.join("  ->  ") : "—"],
+      ["Chaîne de redirection", (Array.isArray(p.redirect_chain) && p.redirect_chain.length) ? p.redirect_chain.join("  ->  ") : "—"],
       ["Canonical", (s && s.canonical) ? s.canonical : "—"],
-      ["Canonicalisee", (s && s.canonicalised) ? "Oui" : "Non"],
+      ["Canonicalisée", (s && s.canonicalised) ? "Oui" : "Non"],
       ["Meta robots", (s && s.meta_robots) ? s.meta_robots : "—"],
       ["X-Robots-Tag", (s && s.x_robots_tag) ? s.x_robots_tag : "—"],
       ["Indexable", (s && s.indexable) ? "Oui" : "Non"],
@@ -2474,11 +2474,11 @@
       ["Ratio texte/code", s ? (Math.round((s.text_ratio || 0) * 1000) / 10) + " %" : "—"],
       ["Liens internes / externes", s ? ((s.internal_links || 0) + " / " + (s.external_links || 0)) : "—"],
       ["Technos", (Array.isArray(p.tech) && p.tech.length) ? p.tech.join(", ") : "—"],
-      ["Donnees structurees valides", schemaInfoValid(p)],
-      ["Erreurs donnees structurees", schemaInfoErrors(p)],
+      ["Données structurees valides", schemaInfoValid(p)],
+      ["Erreurs données structurees", schemaInfoErrors(p)],
       ["HTTPS", secInfoHttps(p)],
       ["Contenu mixte", secInfoMixed(p)],
-      ["En-tetes manquants", secInfoHeaders(p)],
+      ["En-têtes manquants", secInfoHeaders(p)],
       ["rel=prev", (s && s.pagination_prev) ? s.pagination_prev : "—"],
       ["rel=next", (s && s.pagination_next) ? s.pagination_next : "—"],
       ["Erreur", p.error || "—"]
@@ -2490,9 +2490,9 @@
     }
     // Lignes Vague 3 a contenu HTML (liens vers pages similaires / hreflang) :
     // injectees hors de la boucle car nearDupHtml/hreflangRecipHtml renvoient du
-    // HTML deja echappe en interne (urlCellHtml echappe l'URL).
-    // VAGUE 4 (A) : temps de reponse colore (pastille vert/orange/rouge).
-    h += '<div class="kv-row"><div class="kv-key">Temps de reponse</div>' +
+    // HTML déjà echappe en interne (urlCellHtml echappe l'URL).
+    // VAGUE 4 (A) : temps de réponse colore (pastille vert/orange/rouge).
+    h += '<div class="kv-row"><div class="kv-key">Temps de réponse</div>' +
          '<div class="kv-val">' + speedCellHtml(respMs(p)) + '</div></div>';
     h += '<div class="kv-row"><div class="kv-key">Near-duplicates</div>' +
          '<div class="kv-val">' + nearDupHtml(p) + '</div></div>';
@@ -2502,7 +2502,7 @@
     return h;
   }
 
-  // Vue "Source" : on n'a pas le HTML brut cote frontend, on affiche donc une
+  // Vue "Source" : on n'a pas le HTML brut côté frontend, on affiche donc une
   // synthese structuree (title, meta, H1, H2, og, twitter) en texte mono.
   function renderSource(p) {
     var s = seoOf(p);
@@ -2522,7 +2522,7 @@
       var tw = s.twitter || {};
       Object.keys(tw).forEach(function (k) { lines.push("twitter:" + k + " = " + tw[k]); });
     } else {
-      lines.push("(pas de donnees SEO : page en erreur ou non-HTML)");
+      lines.push("(pas de données SEO : page en erreur ou non-HTML)");
     }
     return '<textarea class="source-box" readonly>' + esc(lines.join("\n")) + '</textarea>';
   }
@@ -2545,23 +2545,23 @@
     setText("status-queued", queued);
     setText("status-bytes", fmtBytes(bytes));
 
-    // Debit moyen en pages/seconde depuis le debut du run.
+    // Débit moyen en pages/seconde depuis le début du run.
     if (S.rateStartTs) {
       var elapsed = (Date.now() - S.rateStartTs) / 1000;
       var rate = elapsed > 0 ? (done / elapsed) : 0;
       setText("status-rate", rate.toFixed(1));
     }
 
-    // Workers REELLEMENT occupes / threads configures.
+    // Workers RÉELLEMENT occupés / threads configurés.
     // Diagnostic : si ce compteur reste bien en dessous du nombre de threads,
     // ajouter des threads ne servira a rien — le goulot est ailleurs (plafond
-    // de debit encore actif, file vide, ou mesures Chrome serialisees).
+    // de débit encore actif, file vide, ou mesures Chrome serialisees).
     if (prog && typeof prog.active_workers === "number") {
       setText("status-workers", prog.active_workers);
     }
     setText("status-threads", (S.multi.config && S.multi.config.threads) || 0);
 
-    // Temps de reponse moyen par page (ms) sur les pages mesurees (Vague 4+).
+    // Temps de réponse moyen par page (ms) sur les pages mesurées (Vague 4+).
     var rts = S.pages.filter(function (p) { return p && p.response_time_ms; });
     var avgMs = rts.length ? Math.round(rts.reduce(function (a, p) { return a + p.response_time_ms; }, 0) / rts.length) : 0;
     setText("status-avgms", avgMs);
@@ -2575,30 +2575,30 @@
     }
   }
 
-  // VAGUE 4 (C) — Met a jour libelles + etats (disabled) des 3 boutons selon
-  // l'etat courant. Trois etats :
-  //   - running : crawl en cours        -> Demarrer OFF, Stop ON ("Stop"), Vider ON
-  //   - paused  : crawl en pause (Stop) -> Demarrer ON ("Reprendre"), Stop OFF, Vider ON
-  //   - idle    : rien en cours         -> Demarrer ON ("Demarrer"), Stop OFF, Vider ON
-  // C'est CE point qui corrige le bug du bouton "Demarrer" reste grise apres Stop.
+  // VAGUE 4 (C) — Met à jour libellés + états (disabled) des 3 boutons selon
+  // l'état courant. Trois états :
+  //   - running : crawl en cours        -> Démarrer OFF, Stop ON ("Stop"), Vider ON
+  //   - paused  : crawl en pause (Stop) -> Démarrer ON ("Reprendre"), Stop OFF, Vider ON
+  //   - idle    : rien en cours         -> Démarrer ON ("Démarrer"), Stop OFF, Vider ON
+  // C'est CE point qui corrige le bug du bouton "Démarrer" reste grise après Stop.
   function updateButtons() {
     var start = $("btn-start");
     var stop  = $("btn-stop");
     var clear = $("btn-clear");
     if (start) {
       start.disabled = S.running;                 // actif sauf pendant un crawl actif
-      start.textContent = S.paused ? "Reprendre" : "Demarrer";
+      start.textContent = S.paused ? "Reprendre" : "Démarrer";
       start.title = S.paused
-        ? "Reprendre le crawl en pause (sans effacer les donnees deja collectees)"
+        ? "Reprendre le crawl en pause (sans effacer les données déjà collectees)"
         : "Lancer un nouveau crawl";
     }
     if (stop) {
       stop.disabled = !S.running;                  // actif seulement pendant un crawl actif
-      stop.title = "Mettre en pause (les donnees collectees sont conservees)";
+      stop.title = "Mettre en pause (les données collectees sont conservees)";
     }
     if (clear) {
       clear.disabled = false;                      // toujours disponible
-      clear.title = "Effacer toutes les donnees et remettre a zero";
+      clear.title = "Effacer toutes les données et remettre a zero";
     }
   }
 
@@ -2624,7 +2624,7 @@
   }
 
   // =========================================================================
-  // ABONNEMENTS AUX EVENEMENTS TAURI (flux de crawl PRESERVE)
+  // ABONNEMENTS AUX ÉVÉNEMENTS TAURI (flux de crawl PRESERVE)
   // =========================================================================
   function subscribeEvents() {
     if (!TAURI) return;
@@ -2637,7 +2637,7 @@
       var p = event.payload || {};
       updateStatus(p);
       // VAGUE 4 (C) : si on vient de mettre en PAUSE, un dernier progress peut
-      // arriver (page courante terminee) -> on garde le libelle "En pause".
+      // arriver (page courante terminée) -> on garde le libellé "En pause".
       if (p.current_url && !S.paused) setStatusState("Crawl : " + truncUrl(p.current_url, 70));
     }).then(function (u) { S.unlisteners.push(u); });
 
@@ -2647,7 +2647,7 @@
     }).then(function (u) { S.unlisteners.push(u); });
 
     TAURI.event.listen("crawl:sitemap", function (event) {
-      // Sitemap recu AU DEBUT du crawl (robots.txt + /sitemap.xml) : on remplit
+      // Sitemap reçu AU DÉBUT du crawl (robots.txt + /sitemap.xml) : on remplit
       // l'onglet Sitemap tout de suite, sans attendre la fin du crawl.
       var smap = Array.isArray(event.payload) ? event.payload : [];
       if (!smap.length) return;
@@ -2660,11 +2660,11 @@
     TAURI.event.listen("crawl:done", function (event) {
       // Vague 3 : le payload de crawl:done est le CrawlSummary complet. On y
       // recupere sitemap_urls pour alimenter l'onglet Sitemap. Les autres
-      // champs (pages/total_bytes...) sont deja recus en flux via crawl:page,
+      // champs (pages/total_bytes...) sont déjà reçus en flux via crawl:page,
       // on ne les reexploite donc pas ici (pas de double comptage).
       var summary = (event && event.payload) ? event.payload : {};
       var smap = Array.isArray(summary.sitemap_urls) ? summary.sitemap_urls : [];
-      if (smap.length) {   // ne pas ecraser si vide : l'event crawl:sitemap (debut) fait foi
+      if (smap.length) {   // ne pas écraser si vide : l'event crawl:sitemap (début) fait foi
         S.sitemapUrls = smap;
         S.sitemapSet = {};
         for (var si = 0; si < smap.length; si++) {
@@ -2673,14 +2673,14 @@
       }
 
       // VAGUE 4 (C) : si l'utilisateur a mis EN PAUSE, ce crawl:done provient du
-      // crawl backend qui s'est termine de lui-meme apres le stop_crawl. On
-      // recupere le sitemap (ci-dessus) mais on NE cloture PAS la sequence et on
-      // NE quitte PAS l'etat pause : l'affichage reste fige, "Reprendre" actif.
+      // crawl backend qui s'est termine de lui-même après le stop_crawl. On
+      // recupere le sitemap (ci-dessus) mais on NE cloture PAS la séquence et on
+      // NE quitte PAS l'état pause : l'affichage reste fige, "Reprendre" actif.
       if (S.paused) {
         // Seul point ou le backend GARANTIT que tous les workers sont sortis.
-        // Le reset fait dans `onStop()` est reecrit par les `crawl:progress`
-        // tardifs : au clic Stop, jusqu'a `threads` pages sont encore en vol et
-        // chacune emet sa progression (active_workers = N…1) APRES lui.
+        // Le reset fait dans `onStop()` est réécrit par les `crawl:progress`
+        // tardifs : au clic Stop, jusqu'à `threads` pages sont encore en vol et
+        // chacune emet sa progression (active_workers = N…1) APRÈS lui.
         setText("status-workers", 0);
         scheduleRender();
         return;
@@ -2701,15 +2701,15 @@
       S.multi.lastTechs = Object.keys(techSet);
       S.multi.lastRows  = S.pages.slice();
       updateMultiStatus();
-      scheduleRender();   // rafraichit compteur + grille de l'onglet Sitemap
+      scheduleRender();   // rafraîchit compteur + grille de l'onglet Sitemap
 
-      // MULTI-SITES : chaque site est enregistre DES QU'IL EST FINI, avant que
+      // MULTI-SITES : chaque site est enregistré DÈS QU'IL EST FINI, avant que
       // `startRun()` ne bascule la seed vers le suivant. Un plantage en cours de
-      // liste ne fait donc plus perdre les sites deja crawles.
+      // liste ne fait donc plus perdre les sites déjà crawles.
       if (S.multi.seeds && S.multi.seeds.length) saveCurrentCrawl();
 
       if (!S.multi.stopRequested && S.multi.done < S.multi.target) {
-        startRun();                       // site suivant de la liste importee
+        startRun();                       // site suivant de la liste importée
       } else {
         finishSequence();
       }
@@ -2725,16 +2725,16 @@
   // MULTI-RUN : enchainement + cloture (logique de mesure PRESERVEE)
   // =========================================================================
   function startRun() {
-    // MULTI-SITES : la seed du run courant vient de la liste importee, et on
-    // n'efface PAS les donnees — les pages de tous les sites s'accumulent dans
-    // la meme grille (c'est l'interet d'un audit de reseau). Chaque site est
-    // neanmoins enregistre SEPAREMENT dans son propre fichier projet, d'ou le
+    // MULTI-SITES : la seed du run courant vient de la liste importée, et on
+    // n'efface PAS les données — les pages de tous les sites s'accumulent dans
+    // la même grille (c'est l'intérêt d'un audit de réseau). Chaque site est
+    // néanmoins enregistré SÉPARÉMENT dans son propre fichier projet, d'ou le
     // curseur `pagesOffset` qui delimite ses pages dans `S.pages`.
     if (S.multi.seeds && S.multi.seeds.length) {
       S.multi.config.seed_url = S.multi.seeds[S.multi.done] || S.multi.config.seed_url;
       S.multi.pagesOffset = S.pages.length;
     } else {
-      // Run unique : on repart d'un jeu de donnees vide (mais on garde la config).
+      // Run unique : on repart d'un jeu de données vide (mais on garde la config).
       resetData();
     }
     S.running = true;
@@ -2754,11 +2754,11 @@
   }
 
   // VAGUE 4 (C) — REPRISE d'un crawl mis en pause. Le backend gere une VRAIE
-  // reprise : start_crawl, appele avec la MEME seed alors qu'un etat reprenable
+  // reprise : start_crawl, appele avec la MÊME seed alors qu'un état reprenable
   // existe (file non vide), RELANCE les workers sur la file restante — il ne
-  // re-crawle donc PAS les pages deja vues et n'emet que les NOUVELLES pages.
-  // Cote UI on conserve les donnees deja collectees et on poursuit le cumul.
-  // (L'ingestion idempotente reste un filet de securite si une page revenait.)
+  // re-crawle donc PAS les pages déjà vues et n'emet que les NOUVELLES pages.
+  // Côté UI on conserve les données déjà collectees et on poursuit le cumul.
+  // (L'ingestion idempotente reste un filet de sécurité si une page revenait.)
   function resumeRun() {
     S.running = true;
     S.paused = false;
@@ -2769,8 +2769,8 @@
     setStatusState("Reprise du crawl...");
     updateMultiStatus();
 
-    // On se re-abonne aux evenements (ils avaient ete laisses actifs, mais on
-    // garantit l'etat) puis on relance le crawl backend avec la meme config.
+    // On se re-abonne aux événements (ils avaient été laisses actifs, mais on
+    // garantit l'état) puis on relance le crawl backend avec la même config.
     TAURI.core.invoke("start_crawl", { config: S.multi.config })
       .catch(function (err) {
         setStatusState("Erreur : " + (err || "inconnue"));
@@ -2780,14 +2780,14 @@
   }
 
   // B : enregistre le crawl courant dans le local data (crawls/<site>.json).
-  // Appele a la FIN et au STOP. save_crawl ECRASE l'enregistrement precedent du
-  // meme site -> relancer un crawl sur la meme URL remplace l'ancien.
+  // Appele à la FIN et au STOP. save_crawl ÉCRASE l'enregistrement précédent du
+  // même site -> relancer un crawl sur la même URL remplace l'ancien.
   function saveCurrentCrawl(showPath) {
     var seed = S.multi.config && S.multi.config.seed_url;
     if (!TAURI || !seed || !S.pages.length) return;
     // MULTI-SITES : n'enregistrer que les pages DU SITE COURANT, pas la grille
     // cumulee. Sans ce decoupage, le fichier projet de chaque site contiendrait
-    // aussi les pages de tous les sites precedents.
+    // aussi les pages de tous les sites précédents.
     var pages = (S.multi.seeds && S.multi.seeds.length)
       ? S.pages.slice(S.multi.pagesOffset || 0)
       : S.pages.slice();
@@ -2806,7 +2806,7 @@
   function finishSequence() {
     S.multi.running = false;
     S.running = false;
-    S.paused = false;                 // VAGUE 4 (C) : fin reelle -> retour a l'etat idle
+    S.paused = false;                 // VAGUE 4 (C) : fin réelle -> retour à l'état idle
     updateButtons();
     var fill = $("status-fill");
     if (fill) fill.style.width = "100%";
@@ -2814,17 +2814,17 @@
     setStatusState(isList
       ? "Termine — " + S.multi.done + " site(s), " + S.multi.totalPages + " page(s)."
       : "Termine — " + S.multi.done + " run(s), " + S.multi.totalPages + " page(s).");
-    // Plus aucun worker ne tourne : le dernier `crawl:progress` a ete emis par
+    // Plus aucun worker ne tourne : le dernier `crawl:progress` a été emis par
     // le dernier worker ALORS QU'IL etait encore compte actif (voulu en cours de
     // crawl, mensonger une fois termine).
     setText("status-workers", 0);
     updateMultiStatus();
 
-    // Une entree d'historique par sequence.
+    // Une entrée d'historique par séquence.
     addHistoryEntry({
       date: new Date().toISOString(),
       // En multi-sites, la seed courante est le DERNIER site de la liste :
-      // l'historique afficherait "https://dernier-site.fr" pour une serie de 40.
+      // l'historique afficherait "https://dernier-site.fr" pour une série de 40.
       url: isList
         ? S.multi.seeds.length + " sites (" + hostOf(S.multi.seeds[0]) + "…)"
         : (S.multi.config.seed_url || ""),
@@ -2849,19 +2849,19 @@
       pagesData: (S.multi.lastRows || []).slice(0, 5000)   // pour la consultation
     });
 
-    // B : enregistre le crawl complet (ecrase l'ancien du meme site).
-    // En multi-sites, chaque site a DEJA ete enregistre a la fin de son propre
+    // B : enregistre le crawl complet (écrase l'ancien du même site).
+    // En multi-sites, chaque site a DÉJÀ été enregistré à la fin de son propre
     // crawl (dans le handler `crawl:done`) : re-sauver ici ne ferait que
-    // reecrire a l'identique le dernier de la liste.
+    // reecrire à l'identique le dernier de la liste.
     if (!isList) saveCurrentCrawl(true);
 
     // Le crawl est fini : on repasse d'un affichage FRAIS (cadence plafonnee)
-    // a un affichage EXACT. Sans ce rendu force, la carte des near-duplicates
-    // garderait l'etat de son dernier calcul, jusqu'a 3 s avant la fin.
+    // à un affichage EXACT. Sans ce rendu force, la carte des near-duplicates
+    // garderait l'état de son dernier calcul, jusqu'à 3 s avant la fin.
     renderNow();
   }
 
-  // Vide UNIQUEMENT les donnees du run courant (pages, index, issues, bw).
+  // Vide UNIQUEMENT les données du run courant (pages, index, issues, bw).
   function resetData() {
     S.pages = [];
     S.byUrl = {};
@@ -2885,7 +2885,7 @@
   }
 
   // C : recharge un crawl ENREGISTRE (consultation, sans relancer de crawl).
-  // Reutilise ingestPage() -> tous les index/agregats se reconstruisent au rendu.
+  // Reutilise ingestPage() -> tous les index/agrégats se reconstruisent au rendu.
   function loadSavedCrawl(data) {
     if (TAURI) TAURI.core.invoke("clear_crawl").catch(function () {});
     unsubscribeEvents();
@@ -2905,13 +2905,13 @@
     for (var s = 0; s < S.sitemapUrls.length; s++) {
       if (S.sitemapUrls[s]) S.sitemapSet[normUrl(S.sitemapUrls[s])] = true;
     }
-    var when = data.date ? (" (enregistre le " + String(data.date).slice(0, 10) + ")") : "";
+    var when = data.date ? (" (enregistré le " + String(data.date).slice(0, 10) + ")") : "";
     setStatusState("Consultation : " + (data.seed_url || "") + " — " + pages.length + " page(s)" + when);
     updateButtons();
     scheduleRender();
   }
 
-  // C : dialogue Nouveau crawl / Revoir l'enregistrement (cree dynamiquement).
+  // C : dialogue Nouveau crawl / Revoir l'enregistrement (créé dynamiquement).
   function showCrawlChoice(url, data) {
     var old = $("crawl-choice-modal"); if (old) old.parentNode.removeChild(old);
     var nb = Array.isArray(data.pages) ? data.pages.length : 0;
@@ -2922,9 +2922,9 @@
     var box = document.createElement("div");
     box.style.cssText = "background:var(--header-bg2,#f5f6f8);color:var(--text,#1c2330);border:1px solid var(--border,#ccd);border-radius:8px;padding:18px 20px;max-width:500px;font-size:13px;box-shadow:0 10px 40px rgba(0,0,0,.35);";
     box.innerHTML =
-      '<div style="font-weight:600;margin-bottom:8px;font-size:14px;">Crawl deja enregistre</div>' +
-      '<div style="margin-bottom:16px;line-height:1.45;">Le site <strong>' + esc(url) + '</strong> a deja ete crawle' + when +
-      ' (' + nb + ' page(s) enregistrees). Que veux-tu faire ?</div>' +
+      '<div style="font-weight:600;margin-bottom:8px;font-size:14px;">Crawl déjà enregistré</div>' +
+      '<div style="margin-bottom:16px;line-height:1.45;">Le site <strong>' + esc(url) + '</strong> a déjà été crawle' + when +
+      ' (' + nb + ' page(s) enregistrées). Que veux-tu faire ?</div>' +
       '<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">' +
       '<button type="button" id="cc-cancel" class="btn">Annuler</button>' +
       '<button type="button" id="cc-review" class="btn">Revoir cet enregistrement</button>' +
@@ -2946,15 +2946,15 @@
     var unlimited = $("opt-unlimited").checked;
     var seedUrl  = $("seed-url").value.trim();
     // En mode "Tout le site" le champ est verrouille et affiche "∞ (max ...)" :
-    // sa `value` n'est plus un nombre. On lit alors la derniere valeur saisie
-    // (`data-last`). De toute facon `unlimited` fait ignorer `max_pages` cote
-    // backend — mais on evite d'envoyer un NaN silencieusement retombe a 500.
+    // sa `value` n'est plus un nombre. On lit alors la dernière valeur saisie
+    // (`data-last`). De toute facon `unlimited` fait ignorer `max_pages` côté
+    // backend — mais on évite d'envoyer un NaN silencieusement retombe a 500.
     var mpEl = $("max-pages");
     var mpRaw = (mpEl.type === "number") ? mpEl.value : mpEl.dataset.last;
     var maxPages = parseInt(mpRaw, 10) || 500;
     var maxDepth = parseInt($("max-depth").value, 10) || 10;
     var rps      = Math.max(1, Math.round(parseFloat($("rps").value) || 5));
-    // VAGUE 4 (B) : nombre de pages traitees en parallele (threads du crawler).
+    // VAGUE 4 (B) : nombre de pages traitées en parallele (threads du crawler).
     // Borne 1..50, defaut 5 (coherent avec l'attribut min/max du champ HTML).
     var threads  = Math.min(50, Math.max(1, parseInt($("threads").value, 10) || 5));
     return {
@@ -2964,13 +2964,13 @@
       same_domain_only: true,
       requests_per_second: rps,
       threads: threads,                           // <-- VAGUE 4 (B) : envoye au backend
-      // Leve le plafond de debit : sans ca le bucket est GLOBAL et le crawl
+      // Leve le plafond de débit : sans ca le bucket est GLOBAL et le crawl
       // reste colle a `rps` quel que soit le nombre de threads.
       no_rate_limit: $("no-rate-limit").checked,
       force_chrome: $("force-chrome").checked,
       random_user_agent: $("random-ua").checked,
-      // Le delai aleatoire (0,5-4,5 s par page et par worker) annulerait le
-      // benefice du debit illimite : les deux s'excluent.
+      // Le délai aléatoire (0,5-4,5 s par page et par worker) annulerait le
+      // benefice du débit illimité : les deux s'excluent.
       random_delay: $("no-rate-limit").checked ? false : $("random-rps").checked,
       unlimited: unlimited,                       // <-- envoye au backend
       respect_robots: $("opt-robots").checked     // <-- envoye au backend
@@ -2981,8 +2981,8 @@
   // IMPORT D'UNE LISTE D'URLs (mode multi-sites)
   //
   // Chaque ligne du fichier devient la SEED d'un crawl complet. Les sites sont
-  // enchaines l'un apres l'autre (`S.multi.target` = nombre d'URLs) et leurs
-  // pages s'accumulent dans la meme grille, tout en etant enregistrees dans un
+  // enchaines l'un après l'autre (`S.multi.target` = nombre d'URLs) et leurs
+  // pages s'accumulent dans la même grille, tout en etant enregistrées dans un
   // fichier projet PAR SITE (cf. `saveCurrentCrawl` et `S.multi.pagesOffset`).
   // =========================================================================
   var IMPORT = { urls: [] };
@@ -3013,14 +3013,14 @@
       renderImportBadge();
       // Montre la 1re URL dans la barre : l'utilisateur voit ce qui va partir.
       var se = $("seed-url"); if (se) se.value = urls[0];
-      setStatusState(urls.length + " URL(s) importee(s) — cliquez sur Crawler pour lancer la serie.");
+      setStatusState(urls.length + " URL(s) importée(s) — cliquez sur Crawler pour lancer la série.");
     }).catch(function (err) {
       setStatusState("Import impossible : " + (err || "erreur inconnue"));
       console.error("pick_url_list error:", err);
     });
   }
 
-  // Demarre la serie de crawls sur la liste importee.
+  // Demarre la série de crawls sur la liste importée.
   function startSiteList() {
     var config = readConfig();
     config.seed_url = IMPORT.urls[0];
@@ -3034,16 +3034,16 @@
       pagesOffset: 0
     };
 
-    // Nouvelle serie : grille vierge et filtres remis a zero.
+    // Nouvelle série : grille vierge et filtres remis a zero.
     S.search = ""; var se = $("grid-search"); if (se) se.value = "";
     clearCategoryFilter();
     resetData();
     S.multi.pagesOffset = 0;
 
-    // Meme sequence de demarrage que le crawl simple : desabonnement d'abord
+    // Même séquence de demarrage que le crawl simple : desabonnement d'abord
     // (sinon les listeners s'empilent et chaque page serait ingeree N fois),
-    // puis vidage de l'etat backend pour ne pas "reprendre" par erreur une file
-    // reprenable. `clear_crawl` est async : on chaine pour eviter la course.
+    // puis vidage de l'état backend pour ne pas "reprendre" par erreur une file
+    // reprenable. `clear_crawl` est async : on chaîne pour éviter la course.
     unsubscribeEvents();
     subscribeEvents();
     Promise.resolve(TAURI.core.invoke("clear_crawl").catch(function () {}))
@@ -3051,18 +3051,18 @@
   }
 
   // =========================================================================
-  // PANNEAU DE DETAIL REDIMENSIONNABLE
+  // PANNEAU DE DÉTAIL REDIMENSIONNABLE
   //
   // Le panneau etait fige a 240 px : sur une page a 30 inlinks, on n'en voyait
   // que 8 et il fallait faire defiler dans une lucarne. On le redimensionne en
-  // glissant sa bordure superieure ; la hauteur est persistee.
+  // glissant sa bordure supérieure ; la hauteur est persistee.
   // =========================================================================
   var DETAIL_DEFAULT_H = 240;
 
   function applyDetailHeight(px) {
     var d = $("detail");
     if (!d) return;
-    // Bornes : jamais plus haut que 85% de la fenetre (la grille doit rester
+    // Bornes : jamais plus haut que 85% de la fenêtre (la grille doit rester
     // visible), jamais plus bas que 120 px (les onglets doivent tenir).
     var maxH = Math.round(window.innerHeight * 0.85);
     var h = Math.max(120, Math.min(maxH, Math.round(px)));
@@ -3075,14 +3075,14 @@
     var panel = $("detail");
     if (!grip || !panel) return;
 
-    // Hauteur memorisee de la session precedente.
+    // Hauteur memorisee de la session précédente.
     if (PREFS.detailHeight) applyDetailHeight(PREFS.detailHeight);
 
     var startY = 0, startH = 0, dragging = false;
 
     function onMove(e) {
       if (!dragging) return;
-      // La poignee est EN HAUT du panneau : tirer vers le haut (deltaY negatif)
+      // La poignee est EN HAUT du panneau : tirer vers le haut (deltaY négatif)
       // doit AGRANDIR, d'ou la soustraction.
       var h = applyDetailHeight(startH - (e.clientY - startY));
       PREFS.detailHeight = h;
@@ -3094,7 +3094,7 @@
       document.body.classList.remove("is-resizing-detail");
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
-      persistPrefs();          // une seule ecriture, a la fin du glisser
+      persistPrefs();          // une seule ecriture, à la fin du glisser
     }
 
     grip.addEventListener("mousedown", function (e) {
@@ -3108,14 +3108,14 @@
       document.addEventListener("mouseup", onUp);
     });
 
-    // Double-clic : retour a la hauteur par defaut.
+    // Double-clic : retour à la hauteur par defaut.
     grip.addEventListener("dblclick", function () {
       PREFS.detailHeight = applyDetailHeight(DETAIL_DEFAULT_H);
       persistPrefs();
     });
 
-    // Fenetre retrecie : re-borner pour ne pas garder un panneau plus grand
-    // que l'ecran (la grille deviendrait inatteignable).
+    // Fenêtre retrecie : re-borner pour ne pas garder un panneau plus grand
+    // que l'écran (la grille deviendrait inatteignable).
     window.addEventListener("resize", function () {
       if (PREFS.detailHeight) applyDetailHeight(PREFS.detailHeight);
     });
@@ -3125,12 +3125,12 @@
     evt.preventDefault();
     if (!TAURI) { alert("Interface Tauri non disponible. Lancez l'application via Tauri."); return; }
 
-    // VAGUE 4 (C) — Aligne sur le backend (start_crawl = demarrer OU reprendre).
-    // Si un crawl est EN PAUSE et que l'URL saisie correspond a la seed en pause
-    // (ou est vide), le bouton "Reprendre" REPREND la file existante cote backend
-    // SANS vider les donnees ni reinitialiser la sequence. Si l'URL a change, on
+    // VAGUE 4 (C) — Aligne sur le backend (start_crawl = démarrer OU reprendre).
+    // Si un crawl est EN PAUSE et que l'URL saisie correspond à la seed en pause
+    // (ou est vide), le bouton "Reprendre" REPREND la file existante côté backend
+    // SANS vider les données ni réinitialiser la séquence. Si l'URL a change, on
     // considere que l'utilisateur veut un NOUVEAU crawl.
-    // LISTE IMPORTEE : elle prime sur la barre d'URL. On court-circuite le
+    // LISTE IMPORTÉE : elle prime sur la barre d'URL. On court-circuite le
     // dialogue "Nouveau / Revoir" (il n'a pas de sens pour 40 sites) et on
     // enchaine directement les crawls.
     if (IMPORT.urls.length && !S.paused) {
@@ -3142,10 +3142,10 @@
     if (S.paused) {
       var pausedSeed = (S.multi.config && S.multi.config.seed_url) || "";
       if (!typedUrl || typedUrl === pausedSeed) { resumeRun(); return; }
-      // URL differente : on abandonne l'etat en pause et on repart proprement.
+      // URL différente : on abandonne l'état en pause et on repart proprement.
     }
 
-    // C : si un crawl est deja enregistre pour cette URL, proposer Nouveau / Revoir.
+    // C : si un crawl est déjà enregistré pour cette URL, proposer Nouveau / Revoir.
     if (!S._forceNew && typedUrl) {
       TAURI.core.invoke("load_crawl", { id: typedUrl, dir: saveDirArg() }).then(function (json) {
         var saved = null;
@@ -3160,7 +3160,7 @@
     }
     S._forceNew = false;
 
-    var repetitions = 1; // repetition retiree : crawl unique (bande passante mesuree a chaque passage)
+    var repetitions = 1; // repetition retiree : crawl unique (bande passante mesurée à chaque passage)
     var config = readConfig();
 
     // (Re)initialise l'agregat multi-run.
@@ -3171,25 +3171,25 @@
       config: config, lastTechs: [], lastRows: []
     };
 
-    // Nouvelle sequence : jeu de donnees vierge + reset des filtres.
+    // Nouvelle séquence : jeu de données vierge + reset des filtres.
     S.search = ""; var se = $("grid-search"); if (se) se.value = "";
     clearCategoryFilter();
 
     unsubscribeEvents();
     subscribeEvents();
 
-    // Depart PROPRE : on vide d'abord l'etat backend (clear_crawl) pour ne pas
-    // "reprendre" par erreur une file reprenable de la meme seed, PUIS on lance.
-    // clear_crawl est async : on chaine startRun() pour eviter une course.
+    // Depart PROPRE : on vide d'abord l'état backend (clear_crawl) pour ne pas
+    // "reprendre" par erreur une file reprenable de la même seed, PUIS on lance.
+    // clear_crawl est async : on chaîne startRun() pour éviter une course.
     Promise.resolve(TAURI.core.invoke("clear_crawl").catch(function () {}))
       .then(function () { startRun(); });  // running=true + paused=false + updateButtons()
   }
 
-  // VAGUE 4 (C) — Bouton Stop = MISE EN PAUSE. Le crawl s'arrete cote affichage
-  // (on coupe l'emission backend via stop_crawl) mais les DONNEES collectees
+  // VAGUE 4 (C) — Bouton Stop = MISE EN PAUSE. Le crawl s'arrete côté affichage
+  // (on coupe l'emission backend via stop_crawl) mais les DONNÉES collectees
   // sont CONSERVEES. On stoppe aussi l'enchainement multi-run. Surtout : le
-  // bouton "Demarrer" (devenu "Reprendre") redevient ACTIF immediatement
-  // (correction du bug ou il restait grise apres un Stop).
+  // bouton "Démarrer" (devenu "Reprendre") redevient ACTIF immédiatement
+  // (correction du bug ou il restait grise après un Stop).
   function onStop() {
     if (!TAURI) return;
     if (!S.running) return;                 // rien a mettre en pause
@@ -3200,17 +3200,17 @@
     updateButtons();
     setStatusState("En pause — " + S.pages.length + " page(s) collectee(s).");
     // Les workers finissent leur page courante puis sortent : le compteur ne
-    // doit pas rester fige sur la derniere valeur observee en plein crawl.
+    // doit pas rester fige sur la dernière valeur observee en plein crawl.
     setText("status-workers", 0);
-    saveCurrentCrawl();   // B : enregistre aussi a la pause (reprise / consultation ensuite)
+    saveCurrentCrawl();   // B : enregistre aussi à la pause (reprise / consultation ensuite)
   }
 
-  // Bouton "Vider" : VIDE l'etat de crawl backend + remet l'affichage a zero.
+  // Bouton "Vider" : VIDE l'état de crawl backend + remet l'affichage a zero.
   // VAGUE 4 (C) : on invoque clear_crawl (et non stop_crawl) pour que le backend
-  // OUBLIE la file/visited de l'etat partage. Sans ca, un Stop met seulement en
-  // PAUSE (etat conserve) et un Demarrer ulterieur sur la meme URL REPRENDRAIT
+  // OUBLIÉ la file/visited de l'état partage. Sans ca, un Stop met seulement en
+  // PAUSE (état conserve) et un Démarrer ulterieur sur la même URL REPRENDRAIT
   // l'ancienne file au lieu de repartir de zero. clear_crawl est idempotent
-  // (sans effet si aucun etat n'existe).
+  // (sans effet si aucun état n'existe).
   function onClear() {
     S.multi.stopRequested = true;
     if (TAURI) TAURI.core.invoke("clear_crawl").catch(function () {});
@@ -3232,12 +3232,12 @@
     setText("status-bytes", "0 o");
     setText("status-workers", 0); setText("status-threads", 0);
     updateMultiStatus();
-    S.paused = false;                  // VAGUE 4 (C) : retour a l'etat idle
+    S.paused = false;                  // VAGUE 4 (C) : retour à l'état idle
     updateButtons();
   }
 
   // =========================================================================
-  // FILTRES (recherche, categorie sidebar, severite) + bascule d'onglet
+  // FILTRES (recherche, catégorie sidebar, sévérité) + bascule d'onglet
   // =========================================================================
   function setActiveTab(key) {
     S.activeTab = key;
@@ -3245,11 +3245,11 @@
     document.querySelectorAll(".tab").forEach(function (t) {
       t.classList.toggle("is-active", t.getAttribute("data-tab") === key);
     });
-    // VAGUE 4 (E) : on reporte l'onglet courant sur l'en-tete de grille, ce qui
+    // VAGUE 4 (E) : on reporte l'onglet courant sur l'en-tête de grille, ce qui
     // declenche le lisere colore (CSS #grid-head[data-tab="..."]).
     var gh = $("grid-head");
     if (gh) gh.setAttribute("data-tab", key);
-    // Filtres de severite : visibles seulement sur l'onglet Problemes.
+    // Filtres de sévérité : visibles seulement sur l'onglet Problèmes.
     var sevBox = $("sev-filters");
     if (sevBox) sevBox.hidden = (key !== "issues");
     // Selecteur de vue Sitemap : visible seulement sur l'onglet Sitemap (Vague 3).
@@ -3283,7 +3283,7 @@
   //   "all", "orphan" et "notin" sont trois vues distinctes ; toute autre valeur
   //   retombe sur "all".
   function selectSitemapView(view) {
-    clearCategoryFilter();                 // les filtres categorie ne s'appliquent pas ici
+    clearCategoryFilter();                 // les filtres catégorie ne s'appliquent pas ici
     S.sitemapView = (view === "notin" || view === "orphan") ? view : "all";
     var sel = $("sitemap-view"); if (sel) sel.value = S.sitemapView;  // sync du selecteur
     setActiveTab("sitemap");
@@ -3300,7 +3300,7 @@
   }
 
   // Helper generique d'export CSV (BOM UTF-8 pour Excel + RFC4180 via csvCell).
-  // header : tableau de libelles ; rows : tableau de tableaux de cellules brutes.
+  // header : tableau de libellés ; rows : tableau de tableaux de cellules brutes.
   // filenameBase : suffixe horodate ajoute automatiquement. Reutilise par
   // l'export par onglet ET par les exports en masse / rapports (Vague 3).
   function downloadCsv(filenameBase, header, rows) {
@@ -3323,7 +3323,7 @@
     var def = TABS[S.activeTab];
     if (!def) return;
     var items = currentItems();
-    // On applique le meme tri que l'affichage.
+    // On applique le même tri que l'affichage.
     var mapped = items.map(function (it) { return def.row(it); });
     if (S.sort.key) {
       var idx = -1;
@@ -3367,8 +3367,8 @@
   }
 
   // Toutes les images de toutes les pages : page,src,kind,octets.
-  // NB : cote backend chaque image est un AssetReport { url, bytes, kind } ; on
-  // expose 'url' sous l'en-tete 'src' (la source de l'image).
+  // NB : côté backend chaque image est un AssetReport { url, bytes, kind } ; on
+  // expose 'url' sous l'en-tête 'src' (la source de l'image).
   function exportAllImages() {
     var rows = [];
     for (var i = 0; i < S.pages.length; i++) {
@@ -3382,31 +3382,31 @@
     downloadCsv("images-toutes", ["page", "src", "kind", "octets"], rows);
   }
 
-  // Tous les problemes (issues backend + hreflang JS) : severite,categorie,adresse,message.
+  // Tous les problèmes (issues backend + hreflang JS) : sévérité,catégorie,adresse,message.
   function exportAllIssues() {
     var rows = S.issues.concat(S.hreflangIssues).map(function (it) {
       return [ sevLabel(it.severity), it.category || "", it.url || "", it.message || "" ];
     });
-    downloadCsv("problemes-tous", ["severite", "categorie", "adresse", "message"], rows);
+    downloadCsv("problèmes-tous", ["sévérité", "catégorie", "adresse", "message"], rows);
   }
 
   // =========================================================================
   // VAGUE 3 — RAPPORTS DE SYNTHESE (CSV cibles)
   // =========================================================================
 
-  // Chaines de redirection : pages avec redirect_chain non vide.
-  // Colonnes : url, chaine (jointe par " -> "), destination finale.
+  // Chaînes de redirection : pages avec redirect_chain non vide.
+  // Colonnes : url, chaîne (jointe par " -> "), destination finale.
   function reportRedirectChains() {
     var rows = [];
     for (var i = 0; i < S.pages.length; i++) {
       var p = S.pages[i];
       var chain = Array.isArray(p.redirect_chain) ? p.redirect_chain : [];
       if (!chain.length) continue;
-      // Destination finale = dernier maillon de la chaine, ou redirect_to en repli.
+      // Destination finale = dernier maillon de la chaîne, ou redirect_to en repli.
       var dest = chain.length ? chain[chain.length - 1] : (p.redirect_to || "");
       rows.push([ p.url || "", chain.join(" -> "), dest ]);
     }
-    downloadCsv("rapport-redirections", ["url", "chaine", "destination"], rows);
+    downloadCsv("rapport-redirections", ["url", "chaîne", "destination"], rows);
   }
 
   // Canonicals : url, canonical, type (Self / Autre / Manquant).
@@ -3422,10 +3422,10 @@
     downloadCsv("rapport-canonicals", ["url", "canonical", "type"], rows);
   }
 
-  // Pages non-indexables : url, raison (noindex / canonicalisee / bloquee).
+  // Pages non-indexables : url, raison (noindex / canonicalisée / bloquée).
   // On ne liste que les pages effectivement NON indexables. La raison est
-  // deduite des signaux SEO : meta/x-robots noindex, canonical vers une autre
-  // URL (canonicalised), ou statut HTTP non-2xx (bloquee/erreur).
+  // déduite des signaux SEO : meta/x-robots noindex, canonical vers une autre
+  // URL (canonicalised), ou statut HTTP non-2xx (bloquée/erreur).
   function reportNonIndexable() {
     var rows = [];
     for (var i = 0; i < S.pages.length; i++) {
@@ -3435,9 +3435,9 @@
       if (indexable) continue;             // page indexable : exclue du rapport
       var reasons = [];
       if (s && s.noindex) reasons.push("noindex");
-      if (s && s.canonicalised) reasons.push("canonicalisee");
+      if (s && s.canonicalised) reasons.push("canonicalisée");
       var code = p.status || 0;
-      if (code < 200 || code >= 300) reasons.push("bloquee (HTTP " + code + ")");
+      if (code < 200 || code >= 300) reasons.push("bloquée (HTTP " + code + ")");
       if (!s) reasons.push("non-HTML / erreur");
       if (!reasons.length) reasons.push("non indexable");
       rows.push([ p.url || "", reasons.join(" ; ") ]);
@@ -3471,9 +3471,9 @@
   }
 
   // =========================================================================
-  // INFO RESEAU (IP + reverse DNS) — PRESERVE
+  // INFO RÉSEAU (IP + reverse DNS) — PRESERVE
   // =========================================================================
-  // Preferences persistantes (localStorage) : dossier d'enregistrement, largeurs de colonnes...
+  // Préférences persistantes (localStorage) : dossier d'enregistrement, largeurs de colonnes...
   var PREFS = (function () {
     try { return JSON.parse(localStorage.getItem("seoSpiderPrefs")) || {}; } catch (e) { return {}; }
   })();
@@ -3484,16 +3484,16 @@
   function saveDirArg() { return (PREFS.saveDir && PREFS.saveDir.trim()) ? PREFS.saveDir.trim() : null; }
 
   // =========================================================================
-  // PERSISTANCE DES REGLAGES (PREFS.settings)
+  // PERSISTANCE DES RÉGLAGES (PREFS.settings)
   //
-  // Tous les reglages du volet + les deux cases de la barre du haut sont
+  // Tous les réglages du volet + les deux cases de la barre du haut sont
   // memorises et restitues au lancement suivant : on ne recommence pas sa
-  // configuration a chaque ouverture.
+  // configuration à chaque ouverture.
   //
-  // Les CASES a cocher et les CHAMPS sont traites separement (`.checked` vs
+  // Les CASES a cocher et les CHAMPS sont traites séparément (`.checked` vs
   // `.value`). "max-pages" est un cas particulier : il bascule entre `number`
-  // et `text` (cf. lockMaxPages), donc on persiste `data-last` — la derniere
-  // valeur NUMERIQUE saisie — et jamais le libelle "∞ (max ...)".
+  // et `text` (cf. lockMaxPages), donc on persiste `data-last` — la dernière
+  // valeur NUMÉRIQUE saisie — et jamais le libellé "∞ (max ...)".
   // =========================================================================
   var SETTING_CHECKS = [
     "opt-unlimited", "opt-robots",
@@ -3509,15 +3509,15 @@
     SETTING_FIELDS.forEach(function (id) {
       var el = $(id); if (el) s[id] = el.value;
     });
-    // Valeur numerique de "Pages max", meme quand le champ est verrouille.
+    // Valeur numérique de "Pages max", même quand le champ est verrouille.
     var mp = $("max-pages");
     if (mp) s["max-pages"] = (mp.type === "number" && mp.value) ? mp.value : (mp.dataset.last || "500");
     PREFS.settings = s;
     persistPrefs();
   }
 
-  // Restaure les reglages memorises. A appeler AVANT syncUnlimited()/syncRate(),
-  // qui derivent l'etat grise (et donc l'affichage) de ces valeurs.
+  // Restaure les réglages memorises. A appeler AVANT syncUnlimited()/syncRate(),
+  // qui derivent l'état grise (et donc l'affichage) de ces valeurs.
   function restoreSettings() {
     var s = PREFS.settings;
     if (!s) return;
@@ -3531,14 +3531,14 @@
     if (mp && s["max-pages"]) {
       mp.dataset.last = s["max-pages"];
       // Ecrire AUSSI dans `value` tant que le champ est en mode `number` (son
-      // etat au chargement) : `lockMaxPages()`, appele juste apres par
+      // état au chargement) : `lockMaxPages()`, appele juste après par
       // `syncUnlimited()`, recopie `value` dans `data-last` et ECRASERAIT la
       // valeur restauree par le "500" de l'attribut HTML.
       if (mp.type === "number") mp.value = s["max-pages"];
     }
   }
 
-  // Branche la sauvegarde sur tout changement de reglage.
+  // Branche la sauvegarde sur tout changement de réglage.
   function watchSettings() {
     SETTING_CHECKS.concat(SETTING_FIELDS).concat(["max-pages"]).forEach(function (id) {
       var el = $(id);
@@ -3565,7 +3565,7 @@
         }
       }).catch(function (e) { console.error("pick_folder:", e); });
     });
-    // #E : ouvrir un PROJET enregistre (dialogue fichier .json) -> consultation.
+    // #E : ouvrir un PROJET enregistré (dialogue fichier .json) -> consultation.
     var openBtn = $("btn-open-project");
     if (openBtn) openBtn.addEventListener("click", function () {
       if (!TAURI) return;
@@ -3579,12 +3579,12 @@
     });
   }
 
-  // Clic sur une URL -> ouverture dans le NAVIGATEUR PAR DEFAUT du systeme.
+  // Clic sur une URL -> ouverture dans le NAVIGATEUR PAR DEFAUT du système.
   //
-  // Dans une WebView il n'y a ni onglet ni fenetre ou aller : un
+  // Dans une WebView il n'y a ni onglet ni fenêtre ou aller : un
   // `target="_blank"` ne produit rien, et laisser le lien se suivre remplacerait
-  // l'application elle-meme par la page distante. Le clic est donc intercepte et
-  // l'URL confiee au systeme via la commande `open_external`.
+  // l'application elle-même par la page distante. Le clic est donc intercepte et
+  // l'URL confiee au système via la commande `open_external`.
   //
   // Un SEUL gestionnaire, delegue sur le document : il couvre tous les liens
   // d'URL de l'application — grille, panneau de detail, onglets Liens et
@@ -3592,22 +3592,22 @@
   // mais la classe.
   //
   // En phase de CAPTURE (3e argument a `true`), et c'est indispensable : la
-  // selection de ligne est branchee sur le tbody, qui en phase de bouillonnage
+  // sélection de ligne est branchee sur le tbody, qui en phase de bouillonnage
   // recevrait le clic AVANT le document et ouvrirait le panneau de detail au
-  // passage. En capture, le document voit l'evenement en premier et peut
-  // l'arreter. C'est ce que faisait l'ancien `onclick` pose sur le lien lui-meme.
+  // passage. En capture, le document voit l'événement en premier et peut
+  // l'arrêter. C'est ce que faisait l'ancien `onclick` pose sur le lien lui-même.
   function initExternalLinks() {
     // Simple clic : on BLOQUE la navigation (la WebView n'a nulle part ou aller)
-    // et on laisse l'evenement descendre jusqu'a la grille, qui selectionne la
+    // et on laisse l'événement descendre jusqu'à la grille, qui selectionne la
     // cellule. Ouvrir au simple clic rendait la colonne Adresse impossible a
-    // selectionner : c'est le double-clic qui ouvre.
+    // sélectionner : c'est le double-clic qui ouvre.
     document.addEventListener("click", function (e) {
       var a = e.target.closest && e.target.closest("a.cell-url");
       if (a) e.preventDefault();
     }, true);
 
     // Double-clic sur une adresse -> navigateur par defaut. En phase de CAPTURE
-    // pour passer avant tout autre gestionnaire ; la selection de texte que le
+    // pour passer avant tout autre gestionnaire ; la sélection de texte que le
     // double-clic aurait posee sur le mot est retiree, elle n'a plus de sens.
     document.addEventListener("dblclick", function (e) {
       var a = e.target.closest && e.target.closest("a.cell-url");
@@ -3620,7 +3620,7 @@
     }, true);
   }
 
-  // #F : redimensionnement des colonnes a la souris ; largeurs persistees par onglet.
+  // #F : redimensionnement des colonnes à la souris ; largeurs persistees par onglet.
   function initColResize() {
     var rz = null;
     document.addEventListener("mousedown", function (e) {
@@ -3671,7 +3671,7 @@
   }
 
   // =========================================================================
-  // HISTORIQUE PERSISTANT (load/save_history) — PRESERVE (sans UI dediee :
+  // HISTORIQUE PERSISTANT (load/save_history) — PRESERVE (sans UI dédiée :
   // on conserve le stockage pour ne pas perdre la fonctionnalite backend).
   // =========================================================================
   function loadHistory() {
@@ -3695,7 +3695,7 @@
     saveHistory();
     refreshUrlDatalist();
   }
-  // Autocomplete de la barre d'URL : propose les sites deja crawles (historique).
+  // Autocomplete de la barre d'URL : propose les sites déjà crawles (historique).
   function refreshUrlDatalist() {
     var dl = $("url-history");
     if (!dl) return;
@@ -3703,7 +3703,7 @@
     for (var i = 0; i < history.length; i++) {
       var u = history[i] && history[i].url;
       if (!u) continue;
-      var k = normUrl(u);                 // dedup par URL normalisee : un site ne s'affiche qu'une fois
+      var k = normUrl(u);                 // dedup par URL normalisée : un site ne s'affiche qu'une fois
       if (seen[k]) continue;
       seen[k] = 1;
       opts.push('<option value="' + esc(u) + '"></option>');
@@ -3714,7 +3714,7 @@
   // =========================================================================
   // MENUS DEROULANTS (Export en masse / Rapports) — Vague 3
   // Petit composant maison : bouton .menu-btn qui bascule .is-open sur le
-  // conteneur .menu. Un seul menu ouvert a la fois ; clic exterieur = fermeture.
+  // conteneur .menu. Un seul menu ouvert à la fois ; clic extérieur = fermeture.
   // =========================================================================
   function closeMenus() {
     document.querySelectorAll(".menu.is-open").forEach(function (m) { m.classList.remove("is-open"); });
@@ -3737,7 +3737,7 @@
   });
 
   // =========================================================================
-  // BRANCHEMENT DES CONTROLES (delegation d'evenements)
+  // BRANCHEMENT DES CONTRÔLES (delegation d'événements)
   // =========================================================================
   function setupControls() {
     $("crawl-form").addEventListener("submit", onSubmit);
@@ -3750,7 +3750,7 @@
     // Ouverture/fermeture au clic sur le bouton ; fermeture au clic ailleurs.
     setupMenu("menu-bulk");
     setupMenu("menu-report");
-    // Selection d'une entree dans le menu Export en masse.
+    // Sélection d'une entrée dans le menu Export en masse.
     var bulkList = $("menu-bulk-list");
     if (bulkList) bulkList.addEventListener("click", function (e) {
       var it = e.target.closest("[data-export]");
@@ -3758,7 +3758,7 @@
       runBulkExport(it.getAttribute("data-export"));
       closeMenus();
     });
-    // Selection d'une entree dans le menu Rapports.
+    // Sélection d'une entrée dans le menu Rapports.
     var reportList = $("menu-report-list");
     if (reportList) reportList.addEventListener("click", function (e) {
       var it = e.target.closest("[data-report]");
@@ -3776,25 +3776,25 @@
     });
 
     // Case "Tout le site" : le champ "Pages max" affiche alors le plafond
-    // REELLEMENT actif au lieu d'une valeur grisee sans effet.
+    // RÉELLEMENT actif au lieu d'une valeur grisee sans effet.
     //
     // Un champ `disabled` affichant "500" alors que la limite est de 200 000
     // ment deux fois : il montre une valeur qui ne s'applique pas, et il cache
     // celle qui s'applique. On le passe donc en VERROUILLE (readonly + style
     // grise) : il affiche le vrai plafond, et un clic rend la main.
     //
-    // `readonly` et non `disabled` : un input desactive ne recoit AUCUN
-    // evenement souris, le clic serait impossible.
-    // Reglages memorises de la session precedente : AVANT syncUnlimited() et
-    // syncRate(), qui derivent l'affichage (champs grises, libelles) de ces
-    // valeurs. Les restaurer apres laisserait l'UI dans un etat incoherent.
+    // `readonly` et non `disabled` : un input désactivé ne recoit AUCUN
+    // événement souris, le clic serait impossible.
+    // Réglages memorises de la session précédente : AVANT syncUnlimited() et
+    // syncRate(), qui derivent l'affichage (champs grises, libellés) de ces
+    // valeurs. Les restaurer après laisserait l'UI dans un état incoherent.
     restoreSettings();
 
     var unlim = $("opt-unlimited");
     var maxPages = $("max-pages");
 
     function lockMaxPages() {
-      // Memorise la derniere valeur saisie pour la restituer au declic.
+      // Memorise la dernière valeur saisie pour la restituer au declic.
       if (maxPages.type === "number" && maxPages.value) {
         maxPages.dataset.last = maxPages.value;
       }
@@ -3806,7 +3806,7 @@
         "Tout le site : aucune limite de pages. Un garde-fou interne arrete le " +
         "crawl a " + MAX_PAGES_HARD_LABEL + " pages (protection contre les sites " +
         "a facettes ou a calendrier, ou le nombre d'URLs est quasi infini).\n" +
-        "Cliquez pour fixer vous-meme une limite.";
+        "Cliquez pour fixer vous-même une limite.";
     }
 
     function unlockMaxPages() {
@@ -3814,7 +3814,7 @@
       maxPages.value = maxPages.dataset.last || "500";
       maxPages.readOnly = false;
       maxPages.classList.remove("is-locked");
-      maxPages.title = "Nombre maximal de pages a crawler.";
+      maxPages.title = "Nombre maximal de pages à crawler.";
     }
 
     function syncUnlimited() {
@@ -3822,13 +3822,13 @@
     }
 
     // Clic sur le champ verrouille : on decoche "Tout le site" et on rend la
-    // main, curseur pret a saisir.
+    // main, curseur prêt a saisir.
     maxPages.addEventListener("mousedown", function (e) {
       if (!unlim.checked) return;
       e.preventDefault();
       unlim.checked = false;
       syncUnlimited();
-      // Decochage PAR CODE : aucun evenement `change` n'est emis, donc le
+      // Decochage PAR CODE : aucun événement `change` n'est emis, donc le
       // listener de persistance ne se declenche pas tout seul.
       persistSettings();
       maxPages.focus();
@@ -3838,11 +3838,11 @@
     unlim.addEventListener("change", syncUnlimited);
     syncUnlimited();
 
-    // Cases "Debit illimite" / "Debit aleatoire" : les deux pilotent le meme
-    // reglage (la cadence) et s'excluent mutuellement.
-    //   - illimite  : plus de plafond du tout -> "Req/sec" ET "Debit aleatoire"
+    // Cases "Débit illimité" / "Débit aléatoire" : les deux pilotent le même
+    // réglage (la cadence) et s'excluent mutuellement.
+    //   - illimité  : plus de plafond du tout -> "Req/sec" ET "Débit aléatoire"
     //                 n'ont plus de sens, on les grise ;
-    //   - aleatoire : delai tire au sort par page -> "Req/sec" est ignore.
+    //   - aléatoire : délai tire au sort par page -> "Req/sec" est ignore.
     var randRps = $("random-rps");
     var noLimit = $("no-rate-limit");
     var forceChrome = $("force-chrome");
@@ -3850,15 +3850,15 @@
       var free = noLimit.checked;
       randRps.disabled = free;
       $("rps").disabled = free || randRps.checked;
-      // "Debit illimite" ne tient pas sa promesse avec "Forcer Chrome" : les
+      // "Débit illimité" ne tient pas sa promesse avec "Forcer Chrome" : les
       // mesures Chrome sont SERIALISEES (un seul navigateur derriere un Mutex,
-      // tenu pendant une tempo fixe de 1,5 s par page). Le debit plafonnerait a
+      // tenu pendant une tempo fixe de 1,5 s par page). Le débit plafonnerait a
       // ~0,66 page/s quel que soit le nombre de threads.
       noLimit.disabled = randRps.checked || forceChrome.checked;
-      // On ne DECOCHE que pour Chrome (ou l'illimite est intenable, cf. verrou
-      // serialise). Decocher aussi sur "Debit aleatoire" ferait perdre le
-      // reglage silencieusement : cocher puis decocher "aleatoire" laisserait
-      // l'utilisateur persuade d'etre en illimite alors qu'il serait retombe a
+      // On ne DECOCHE que pour Chrome (ou l'illimité est intenable, cf. verrou
+      // serialise). Decocher aussi sur "Débit aléatoire" ferait perdre le
+      // réglage silencieusement : cocher puis decocher "aléatoire" laisserait
+      // l'utilisateur persuade d'être en illimité alors qu'il serait retombe a
       // `rps`.
       if (forceChrome.checked) noLimit.checked = false;
     }
@@ -3867,19 +3867,19 @@
     forceChrome.addEventListener("change", syncRate);
     syncRate();
 
-    // Sauvegarde a chaque changement. Branche APRES syncUnlimited/syncRate :
+    // Sauvegarde à chaque changement. Branche APRÈS syncUnlimited/syncRate :
     // sur un `change`, les listeners s'executent dans l'ordre d'ajout, donc la
-    // persistance voit l'etat DEJA reconcilie (ex. "Debit illimite" decoche par
+    // persistance voit l'état DÉJÀ reconcilie (ex. "Débit illimité" decoche par
     // syncRate quand on coche "Forcer Chrome").
     watchSettings();
 
     initSaveDir();   // #E : champ dossier des projets
     initColResize();   // #F : colonnes redimensionnables
     initDetailResize();   // panneau de detail redimensionnable (hauteur persistee)
-    initExternalLinks();  // liens d'URL -> navigateur par defaut du systeme
+    initExternalLinks();  // liens d'URL -> navigateur par defaut du système
     initMultiSelect();    // clic / Shift+clic / Ctrl+clic -> copie des adresses
 
-    // Volet de reglages repliable.
+    // Volet de réglages repliable.
     var toggle = $("btn-toggle-settings");
     var drawer = $("settings-drawer");
     toggle.addEventListener("click", function () {
@@ -3895,7 +3895,7 @@
       if (t) setActiveTab(t.getAttribute("data-tab"));
     });
 
-    // Tri par clic sur les en-tetes de la grille (neutre->desc->asc->neutre).
+    // Tri par clic sur les en-têtes de la grille (neutre->desc->asc->neutre).
     $("grid-head").addEventListener("click", function (e) {
       if (S._suppressSort || (e.target.closest && e.target.closest(".col-resizer"))) return;  // #F
       var th = e.target.closest("th[data-key]");
@@ -3907,7 +3907,7 @@
       renderGrid();
     });
 
-    // Selection d'une ligne -> panneau de detail (delegation sur le tbody).
+    // Sélection d'une ligne -> panneau de detail (delegation sur le tbody).
     $("grid-body").addEventListener("click", function (e) {
       var tr = e.target.closest("tr[data-url]");
       if (!tr) return;
@@ -3917,9 +3917,9 @@
       var col = td ? td.cellIndex : 0;
       hideCtxMenu();
 
-      // --- Selection de cellules, sur TOUS les onglets et dans la COLONNE
+      // --- Sélection de cellules, sur TOUS les onglets et dans la COLONNE
       //     cliquee. Shift et Ctrl n'ouvrent PAS le detail : ce sont des
-      //     gestes de selection, pas de consultation.
+      //     gestes de sélection, pas de consultation.
       if (e.shiftKey) {
         selRange(col, S.sel.anchor || key, key);
         applySelClasses();
@@ -3927,7 +3927,7 @@
         return;
       }
       if (e.ctrlKey || e.metaKey) {
-        // Changer de colonne repart de zero : une selection ne melange jamais
+        // Changer de colonne repart de zero : une sélection ne mélange jamais
         // deux colonnes, sinon la copie n'aurait plus de sens.
         if (S.sel.col !== col) { S.sel.col = col; S.sel.keys = {}; }
         if (S.sel.keys[key]) delete S.sel.keys[key]; else S.sel.keys[key] = true;
@@ -3936,13 +3936,13 @@
         updateSelBar();
         return;
       }
-      // Clic simple : cette cellule devient la selection ET l'ancre. Ctrl+C
-      // copie donc sa valeur meme sans autre geste.
+      // Clic simple : cette cellule devient la sélection ET l'ancre. Ctrl+C
+      // copie donc sa valeur même sans autre geste.
       selOne(col, key);
 
       // L'onglet "Liens" ne represente pas une page unique : pas de detail.
       if (TABS[S.activeTab].kind !== "pages") return;
-      // D) Sur l'onglet "Donnees structurees" (schema), ou si on clique sur un
+      // D) Sur l'onglet "Données structurees" (schema), ou si on clique sur un
       // badge de type, on ouvre directement le sous-onglet JSON-LD brut.
       if (S.activeTab === "schema" || e.target.closest(".badge--schema")) {
         S.detailTab = "schema";
@@ -3964,13 +3964,13 @@
     });
     $("detail-close").addEventListener("click", closeDetail);
 
-    // Recherche : filtre l'onglet actif (rendu immediat).
+    // Recherche : filtre l'onglet actif (rendu immédiat).
     $("grid-search").addEventListener("input", function () {
       S.search = this.value.trim();
       renderGrid();
     });
 
-    // Filtres de severite (onglet Problemes).
+    // Filtres de sévérité (onglet Problèmes).
     $("sev-filters").addEventListener("click", function (e) {
       var b = e.target.closest(".sev-filter");
       if (!b) return;
@@ -3978,7 +3978,7 @@
       document.querySelectorAll(".sev-filter").forEach(function (x) { x.classList.toggle("is-active", x === b); });
       renderGrid();
     });
-    // Sidebar Overview : clic sur une categorie -> filtre la grille.
+    // Sidebar Overview : clic sur une catégorie -> filtre la grille.
     $("overview-tree").addEventListener("click", function (e) {
       var row = e.target.closest(".ov-row");
       if (!row) return;
@@ -3990,7 +3990,7 @@
       else applyCategoryFilter(catId);
     });
 
-    // Retirer le filtre de categorie depuis l'indicateur.
+    // Retirer le filtre de catégorie depuis l'indicateur.
     $("active-filter-clear").addEventListener("click", clearCategoryFilter);
   }
 
@@ -3998,7 +3998,7 @@
   // INITIALISATION
   // =========================================================================
   setupControls();
-  updateButtons();        // VAGUE 4 (C) : etat initial coherent des boutons
+  updateButtons();        // VAGUE 4 (C) : état initial coherent des boutons
   loadNetInfo();
   loadHistory();
   renderTabCounts();

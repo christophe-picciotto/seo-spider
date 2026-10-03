@@ -73,56 +73,56 @@ pub struct SecurityData {
     pub missing_headers: Vec<String>,
 }
 
-/// Une couche de cache traversee par la reponse (cf. `cachestat`).
+/// Une couche de cache traversee par la réponse (cf. `cachestat`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CacheLayer {
-    /// En-tete qui l'a revelee (ex: "cf-cache-status"), ou "html:wp-rocket"
-    /// quand la couche a ete reconnue a sa signature dans le document.
+    /// En-tête qui l'a revelee (ex: "cf-cache-status"), ou "html:wp-rocket"
+    /// quand la couche a été reconnue à sa signature dans le document.
     pub header: String,
     /// Nom lisible du moteur : "Cloudflare", "HiveCache", "WP Rocket"...
     pub engine: String,
-    /// Valeur brute de l'en-tete, telle que servie.
+    /// Valeur brute de l'en-tête, telle que servie.
     pub raw: String,
-    /// Verdict normalise de CETTE couche. Vide quand le moteur est identifie
+    /// Verdict normalisé de CETTE couche. Vide quand le moteur est identifie
     /// mais que rien ne permet de dire s'il a servi la page.
     pub status: String,
 }
 
-/// Statut de cache de la reponse, lu dans ses en-tetes (cf. `cachestat`).
+/// Statut de cache de la réponse, lu dans ses en-têtes (cf. `cachestat`).
 ///
-/// Renseigne des la sonde HTTP, donc present sur TOUTE page crawlee, y compris
-/// celles mesurees ensuite au navigateur.
+/// Renseigne des la sonde HTTP, donc présent sur TOUTE page crawlée, y compris
+/// celles mesurées ensuite au navigateur.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CacheData {
-    /// Verdict normalise : "HIT" | "MISS" | "BYPASS" | "EXPIRED" |
+    /// Verdict normalisé : "HIT" | "MISS" | "BYPASS" | "EXPIRED" |
     /// "REVALIDATED" | "STALE" | "UPDATING" | "PRERENDER" | "DYNAMIC" | "NONE",
     /// ou la valeur brute en majuscules si le serveur en a dit une autre.
     ///
-    /// C'est le verdict de la couche la plus EXTERIEURE : ce qu'a vecu le
+    /// C'est le verdict de la couche la plus EXTÉRIEURE : ce qu'a vecu le
     /// visiteur.
     pub status: String,
-    /// En-tete qui a tranche (ex: "cf-cache-status"), pour la tracabilite.
+    /// En-tête qui a tranche (ex: "cf-cache-status"), pour la tracabilite.
     pub source: String,
-    /// Moteur derriere cet en-tete : "Cloudflare", "HiveCache"...
+    /// Moteur derriere cet en-tête : "Cloudflare", "HiveCache"...
     #[serde(default)]
     pub engine: String,
-    /// Qui a REELLEMENT servi la page : le premier cache a avoir repondu sans
-    /// solliciter le serveur, ou "origine" si la requete est allee jusqu'a lui.
+    /// Qui a RÉELLEMENT servi la page : le premier cache a avoir repondu sans
+    /// solliciter le serveur, ou "origine" si la requête est allée jusqu'à lui.
     ///
-    /// Distinct de `status` : « MISS » cote Cloudflare avec `served_by` a
+    /// Distinct de `status` : « MISS » côté Cloudflare avec `served_by` a
     /// "HiveCache" signifie que le CDN a laisse passer mais que le cache du
     /// serveur a fourni la page — le PHP n'a pas tourne.
     #[serde(default)]
     pub served_by: String,
-    /// Valeur brute de cet en-tete, telle que servie.
+    /// Valeur brute de cet en-tête, telle que servie.
     pub raw: String,
     /// `Age` en secondes : temps passe dans le cache. `None` si absent.
     pub age: Option<u64>,
-    /// TOUTES les couches traversees, de la plus exterieure a la plus interne.
+    /// TOUTES les couches traversees, de la plus extérieure à la plus interne.
     ///
     /// Leur desaccord est l'information la plus parlante : Cloudflare en MISS
-    /// avec HiveCache en HIT dit que la page etait en cache cote serveur mais
-    /// que le CDN est alle la chercher quand meme.
+    /// avec HiveCache en HIT dit que la page etait en cache côté serveur mais
+    /// que le CDN est alle la chercher quand même.
     #[serde(default)]
     pub layers: Vec<CacheLayer>,
 }
@@ -141,7 +141,7 @@ pub struct UrlFlags {
 pub struct Issue {
     pub url: String,
     pub severity: String,  // "critical" | "warning" | "opportunity" | "info"
-    pub category: String,  // "Titres" | "Meta description" | "H1" | "Images" | "Canonical" | "Directives" | "Hreflang" | "Reponse"
+    pub category: String,  // "Titres" | "Meta description" | "H1" | "Images" | "Canonical" | "Directives" | "Hreflang" | "Réponse"
     pub message: String,
 }
 
@@ -159,7 +159,7 @@ pub struct PageReport {
     pub url: String,
     pub status: u16,
     pub tech: Vec<String>,
-    pub total_bytes: u64,            // bande passante reelle (octets transferes)
+    pub total_bytes: u64,            // bande passante réelle (octets transferes)
     pub by_type: HashMap<String, TypeStat>,
     pub request_count: u32,
     pub dynamic_requests: u32,       // cache MISS + /api + RSC (proxy invocations serverless)
@@ -186,7 +186,7 @@ pub struct PageReport {
     pub security: Option<SecurityData>,
     #[serde(default)]
     pub url_flags: Option<UrlFlags>,
-    /// Statut de cache de la reponse (HIT/MISS/...). `None` quand aucun en-tete
+    /// Statut de cache de la réponse (HIT/MISS/...). `None` quand aucun en-tête
     /// ne permet de conclure — l'absence d'information n'est pas un MISS.
     #[serde(default)]
     pub cache: Option<CacheData>,
@@ -210,11 +210,11 @@ pub struct CrawlConfig {
     pub same_domain_only: bool,
     pub requests_per_second: u32,
     pub force_chrome: bool,
-    /// Si true, chaque page est crawlee avec un user-agent + viewport tires du pool.
+    /// Si true, chaque page est crawlée avec un user-agent + viewport tires du pool.
     #[serde(default)]
     pub random_user_agent: bool,
-    /// Si true, on attend un delai ALEATOIRE entre chaque requete (comportement
-    /// "humain") au lieu du debit fixe `requests_per_second`.
+    /// Si true, on attend un délai ALÉATOIRE entre chaque requête (comportement
+    /// "humain") au lieu du débit fixe `requests_per_second`.
     #[serde(default)]
     pub random_delay: bool,
     #[serde(default)]
@@ -223,13 +223,13 @@ pub struct CrawlConfig {
     pub respect_robots: bool,
     #[serde(default = "default_threads")]
     pub threads: usize,   // nb de workers paralleles
-    /// Si true, AUCUN plafond de debit : `requests_per_second` est ignore et la
-    /// vitesse n'est plus bornee que par `threads` et le temps de reponse du
+    /// Si true, AUCUN plafond de débit : `requests_per_second` est ignore et la
+    /// vitesse n'est plus bornée que par `threads` et le temps de réponse du
     /// serveur.
     ///
     /// Sans ca, le rate-limiter est un bucket GLOBAL partage par tous les
-    /// workers : le debit reste colle a `requests_per_second` quel que soit le
-    /// nombre de threads (avec 5 rps et 80 ms de reponse, UN SEUL worker suffit
+    /// workers : le débit reste colle a `requests_per_second` quel que soit le
+    /// nombre de threads (avec 5 rps et 80 ms de réponse, UN SEUL worker suffit
     /// a saturer le quota — les autres attendent).
     #[serde(default)]
     pub no_rate_limit: bool,
@@ -241,11 +241,11 @@ pub struct CrawlProgress {
     pub queued: usize,
     pub current_url: String,
     pub total_bytes_so_far: u64,
-    /// Workers reellement en train de traiter une page a cet instant.
+    /// Workers réellement en train de traiter une page à cet instant.
     ///
-    /// Permet de VOIR si les threads configures servent : si ce nombre reste
+    /// Permet de VOIR si les threads configurés servent : si ce nombre reste
     /// bien en dessous de `config.threads`, c'est que le goulot est ailleurs
-    /// (plafond de debit, file vide, ou mesures Chrome serialisees).
+    /// (plafond de débit, file vide, ou mesures Chrome serialisees).
     #[serde(default)]
     pub active_workers: usize,
 }

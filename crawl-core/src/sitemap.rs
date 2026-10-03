@@ -1,15 +1,15 @@
-//! Recuperation des URLs declarees dans le(s) sitemap(s) d'un site.
+//! Récupération des URLs déclarées dans le(s) sitemap(s) d'un site.
 //!
-//! Strategie (sans dependance XML) :
+//! Stratégie (sans dependance XML) :
 //!   1. GET `{scheme}://{host}/sitemap.xml`.
-//!   2. Si echec : GET `/sitemap_index.xml`.
-//!   3. Si echec : lire `robots.txt` et suivre chaque ligne `Sitemap:`.
+//!   2. Si échec : GET `/sitemap_index.xml`.
+//!   3. Si échec : lire `robots.txt` et suivre chaque ligne `Sitemap:`.
 //! Le parsing extrait le contenu de chaque balise `<loc>...</loc>` par
-//! recherche de sous-chaines (pas de parser XML), decode les entites basiques
+//! recherche de sous-chaînes (pas de parser XML), decode les entites basiques
 //! (`&amp;`, `&lt;`, `&gt;`, `&quot;`, `&apos;`/`&#39;`), et descend dans les
 //! sitemap index (`<sitemapindex>`) en fetchant chaque sitemap enfant
-//! (max 20). Le resultat est dedoublonne, limite a 50000 URLs http(s).
-//! Toute erreur reseau / parsing renvoie une liste vide ; jamais de panic.
+//! (max 20). Le résultat est dedoublonne, limite a 50000 URLs http(s).
+//! Toute erreur réseau / parsing renvoie une liste vide ; jamais de panic.
 
 use std::collections::HashSet;
 
@@ -38,12 +38,12 @@ pub async fn fetch(client: &reqwest::Client, seed_url: &str) -> Vec<String> {
         None => format!("{scheme}://{host}"),
     };
 
-    // Liste ordonnee des points d'entree sitemap a tenter.
+    // Liste ordonnee des points d'entrée sitemap a tenter.
     let mut entry_points: Vec<String> = vec![
         format!("{origin}/sitemap.xml"),
         format!("{origin}/sitemap_index.xml"),
     ];
-    // Ajoute les sitemaps declares dans robots.txt (peut etre vide).
+    // Ajoute les sitemaps declares dans robots.txt (peut être vide).
     for sm in sitemaps_from_robots(client, &origin).await {
         if !entry_points.contains(&sm) {
             entry_points.push(sm);
@@ -52,7 +52,7 @@ pub async fn fetch(client: &reqwest::Client, seed_url: &str) -> Vec<String> {
 
     let mut pages: Vec<String> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
-    // Evite de re-fetcher deux fois la meme URL de sitemap (index -> enfants).
+    // Évite de re-fetcher deux fois la même URL de sitemap (index -> enfants).
     let mut fetched_sitemaps: HashSet<String> = HashSet::new();
 
     for entry in entry_points {
@@ -75,7 +75,7 @@ pub async fn fetch(client: &reqwest::Client, seed_url: &str) -> Vec<String> {
     pages
 }
 
-/// Telecharge un sitemap, et selon son type :
+/// Télécharge un sitemap, et selon son type :
 ///   - sitemap index (`<sitemapindex>`) : suit chaque `<loc>` enfant (max 20) ;
 ///   - urlset normal : ajoute chaque `<loc>` (URL de page).
 ///
@@ -91,7 +91,7 @@ async fn collect_from_sitemap(
         return;
     }
     if !fetched_sitemaps.insert(sitemap_url.to_string()) {
-        return; // deja traite
+        return; // déjà traite
     }
 
     let body = match fetch_text(client, sitemap_url).await {
@@ -137,8 +137,8 @@ async fn collect_from_sitemap(
     }
 }
 
-/// Lit `robots.txt` et renvoie les URLs declarees via des lignes `Sitemap:`.
-/// Renvoie un vecteur vide en cas d'echec (jamais de panic).
+/// Lit `robots.txt` et renvoie les URLs déclarées via des lignes `Sitemap:`.
+/// Renvoie un vecteur vide en cas d'échec (jamais de panic).
 async fn sitemaps_from_robots(client: &reqwest::Client, origin: &str) -> Vec<String> {
     let robots_url = format!("{origin}/robots.txt");
     let body = match fetch_text(client, &robots_url).await {
@@ -149,7 +149,7 @@ async fn sitemaps_from_robots(client: &reqwest::Client, origin: &str) -> Vec<Str
     let mut out = Vec::new();
     for line in body.lines() {
         let line = line.trim();
-        // Forme attendue : `Sitemap: https://...` (insensible a la casse).
+        // Forme attendue : `Sitemap: https://...` (insensible à la casse).
         if let Some(rest) = strip_prefix_ci(line, "sitemap:") {
             let url = rest.trim();
             if is_http_url(url) {
@@ -160,8 +160,8 @@ async fn sitemaps_from_robots(client: &reqwest::Client, origin: &str) -> Vec<Str
     out
 }
 
-/// GET une URL et renvoie le corps texte si la reponse est un succes (2xx).
-/// Toute erreur (URL, reseau, statut non-2xx, lecture du corps) -> `None`.
+/// GET une URL et renvoie le corps texte si la réponse est un succès (2xx).
+/// Toute erreur (URL, réseau, statut non-2xx, lecture du corps) -> `None`.
 async fn fetch_text(client: &reqwest::Client, url: &str) -> Option<String> {
     let resp = client.get(url).send().await.ok()?;
     if !resp.status().is_success() {
@@ -170,14 +170,14 @@ async fn fetch_text(client: &reqwest::Client, url: &str) -> Option<String> {
     resp.text().await.ok()
 }
 
-/// Detecte un sitemap index a partir de la presence de la balise ouvrante
-/// `<sitemapindex` (insensible a la casse).
+/// Detecte un sitemap index à partir de la présence de la balise ouvrante
+/// `<sitemapindex` (insensible à la casse).
 fn is_sitemap_index(body: &str) -> bool {
     contains_ci(body, "<sitemapindex")
 }
 
 /// Extrait le contenu (trim + entites decodees) de chaque balise
-/// `<loc>...</loc>` du document, par recherche de sous-chaines. Tolere les
+/// `<loc>...</loc>` du document, par recherche de sous-chaînes. Tolere les
 /// espaces et attributs eventuels (`<loc >`, `<loc xml:...>`).
 fn extract_locs(body: &str) -> Vec<String> {
     let lower = body.to_ascii_lowercase();
@@ -189,7 +189,7 @@ fn extract_locs(body: &str) -> Vec<String> {
         // Trouve la fin de la balise ouvrante `>`.
         let after_open = match lower[open_tag..].find('>') {
             Some(gt) => open_tag + gt + 1,
-            None => break, // balise ouvrante non terminee -> stop
+            None => break, // balise ouvrante non terminée -> stop
         };
         // Trouve la balise fermante `</loc>`.
         let rel_close = match lower[after_open..].find("</loc>") {
@@ -208,7 +208,7 @@ fn extract_locs(body: &str) -> Vec<String> {
 }
 
 /// Decode les entites XML/HTML basiques rencontrees dans une URL de sitemap.
-/// Ordre important : `&amp;` doit etre traite en dernier pour ne pas
+/// Ordre important : `&amp;` doit être traite en dernier pour ne pas
 /// re-decoder les `&` issus des autres remplacements.
 fn decode_entities(s: &str) -> String {
     s.replace("&lt;", "<")
@@ -220,19 +220,19 @@ fn decode_entities(s: &str) -> String {
         .replace("&amp;", "&")
 }
 
-/// Vrai si l'URL commence par `http://` ou `https://` (insensible a la casse).
+/// Vrai si l'URL commence par `http://` ou `https://` (insensible à la casse).
 fn is_http_url(s: &str) -> bool {
     let lower = s.trim().to_ascii_lowercase();
     lower.starts_with("http://") || lower.starts_with("https://")
 }
 
-/// `str::contains` insensible a la casse (alloue une copie en minuscules).
+/// `str::contains` insensible à la casse (alloue une copie en minuscules).
 fn contains_ci(haystack: &str, needle_lower: &str) -> bool {
     haystack.to_ascii_lowercase().contains(needle_lower)
 }
 
-/// `str::strip_prefix` insensible a la casse. `prefix_lower` doit etre fourni
-/// deja en minuscules. Renvoie le reste de la chaine (apres le prefixe).
+/// `str::strip_prefix` insensible à la casse. `prefix_lower` doit être fourni
+/// déjà en minuscules. Renvoie le reste de la chaîne (après le prefixe).
 fn strip_prefix_ci<'a>(s: &'a str, prefix_lower: &str) -> Option<&'a str> {
     if s.len() < prefix_lower.len() {
         return None;
@@ -245,9 +245,9 @@ fn strip_prefix_ci<'a>(s: &'a str, prefix_lower: &str) -> Option<&'a str> {
     }
 }
 
-/// Variante autonome : cree son propre client HTTP. Pratique pour un appel
-/// HORS crawl (ex. au demarrage cote Tauri, pour remplir l'onglet Sitemap tout
-/// de suite). Suit jusqu'a 5 redirections.
+/// Variante autonome : crée son propre client HTTP. Pratique pour un appel
+/// HORS crawl (ex. au demarrage côté Tauri, pour remplir l'onglet Sitemap tout
+/// de suite). Suit jusqu'à 5 redirections.
 ///
 /// `connect_timeout` court (8 s, aligne sur `crawler::CONNECT_TIMEOUT`) : ce
 /// fetch precede le crawl, donc sur un domaine dont le DNS ne resout pas il
