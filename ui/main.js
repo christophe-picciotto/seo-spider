@@ -2845,8 +2845,13 @@
         respect_robots: S.multi.config.respect_robots,
         force_chrome: S.multi.config.force_chrome,
         random_ua: S.multi.config.random_user_agent
-      },
-      pagesData: (S.multi.lastRows || []).slice(0, 5000)   // pour la consultation
+      }
+      // PAS de copie des pages ici. Une entrée d'historique embarquait toutes
+      // les pages du crawl (`pagesData`) : sur 100 entrées, le fichier atteignait
+      // des centaines de Mo, relus au démarrage puis re-sérialisés EN ENTIER à
+      // chaque fin de crawl — plusieurs Go de mémoire, et la fenêtre plantait
+      // (« Out of Memory »). Les pages vivent dans `crawls/<site>.json`
+      // (saveCurrentCrawl) ; l'historique ne sert qu'à l'autocomplétion.
     });
 
     // B : enregistre le crawl complet (écrase l'ancien du même site).

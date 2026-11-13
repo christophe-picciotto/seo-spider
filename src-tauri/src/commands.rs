@@ -218,14 +218,128 @@ fn history_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     Ok(dir.join("history.json"))
 }
 
+/// Entrée d'historique ALLÉGÉE : toutes ses clés, sauf `pagesData`.
+///
+/// Jusqu'à la 0.1.0, chaque entrée embarquait la copie intégrale des pages du
+/// crawl (`pagesData`, jusqu'à 5 000 pages). Sur 100 entrées, `history.json`
+/// atteignait des centaines de Mo, que la WebView devait décoder au démarrage
+/// puis re-sérialiser EN ENTIER à chaque fin de crawl : plusieurs Go de
+/// mémoire, et le processus de rendu finissait par planter (« Out of Memory »).
+///
+/// La désérialisation est écrite à la main pour SAUTER `pagesData` sans le
+/// construire ([`serde::de::IgnoredAny`] n'alloue rien) : un fichier de 450 Mo
+/// se réduit à quelques Ko sans jamais matérialiser ses pages en mémoire.
+struct LeanEntry {
+    fields: serde_json::Map<String, serde_json::Value>,
+    /// L'entrée d'origine portait un `pagesData` (donc : fichier à migrer).
+    had_pages: bool,
+}
+
+impl<'de> serde::Deserialize<'de> for LeanEntry {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct EntryVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for EntryVisitor {
+            type Value = LeanEntry;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("une entrée d'historique (objet JSON)")
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<LeanEntry, A::Error> {
+                let mut fields = serde_json::Map::new();
+                let mut had_pages = false;
+                while let Some(key) = map.next_key::<String>()? {
+                    if key == "pagesData" {
+                        map.next_value::<serde::de::IgnoredAny>()?;
+                        had_pages = true;
+                    } else {
+                        fields.insert(key, map.next_value()?);
+                    }
+                }
+                Ok(LeanEntry { fields, had_pages })
+            }
+        }
+
+        deserializer.deserialize_map(EntryVisitor)
+    }
+}
+
+/// Allège un historique brut : retire `pagesData` de chaque entrée. Renvoie le
+/// JSON allégé, et `true` si au moins une entrée en portait un.
+fn slim_history(raw: &[u8]) -> Result<(String, bool), serde_json::Error> {
+    let entries: Vec<LeanEntry> = serde_json::from_slice(raw)?;
+    let had_pages = entries.iter().any(|e| e.had_pages);
+    let fields: Vec<&serde_json::Map<String, serde_json::Value>> =
+        entries.iter().map(|e| &e.fields).collect();
+    Ok((serde_json::to_string(&fields)?, had_pages))
+}
+
+/// Premier nom libre pour conserver un historique d'avant allègement :
+/// `history.avant-allegement.json`, puis `…-2.json`, `…-3.json`. Une copie déjà
+/// présente n'est JAMAIS écrasée.
+fn history_backup_path(path: &std::path::Path) -> std::path::PathBuf {
+    let dir = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let mut n = 1u32;
+    loop {
+        let name = if n == 1 {
+            "history.avant-allegement.json".to_string()
+        } else {
+            format!("history.avant-allegement-{n}.json")
+        };
+        let candidate = dir.join(name);
+        if !candidate.exists() {
+            return candidate;
+        }
+        n += 1;
+    }
+}
+
+/// Lit l'historique et renvoie sa forme ALLÉGÉE (sans `pagesData`) : c'est la
+/// seule que la WebView doit recevoir. "[]" si le fichier est absent ou illisible.
+///
+/// MIGRATION (une seule fois) : si le fichier contenait des `pagesData`, il est
+/// réécrit allégé. L'original n'est pas détruit : il est RENOMMÉ à côté (cf.
+/// [`history_backup_path`]) — ses pages ne sont lues par aucun écran, mais ce
+/// n'est pas à une mise à jour de les effacer. Le fichier peut être supprimé à
+/// la main.
+fn load_history_from(path: &std::path::Path) -> String {
+    let raw = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(_) => return "[]".to_string(),
+    };
+    let (lean, had_pages) = match slim_history(&raw) {
+        Ok(result) => result,
+        // Illisible : le frontend repartait déjà d'une liste vide dans ce cas.
+        // On ne lui envoie surtout pas le fichier brut (il peut être énorme).
+        Err(_) => return "[]".to_string(),
+    };
+    drop(raw);
+
+    if had_pages {
+        // L'original est mis à l'abri AVANT toute réécriture. Si le renommage
+        // échoue (fichier verrouillé par un autre programme…), on ne réécrit
+        // rien ici : la WebView reçoit de toute façon la forme allégée, et
+        // c'est le prochain `save_history` qui l'écrira par-dessus.
+        let backup = history_backup_path(path);
+        if std::fs::rename(path, &backup).is_ok() && std::fs::write(path, &lean).is_err() {
+            // Réécriture impossible : on remet l'original à sa place plutôt
+            // que de laisser l'application sans fichier d'historique.
+            let _ = std::fs::rename(&backup, path);
+        }
+    }
+    lean
+}
+
 /// Charge l'historique (blob JSON) depuis le disque. Renvoie "[]" si absent.
-#[tauri::command]
+///
+/// `async` : exécutée HORS du thread principal. La première lecture d'un ancien
+/// historique volumineux (migration) prend de l'ordre de la seconde ; sur le
+/// thread principal, la fenêtre serait figée pendant ce temps.
+#[tauri::command(async)]
 pub fn load_history(app: AppHandle) -> Result<String, String> {
     let path = history_path(&app)?;
-    match std::fs::read_to_string(&path) {
-        Ok(s) => Ok(s),
-        Err(_) => Ok("[]".to_string()),
-    }
+    Ok(load_history_from(&path))
 }
 
 /// Enregistre l'historique complet (blob JSON) sur le disque (dossier de l'app).
@@ -496,7 +610,103 @@ fn parse_url_list(content: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_url_list;
+    use super::{load_history_from, parse_url_list, slim_history};
+
+    /// Dossier temporaire vide, propre à un test (les tests tournent en parallèle).
+    fn dossier_de_test(nom: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("seo-spider-test-{}-{}", nom, std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// `pagesData` disparaît ; toutes les autres clés ressortent telles quelles.
+    #[test]
+    fn historique_allege_retire_les_pages() {
+        let raw = br#"[
+            {"date":"2026-11-13","url":"https://a.fr","pages":2,"config":{"rps":5},
+             "pagesData":[{"url":"https://a.fr/","seo":{"h1":["x"]}},{"url":"https://a.fr/b"}]},
+            {"url":"https://b.fr","pages":0}
+        ]"#;
+        let (lean, had_pages) = slim_history(raw).unwrap();
+        assert!(had_pages);
+        let value: serde_json::Value = serde_json::from_str(&lean).unwrap();
+        assert_eq!(
+            value,
+            serde_json::json!([
+                {"date":"2026-11-13","url":"https://a.fr","pages":2,"config":{"rps":5}},
+                {"url":"https://b.fr","pages":0}
+            ])
+        );
+    }
+
+    /// Un historique déjà léger ressort identique et n'est pas signalé « à migrer ».
+    #[test]
+    fn historique_deja_leger_inchange() {
+        let raw = br#"[{"url":"https://a.fr","seeds":["https://a.fr","https://b.fr"],"techs":["WordPress"]}]"#;
+        let (lean, had_pages) = slim_history(raw).unwrap();
+        assert!(!had_pages);
+        let avant: serde_json::Value = serde_json::from_slice(raw).unwrap();
+        let apres: serde_json::Value = serde_json::from_str(&lean).unwrap();
+        assert_eq!(avant, apres);
+    }
+
+    /// Fichier tronqué, ou qui n'est pas une liste d'entrées : une erreur, pas de panique.
+    #[test]
+    fn historique_illisible_est_une_erreur() {
+        assert!(slim_history(br#"[{"url":"https://a.fr","pagesData":[{"url":"#).is_err());
+        assert!(slim_history(b"{}").is_err());
+        assert!(slim_history(b"").is_err());
+    }
+
+    /// Migration de bout en bout, sur de vrais fichiers : le fichier est réécrit
+    /// allégé, l'original est conservé octet pour octet, et une copie existante
+    /// n'est jamais écrasée.
+    #[test]
+    fn migration_conserve_l_original() {
+        let dir = dossier_de_test("migration");
+        let path = dir.join("history.json");
+        let copie = dir.join("history.avant-allegement.json");
+        let lourd = r#"[{"url":"https://a.fr","pagesData":[{"url":"https://a.fr/"}]}]"#;
+        std::fs::write(&path, lourd).unwrap();
+
+        let lean = load_history_from(&path);
+        assert_eq!(lean, r#"[{"url":"https://a.fr"}]"#);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), lean);
+        assert_eq!(std::fs::read_to_string(&copie).unwrap(), lourd);
+
+        // Deuxième lecture : plus rien à migrer, donc pas de nouvelle copie.
+        assert_eq!(load_history_from(&path), lean);
+        assert!(!dir.join("history.avant-allegement-2.json").exists());
+
+        // Un historique lourd qui réapparaît part dans une copie NUMÉROTÉE.
+        let lourd_2 = r#"[{"url":"https://b.fr","pagesData":[]}]"#;
+        std::fs::write(&path, lourd_2).unwrap();
+        assert_eq!(load_history_from(&path), r#"[{"url":"https://b.fr"}]"#);
+        assert_eq!(std::fs::read_to_string(&copie).unwrap(), lourd);
+        assert_eq!(
+            std::fs::read_to_string(dir.join("history.avant-allegement-2.json")).unwrap(),
+            lourd_2
+        );
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Fichier absent ou illisible : liste vide, et le fichier n'est pas touché.
+    #[test]
+    fn historique_absent_ou_illisible_donne_une_liste_vide() {
+        let dir = dossier_de_test("illisible");
+        let path = dir.join("history.json");
+        assert_eq!(load_history_from(&path), "[]");
+
+        let casse = r#"[{"url":"https://a.fr","pagesData":[{"#;
+        std::fs::write(&path, casse).unwrap();
+        assert_eq!(load_history_from(&path), "[]");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), casse);
+        assert!(!dir.join("history.avant-allegement.json").exists());
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn parse_liste_simple() {
