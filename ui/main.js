@@ -78,7 +78,7 @@
   // la langue (« 12,3 » en allemand, « 12.3 » en anglais) ; `legacy` = son
   // écriture d'aujourd'hui (toFixed ou String : POINT décimal).
   //
-  // PROVISOIRE — EXCEPTION FRANÇAISE, en attente de la décision de Chris : en
+  // PROVISOIRE — EXCEPTION FRANÇAISE, en attente d'une décision : en
   // français, ces nombres gardent EXACTEMENT leur écriture d'aujourd'hui, point
   // compris (« 12.3 Ko », « 3.4 » p/s, « 12.3 % »). Pour passer au format de la
   // langue en français aussi (« 12,3 Ko »), supprimer la ligne marquée.
@@ -422,8 +422,10 @@
     if (!c) return I18N.t("cachetip.info_no_headers");
     var out = (c.status || "?");
     var meaning = cacheMeaning(c.status);
-    // L'explication d'abord : le code seul ne parle qu'aux inities.
-    if (meaning) out = I18N.t("cachetip.verdict", { status: out, meaning: meaning.replace(/\n/g, " ") });
+    // L'explication d'abord : le code seul ne parle qu'aux inities. Elle est
+    // écrite une phrase par ligne (infobulle) et remise ici sur une seule ; le
+    // japonais ne met pas d'espace après « 。 ».
+    if (meaning) out = I18N.t("cachetip.verdict", { status: out, meaning: meaning.replace(/([。！？])\n/g, "$1").replace(/\n/g, " ") });
     if (c.served_by) {
       out += "  |  " + (c.served_by === "origine"
         ? I18N.t("cachetip.info_served_origin")
@@ -710,8 +712,11 @@
             text: respMs(p) ? String(respMs(p)) : "", sort: respMs(p) },
           { html: '<span class="col-num">' + words + '</span>', text: String(words), sort: words },
           { html: esc(title || "—"), text: title, sort: title },
+          // Colonne étroite : la pastille peut être coupée, ou abrégée par la
+          // langue (« Oui » / « Non ») ; le libellé complet est au survol.
           { html: indexable ? pill("ok", I18N.t("cell.indexable")) : pill("err", I18N.t("cell.non_indexable")),
-            text: indexable ? I18N.t("cell.indexable") : I18N.t("cell.non_indexable"), sort: indexable ? 1 : 0 },
+            text: indexable ? I18N.t("cell.indexable") : I18N.t("cell.non_indexable"), sort: indexable ? 1 : 0,
+            tip: indexable ? I18N.t("cell.indexable_full") : I18N.t("cell.non_indexable_full") },
           { html: '<span class="col-num">' + nout + '</span>', text: String(nout), sort: nout }
         ];
       }
@@ -1189,7 +1194,8 @@
           { html: pill(sevKind(it.severity), sevLabel(it.severity)), text: it.severity, sort: sevRank(it.severity) },
           { html: esc(cat || "—"), text: cat || "", sort: cat || "" },
           { html: urlCellHtml(it.url), text: it.url || "", sort: it.url || "" },
-          { html: esc(message || ""), text: message || "", sort: message || "" }
+          // Le message est souvent plus long que sa colonne : entier au survol.
+          { html: esc(message || ""), text: message || "", sort: message || "", tip: message || "" }
         ];
       }
     },
@@ -1346,11 +1352,32 @@
     return col.labelKey ? I18N.t(col.labelKey) : (col.label || "");
   }
   // Libellé COMPLET : infobulle de l'en-tête, export CSV, barre de sélection.
-  // `titleKey` quand il diffère du libellé court ; en français, les deux sont
-  // le libellé d'aujourd'hui.
+  // Chaque colonne `col.X` a sa clé `col.X_full` : une langue qui doit abréger
+  // un en-tête y garde le mot entier. `titleKey` la désigne quand elle porte un
+  // autre nom ; en français, les deux textes sont le libellé d'aujourd'hui.
+  // Si la langue affichée n'a pas (encore) cette clé, on garde SON libellé court
+  // plutôt que le libellé complet d'une autre langue (repli anglais de I18N.t).
+  function colTitleKey(col) {
+    var key = col.titleKey || (col.labelKey && col.labelKey.indexOf("col.") === 0 ? col.labelKey + "_full" : null);
+    var cur = key && window.SEO_SPIDER_LOCALES && window.SEO_SPIDER_LOCALES[I18N.lang];
+    return key && cur && !Object.prototype.hasOwnProperty.call(cur, key) ? null : key;
+  }
+
+  // Comparaison de deux textes pour le tri, dans la langue affichée (accents,
+  // « ñ », « ı », nombres dans l'ordre des nombres). Le comparateur est gardé
+  // tant que la langue ne change pas : le reconstruire à chaque comparaison
+  // coûtait 2 à 5 s pour 50 000 lignes, contre 0,14 s ainsi, à ordre identique.
+  var textCollator = { lang: null, c: null };
+  function textCompare(a, b) {
+    if (textCollator.lang !== I18N.lang) {
+      textCollator = { lang: I18N.lang, c: new Intl.Collator(I18N.lang, { numeric: true, sensitivity: "base" }) };
+    }
+    return textCollator.c.compare(a, b);
+  }
   function colTitle(col) {
     if (!col) return "";
-    return col.titleKey ? I18N.t(col.titleKey) : colLabel(col);
+    var key = colTitleKey(col);
+    return key ? I18N.t(key) : colLabel(col);
   }
 
   // ----- Textes écrits par le MOTEUR ----------------------------------------
@@ -1737,7 +1764,7 @@
           var va = a.cells[idx].sort, vb = b.cells[idx].sort;
           var cmp;
           if (typeof va === "number" && typeof vb === "number") cmp = va - vb;
-          else cmp = String(va).localeCompare(String(vb), "fr", { numeric: true, sensitivity: "base" });
+          else cmp = textCompare(String(va), String(vb));
           return cmp * dir;
         });
       }
@@ -1766,7 +1793,9 @@
       var clsAttr = classes.length ? ' class="' + classes.join(" ") + '"' : "";
       rows += '<tr data-url="' + esc(rowUrl) + '"' + clsAttr + '>';
       for (var k = 0; k < cells.length; k++) {
-        rows += (rowSel && k === S.sel.col) ? '<td class="is-multi">' : "<td>";
+        // `tip` : texte complet au survol, quand la colonne coupe la cellule.
+        rows += "<td" + ((rowSel && k === S.sel.col) ? ' class="is-multi"' : "") +
+          (cells[k].tip ? ' title="' + esc(cells[k].tip) + '"' : "") + ">";
         rows += cells[k].html + "</td>";
       }
       rows += "</tr>";
@@ -2089,7 +2118,7 @@
     var active = (S.activeTab === "sitemap" && S.sitemapView === view) ? " is-active" : "";
     return '<div class="ov-row' + toneCls + active + '" data-sm="' + view +
            '" data-empty="' + (n ? 0 : 1) + '">' +
-           '<span class="ov-label">' + esc(label) + '</span>' +
+           '<span class="ov-label" title="' + esc(label) + '">' + esc(label) + '</span>' +
            '<span class="ov-count">' + n + '</span></div>';
   }
 
@@ -2105,9 +2134,12 @@
         var n = countFor(row.pred);
         var toneCls = n > 0 ? (" ov-" + row.tone) : "";
         var activeCls = (S.catId === row.id) ? " is-active" : "";
+        // Le libellé finit par « … » quand le compteur prend la place (grands
+        // nombres, langues aux mots longs) : il se lit entier au survol.
+        var rowLabel = I18N.t(row.labelKey);
         html += '<div class="ov-row' + toneCls + activeCls + '" data-cat="' + row.id +
                 '" data-tab="' + grp.tab + '" data-empty="' + (n ? 0 : 1) + '">' +
-                '<span class="ov-label">' + esc(I18N.t(row.labelKey)) + '</span>' +
+                '<span class="ov-label" title="' + esc(rowLabel) + '">' + esc(rowLabel) + '</span>' +
                 '<span class="ov-count">' + n + '</span></div>';
       }
       html += '</div>';
@@ -2248,7 +2280,8 @@
     var def = TABS[S.activeTab];
     var c = def && def.columns[S.sel.col];
     if (!c) return "";
-    if (c.titleKey) return msg(c.titleKey);
+    var key = colTitleKey(c);
+    if (key) return msg(key);
     return c.labelKey ? msg(c.labelKey) : (c.label || "");
   }
 
@@ -3619,7 +3652,7 @@
         mapped.sort(function (a, b) {
           var va = a[idx].sort, vb = b[idx].sort, cmp;
           if (typeof va === "number" && typeof vb === "number") cmp = va - vb;
-          else cmp = String(va).localeCompare(String(vb), "fr", { numeric: true, sensitivity: "base" });
+          else cmp = textCompare(String(va), String(vb));
           return cmp * dir;
         });
       }

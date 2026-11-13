@@ -11,6 +11,22 @@ explore le site (BFS) et mesure pour chaque page :
 Les résultats arrivent en streaming dans l'interface (une ligne par page, totaux
 en direct, barres de poids relatif).
 
+## Langues
+
+L'interface existe en **douze langues** : français, anglais, espagnol, allemand,
+italien, portugais (Portugal et Brésil), polonais, néerlandais, turc, russe et
+japonais. Tant qu'on n'en a pas choisi une, l'application suit la langue de
+Windows quand elle fait partie des douze, et se met en anglais sinon. Le bouton
+à drapeau, à côté de « Réglages », la change à tout moment, sans redémarrer ; le
+choix est mémorisé.
+
+L'installeur Windows `-setup.exe` (NSIS) propose les mêmes douze langues ; le
+`.msi` est en anglais.
+
+Les textes sont dans `ui/locales/`, un fichier par langue ; `en.js` porte, pour
+chaque texte, une note de contexte destinée aux traducteurs (rédigée en
+français).
+
 ---
 
 ## Architecture

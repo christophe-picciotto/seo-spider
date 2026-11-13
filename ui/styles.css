@@ -1023,3 +1023,13 @@ body.is-resizing-detail { user-select: none; cursor: ns-resize; }
    hors français, « max » se traduit par un mot plus long (« макс. », « maks. »)
    et le nombre peut prendre un autre séparateur : 140 px au lieu de 118. */
 .setting input.is-locked:not(:lang(fr)) { width: 140px; }
+
+/* Japonais : l'écriture n'a pas d'espaces, et le navigateur coupe alors une
+   ligne n'importe où, y compris au milieu d'un mot (« 保存済 / み »). Avec
+   « auto-phrase », il ne coupe qu'entre deux groupes de sens. Posé sur la
+   racine : la propriété s'hérite. Les valeurs du panneau Infos ont leur propre
+   règle (elles coupent n'importe où, pour les longues adresses) : en japonais
+   elles suivent aussi les groupes de sens, et ne coupent un long mot latin
+   (adresse, empreinte) qu'en dernier recours. */
+html:lang(ja) { word-break: auto-phrase; }
+html:lang(ja) .kv-val { word-break: auto-phrase; overflow-wrap: anywhere; }

@@ -185,8 +185,8 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "ctx.open": "Open address in browser",
   // Infobulle du bouton de choix de la langue (drapeau + nom de la langue, à côté de « Réglages ») et nom de sa liste pour les lecteurs d'écran.
   "lang.title": "Interface language",
-  // Première entrée de la liste des langues : suivre la langue de Windows. {name} = nom de la langue détectée, écrit dans sa propre langue (« English », « Deutsch »), affiché en gris.
-  "lang.auto": "Automatic ({name})",
+  // Première entrée de la liste des langues : suivre la langue de Windows. {name} = nom de la langue détectée, écrit dans sa propre langue (« English », « Deutsch »), affiché en gris. PAS de parenthèses autour de {name} : certains noms de langue en contiennent déjà (« Português (Brasil) »). Ponctuation de votre langue (deux-points ou tiret).
+  "lang.auto": "Automatic: {name}",
   // Infobulle de l'entrée « Automatique » de la liste des langues.
   "lang.auto_title": "Follow the Windows display language",
 
@@ -353,10 +353,14 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "cachetip.info_layers": "layers: {layers}",
   // Infobulle d'une adresse (URL) dans la grille et le panneau de détail, sous l'URL complète.
   "cell.url_open_hint": "Double-click: open in browser",
-  // Pastille de la colonne Indexable (onglet Internal) et valeur de son export CSV.
-  "cell.indexable": "Indexable",
-  // Pastille de la colonne Indexable : la page n'est pas indexable.
-  "cell.non_indexable": "Non-Indexable",
+  // Pastille de la colonne Indexable (onglet Internal) et valeur de son export CSV. COLONNE ÉTROITE : environ 48 px de texte à 1100 px, 70 px à 1400 px. Si le mot ne tient pas, ou si les deux valeurs (indexable / non indexable) commencent par les mêmes lettres, mettez une valeur COURTE : le « Oui » / « Non » de votre langue, comme cell.yes / cell.no. Le libellé complet va dans cell.indexable_full (infobulle de la pastille). L'anglais dit « Yes » / « No » (mesuré dans la vraie fenêtre : « Non-Indexable » y était coupé en « Non-Inde ») ; le français garde provisoirement le mot entier.
+  "cell.indexable": "Yes",
+  // Infobulle de la pastille cell.indexable : libellé COMPLET, sans limite de place.
+  "cell.indexable_full": "Indexable",
+  // Pastille de la colonne Indexable : la page n'est pas indexable. COLONNE ÉTROITE : environ 48 px de texte à 1100 px, 70 px à 1400 px. Si le mot ne tient pas, ou si les deux valeurs (indexable / non indexable) commencent par les mêmes lettres, mettez une valeur COURTE : le « Oui » / « Non » de votre langue, comme cell.yes / cell.no. Le libellé complet va dans cell.non_indexable_full (infobulle de la pastille). L'anglais dit « Yes » / « No » (mesuré dans la vraie fenêtre : « Non-Indexable » y était coupé en « Non-Inde ») ; le français garde provisoirement le mot entier.
+  "cell.non_indexable": "No",
+  // Infobulle de la pastille cell.non_indexable : libellé COMPLET, sans limite de place.
+  "cell.non_indexable_full": "Non-Indexable",
   // Valeur « oui » avec majuscule : pastilles (colonne Dupliqué, Indexable de l'onglet Directives), panneau Infos, exports CSV. Court.
   "cell.yes": "Yes",
   // Valeur « non » avec majuscule (mêmes places que cell.yes). Court.
@@ -395,18 +399,24 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "cell.crawled": "Crawled",
   // En-tête de la colonne des URL (1re colonne de presque tous les onglets, 3e de l'onglet Problèmes), et de l'export CSV. Place : 164 px de texte au plus étroit (environ 25 lettres). Vocabulaire Screaming Frog.
   "col.address": "Address",
+  // Infobulle de l'en-tête col.address, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.address n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.address_full": "Address",
   // En-tête de colonne (onglets Internal et Response Codes) : code de réponse HTTP. COLONNE ÉTROITE : environ 43 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 65 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. Le libellé complet est dans col.status_code_full.
   "col.status_code": "Status",
   // Infobulle de l'en-tête col.status_code, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place. En français : le libellé affiché.
   "col.status_code_full": "Status Code",
   // En-tête de colonne (onglet Internal) : verdict de cache HIT/MISS. COLONNE ÉTROITE : environ 43 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 65 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. L'infobulle et l'export CSV reprennent ce libellé.
   "col.cache": "Cache",
+  // Infobulle de l'en-tête col.cache, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.cache n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.cache_full": "Cache",
   // En-tête de colonne (onglet Internal) : qui a réellement servi la page (Cloudflare, origine…). COLONNE ÉTROITE : environ 43 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 65 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. Le libellé complet est dans col.served_by_full.
   "col.served_by": "Served",
   // Infobulle de l'en-tête col.served_by, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place. En français : le libellé affiché.
   "col.served_by_full": "Served By",
   // En-tête de colonne (onglets Internal et Response Codes) : type de contenu (HTML, CSS, PDF…). COLONNE ÉTROITE : environ 43 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 65 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. L'infobulle et l'export CSV reprennent ce libellé.
   "col.content_type": "Type",
+  // Infobulle de l'en-tête col.content_type, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.content_type n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.content_type_full": "Type",
   // En-tête de colonne (onglets Internal et Bande passante) : temps de réponse de la page, pastille colorée en ms ou s. COLONNE ÉTROITE : environ 43 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 65 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. Le libellé complet est dans col.speed_full.
   "col.speed": "Speed",
   // Infobulle de l'en-tête col.speed, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place. En français : le libellé affiché.
@@ -417,84 +427,160 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "col.words_full": "Word Count",
   // En-tête de colonne (onglets Internal et Page Titles) : balise <title> de la page. En français aussi le mot anglais « Title » (vocabulaire Screaming Frog) ; à adapter si la langue a un terme SEO courant. COLONNE ÉTROITE : environ 43 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 65 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. L'infobulle et l'export CSV reprennent ce libellé.
   "col.title": "Title",
+  // Infobulle de l'en-tête col.title, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.title n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.title_full": "Title",
   // En-tête de colonne (onglets Internal et Directives) : la page est-elle indexable. COLONNE ÉTROITE : environ 43 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 65 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. Le libellé complet est dans col.indexable_full.
   "col.indexable": "Index.",
   // Infobulle de l'en-tête col.indexable, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place. En français : le libellé affiché.
   "col.indexable_full": "Indexable",
   // En-tête de colonne (onglet Internal) : nombre de liens sortants. Terme Screaming Frog conservé en français. COLONNE ÉTROITE : environ 43 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 65 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. « Outlinks » occupe toute la place disponible : une traduction plus longue sera abrégée. L'infobulle et l'export CSV reprennent ce libellé.
   "col.outlinks": "Outlinks",
+  // Infobulle de l'en-tête col.outlinks, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.outlinks n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.outlinks_full": "Outlinks",
   // En-tête de colonne (onglet Response Codes) : cible de la redirection. Place : environ 164 px de texte à 1100 px (environ 25 lettres).
   "col.redirect_to": "Redirect URL",
+  // Infobulle de l'en-tête col.redirect_to, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.redirect_to n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.redirect_to_full": "Redirect URL",
   // En-tête de colonne (onglets URL, Page Titles, Meta Description) : longueur en caractères. Place : environ 74 px de texte à 1100 px (10-11 lettres), 106 px à 1400 px. Rester court.
   "col.length": "Length",
+  // Infobulle de l'en-tête col.length, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.length n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.length_full": "Length",
   // En-tête de colonne (onglet URL) : l'URL contient des caractères non ASCII (oui/—). Place : environ 74 px de texte à 1100 px (10-11 lettres), 106 px à 1400 px. Rester court.
   "col.non_ascii": "Non-ASCII",
+  // Infobulle de l'en-tête col.non_ascii, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.non_ascii n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.non_ascii_full": "Non-ASCII",
   // En-tête de colonne (onglet URL) : l'URL contient des « _ » (oui/—). Place : environ 74 px de texte à 1100 px (10-11 lettres), 106 px à 1400 px. Rester court.
   "col.underscores": "Underscores",
+  // Infobulle de l'en-tête col.underscores, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.underscores n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.underscores_full": "Underscores",
   // En-tête de colonne (onglet URL) : l'URL contient des majuscules (oui/—). Place : environ 74 px de texte à 1100 px (10-11 lettres), 106 px à 1400 px. Rester court.
   "col.uppercase": "Uppercase",
+  // Infobulle de l'en-tête col.uppercase, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.uppercase n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.uppercase_full": "Uppercase",
   // En-tête de colonne (onglet URL) : l'URL contient des barres obliques doublées. Garder « // ». Place : environ 74 px de texte à 1100 px (10-11 lettres), 106 px à 1400 px. Rester court.
   "col.slashes": "Slashes //",
+  // Infobulle de l'en-tête col.slashes, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.slashes n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.slashes_full": "Slashes //",
   // En-tête de colonne (onglet URL) : l'URL contient des paramètres (?a=b). Place : environ 74 px de texte à 1100 px (10-11 lettres), 106 px à 1400 px. Rester court.
   "col.parameters": "Parameters",
+  // Infobulle de l'en-tête col.parameters, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.parameters n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.parameters_full": "Parameters",
   // En-tête de colonne (onglet Sécurité) : nombre de ressources http:// chargées par une page https://. Place : environ 164 px de texte à 1100 px (environ 25 lettres).
   "col.mixed_content": "Mixed Content",
+  // Infobulle de l'en-tête col.mixed_content, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.mixed_content n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.mixed_content_full": "Mixed Content",
   // En-tête de colonne (onglet Sécurité) : en-têtes HTTP de sécurité absents. Place : environ 164 px de texte à 1100 px (environ 25 lettres).
   "col.missing_headers": "Missing Headers",
+  // Infobulle de l'en-tête col.missing_headers, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.missing_headers n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.missing_headers_full": "Missing Headers",
   // En-tête de colonne (onglets Page Titles, Meta Description, H1) : la valeur se retrouve à l'identique sur une autre page. Place : environ 119 px de texte à 1100 px (17-18 lettres).
   "col.duplicate": "Duplicate",
+  // Infobulle de l'en-tête col.duplicate, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.duplicate n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.duplicate_full": "Duplicate",
   // En-tête de colonne (onglets Page Titles, Meta Description, H1, Images) : Manquant / Court / Long / OK. Place : environ 119 px de texte à 1100 px (17-18 lettres).
   "col.state": "Status",
+  // Infobulle de l'en-tête col.state, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.state n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.state_full": "Status",
   // En-tête de colonne (onglet Meta Description) : contenu de la balise meta description. Place : environ 119 px de texte à 1100 px (17-18 lettres).
   "col.meta_description": "Meta Description",
+  // Infobulle de l'en-tête col.meta_description, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.meta_description n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.meta_description_full": "Meta Description",
   // En-tête de colonne (onglet H1) : texte du premier titre H1. Place : environ 119 px de texte à 1100 px (17-18 lettres).
   "col.first_h1": "First H1",
+  // Infobulle de l'en-tête col.first_h1, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.first_h1 n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.first_h1_full": "First H1",
   // En-tête de colonne (onglet H1) : nombre de balises H1 de la page. Place : environ 119 px de texte à 1100 px (17-18 lettres).
   "col.count": "Count",
+  // Infobulle de l'en-tête col.count, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.count n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.count_full": "Count",
   // En-tête de colonne (onglet Contenu) : pages quasi dupliquées. Abréviation anglaise conservée en français. Place : environ 255 px de texte à 1100 px.
   "col.near_dup": "Near-dup",
+  // Infobulle de l'en-tête col.near_dup, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.near_dup n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.near_dup_full": "Near Duplicates",
   // En-tête de colonne (onglets Images et Bande passante) : nombre d'images. COLONNE ÉTROITE : environ 43 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 65 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. L'infobulle et l'export CSV reprennent ce libellé.
   "col.images": "Images",
+  // Infobulle de l'en-tête col.images, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.images n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.images_full": "Images",
   // En-tête de colonne (onglet Images) : nombre d'images sans attribut alt (« alt » = attribut HTML). Place : environ 164 px de texte à 1100 px (environ 25 lettres).
   "col.missing_alt": "Missing Alt Text",
+  // Infobulle de l'en-tête col.missing_alt, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.missing_alt n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.missing_alt_full": "Missing Alt Text",
   // En-tête de colonne (onglet Canonicals) : URL de la balise canonical. Place : environ 255 px de texte à 1100 px.
   "col.canonical": "Canonical",
+  // Infobulle de l'en-tête col.canonical, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.canonical n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.canonical_full": "Canonical",
   // En-tête de colonne (onglet Canonicals) : Self / Autre / Manquant. Place : environ 255 px de texte à 1100 px.
   "col.canonical_type": "Type",
+  // Infobulle de l'en-tête col.canonical_type, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.canonical_type n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.canonical_type_full": "Type",
   // En-tête de colonne (onglet Directives) : contenu de la balise meta robots. Place : environ 74 px de texte à 1100 px (10-11 lettres), 106 px à 1400 px. Rester court.
   "col.meta_robots": "Meta Robots",
+  // Infobulle de l'en-tête col.meta_robots, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.meta_robots n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.meta_robots_full": "Meta Robots",
   // En-tête de colonne (onglet Directives) : la page déclare une canonical vers une autre URL (oui/—). Place : environ 74 px de texte à 1100 px (10-11 lettres), 106 px à 1400 px. Rester court. (« Canonicalised » occupe 73 px : la limite.)
   "col.canonicalised": "Canonicalised",
+  // Infobulle de l'en-tête col.canonicalised, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.canonicalised n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.canonicalised_full": "Canonicalised",
   // En-tête de colonne (onglet Hreflang) : liste « langue -> URL ». Garder « lang -> href ». Place : environ 255 px de texte à 1100 px.
   "col.hreflang": "Hreflang (lang -> href)",
+  // Infobulle de l'en-tête col.hreflang, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.hreflang n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.hreflang_full": "Hreflang (lang -> href)",
   // En-tête de colonne (onglet Hreflang) : les pages visées renvoient-elles un hreflang vers celle-ci (OK / Manquant). Place : environ 255 px de texte à 1100 px.
   "col.reciprocal": "Return Links",
+  // Infobulle de l'en-tête col.reciprocal, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.reciprocal n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.reciprocal_full": "Return Links",
   // En-tête de colonne (onglet Structured Data) : types schema.org détectés. Place : environ 164 px de texte à 1100 px (environ 25 lettres).
   "col.types": "Types",
+  // Infobulle de l'en-tête col.types, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.types n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.types_full": "Types",
   // En-tête de colonne (onglet Structured Data) : données structurées valides (oui/non). Place : environ 164 px de texte à 1100 px (environ 25 lettres).
   "col.valid": "Valid",
+  // Infobulle de l'en-tête col.valid, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.valid n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.valid_full": "Valid",
   // En-tête de colonne (onglet Structured Data) : nombre d'erreurs de données structurées. Place : environ 164 px de texte à 1100 px (environ 25 lettres).
   "col.errors": "Errors",
+  // Infobulle de l'en-tête col.errors, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.errors n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.errors_full": "Errors",
   // En-tête de la 1re colonne de l'onglet Liens : page qui contient le lien. Place : environ 289 px de texte à 1100 px (1re colonne).
   "col.source": "Source",
+  // Infobulle de l'en-tête col.source, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.source n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.source_full": "Source",
   // En-tête de colonne (onglet Liens) : URL visée par le lien. Place : environ 119 px de texte à 1100 px (17-18 lettres).
   "col.destination": "Destination",
+  // Infobulle de l'en-tête col.destination, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.destination n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.destination_full": "Destination",
   // En-tête de colonne (onglet Liens) : texte d'ancre du lien. Place : environ 119 px de texte à 1100 px (17-18 lettres).
   "col.anchor": "Anchor Text",
+  // Infobulle de l'en-tête col.anchor, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.anchor n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.anchor_full": "Anchor Text",
   // En-tête de colonne (onglet Liens) : Interne / Externe. Place : environ 119 px de texte à 1100 px (17-18 lettres).
   "col.link_type": "Type",
+  // Infobulle de l'en-tête col.link_type, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.link_type n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.link_type_full": "Type",
   // En-tête de la 1re colonne de l'onglet Problèmes : Critique / Avertissement / Opportunité / Info. Place : environ 289 px de texte à 1100 px (1re colonne).
   "col.severity": "Severity",
+  // Infobulle de l'en-tête col.severity, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.severity n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.severity_full": "Severity",
   // En-tête de colonne (onglet Problèmes) : catégorie du problème (Titres, Images…). Place : environ 164 px de texte à 1100 px (environ 25 lettres).
   "col.category": "Category",
+  // Infobulle de l'en-tête col.category, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.category n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.category_full": "Category",
   // En-tête de colonne (onglet Problèmes) : description du problème SEO. Place : environ 164 px de texte à 1100 px (environ 25 lettres).
   "col.message": "Message",
+  // Infobulle de l'en-tête col.message, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.message n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.message_full": "Message",
   // En-tête de colonne (onglet Sitemap) : Crawlée / Orpheline / Hors sitemap. Place : environ 255 px de texte à 1100 px.
   "col.sitemap_state": "Status",
+  // Infobulle de l'en-tête col.sitemap_state, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.sitemap_state n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.sitemap_state_full": "Status",
   // En-tête de colonne (onglet Sitemap) : code de réponse HTTP. Place : environ 255 px de texte à 1100 px.
   "col.http_code": "HTTP Code",
+  // Infobulle de l'en-tête col.http_code, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.http_code n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.http_code_full": "HTTP Code",
   // En-tête de colonne (onglet Bande passante) : technologies détectées (WordPress, Next.js…). Abréviation. COLONNE ÉTROITE : environ 43 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 65 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. L'infobulle et l'export CSV reprennent ce libellé.
   "col.tech": "Tech",
+  // Infobulle de l'en-tête col.tech, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.tech n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.tech_full": "Technologies",
   // En-tête de colonne (onglet Bande passante) : poids total transféré par la page. COLONNE ÉTROITE : environ 43 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 65 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. Le libellé complet est dans col.total_size_full.
   "col.total_size": "Size",
   // Infobulle de l'en-tête col.total_size, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place. En français : le libellé affiché.
@@ -513,6 +599,8 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "col.cache_miss_full": "Cache MISS",
   // En-tête de colonne (onglet Bande passante) : méthode de mesure, HTTP ou Chrome. COLONNE ÉTROITE : environ 43 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 65 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. L'infobulle et l'export CSV reprennent ce libellé.
   "col.probe": "Probe",
+  // Infobulle de l'en-tête col.probe, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.probe n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  "col.probe_full": "Probe",
   // État d'un title (pastille, onglet Page Titles) : la page n'a pas de <title>.
   "state.title_missing": "Missing",
   // État d'un title : moins de 30 caractères.
@@ -699,7 +787,7 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "detail.k_total_size": "Total Size",
   // Libellé de ligne du panneau Infos : nombre de requêtes HTTP.
   "detail.k_requests": "Requests",
-  // Valeur de la ligne « Requêtes » : {total} = requêtes, {dyn} = dont requêtes dynamiques.
+  // Valeur de la ligne « Requêtes » : {total} = requêtes, {dyn} = dont requêtes dynamiques. ATTENTION : {dyn} peut valoir 0, 1 ou plus et la phrase n'a qu'UNE forme : employez une tournure INVARIABLE (abréviation comme le français « dyn. », ou « libellé : nombre »), jamais un adjectif qui s'accorde en nombre (« 1 dinâmicos » est faux).
   "detail.requests_value": "{total} ({dyn} dynamic)",
   // Libellé de ligne du panneau Infos : cible de la redirection.
   "detail.k_redirect_to": "Redirects To",
