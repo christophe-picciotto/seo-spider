@@ -46,6 +46,7 @@ use governor::{Quota, RateLimiter};
 use tokio::sync::Mutex;
 use url::Url;
 
+use crate::codes::PageError;
 use crate::report::{
     AssetReport, CrawlConfig, CrawlProgress, CrawlSummary, PageReport, TypeStat,
 };
@@ -830,13 +831,14 @@ async fn process_one_page<P, G>(
             .unwrap_or_else(|| url.clone());
         if !robots.allowed(&path) {
             // (déjà marque visite ci-dessus : une seule emission par URL)
-            let report = PageReport {
+            let mut report = PageReport {
                 url: url.clone(),
                 status: 0,
                 measured_with: "http".to_string(),
-                error: Some("Bloque par robots.txt".to_string()),
                 ..Default::default()
             };
+            // « Bloque par robots.txt » + son code (cf. `codes::PageError`).
+            report.set_error(&PageError::RobotsBlocked);
             emit_report(state, on_page, on_progress, report, &url).await;
             return;
         }
@@ -896,7 +898,7 @@ async fn process_one_page<P, G>(
         Ok(p) => p,
         Err(e) => {
             // Page en erreur : on emet un rapport minimal et on continue.
-            let report = PageReport {
+            let mut report = PageReport {
                 url: url.clone(),
                 status: 0,
                 tech: Vec::new(),
@@ -908,9 +910,10 @@ async fn process_one_page<P, G>(
                 vercel_cache_misses: 0,
                 images: Vec::new(),
                 measured_with: "http".to_string(),
-                error: Some(format!("sonde HTTP echouee: {e}")),
                 ..Default::default()
             };
+            // « sonde HTTP echouee: {e} » + son code ; `e` (reqwest) reste tel quel.
+            report.set_error(&PageError::HttpProbeFailed(e.to_string()));
             emit_report(state, on_page, on_progress, report, &url).await;
             return;
         }
@@ -933,7 +936,7 @@ async fn process_one_page<P, G>(
     // On tente d'abord la mesure navigateur si demandee/nécessaire, en notant
     // toute raison d'échec pour basculer proprement sur le repli HTTP statique.
     let mut report: Option<PageReport> = None;
-    let mut chrome_error: Option<String> = None;
+    let mut chrome_error: Option<PageError> = None;
 
     if use_chrome {
         // Accès au navigateur partage : on serialise UNIQUEMENT les mesures Chrome.
@@ -948,8 +951,7 @@ async fn process_one_page<P, G>(
                     *state.browser_handle.lock().await = Some(h);
                 }
                 Err(e) => {
-                    chrome_error =
-                        Some(format!("lancement Chrome impossible, repli HTTP statique: {e}"));
+                    chrome_error = Some(PageError::ChromeLaunchFailed(e.to_string()));
                 }
             }
         }
@@ -959,8 +961,7 @@ async fn process_one_page<P, G>(
             match crate::chrome_probe::measure_page(b, &url, profile).await {
                 Ok(r) => report = Some(r),
                 Err(e) => {
-                    chrome_error =
-                        Some(format!("mesure Chrome echouee, repli HTTP statique: {e}"));
+                    chrome_error = Some(PageError::ChromeMeasureFailed(e.to_string()));
                 }
             }
         }
@@ -982,9 +983,11 @@ async fn process_one_page<P, G>(
                 &state.asset_cache,
             )
             .await;
-            // Si on visait Chrome mais qu'on a du se replier, on documente pourquoi.
+            // Si on visait Chrome mais qu'on a du se replier, on documente pourquoi
+            // (« lancement Chrome impossible, repli HTTP statique: {e} » ou
+            // « mesure Chrome echouee, repli HTTP statique: {e} », + leur code).
             if let Some(err) = chrome_error {
-                http_report.error = Some(err);
+                http_report.set_error(&err);
             }
             http_report
         }

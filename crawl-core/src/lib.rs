@@ -1,4 +1,5 @@
 pub mod report;
+pub mod codes;
 pub mod techno;
 pub mod http_probe;
 pub mod chrome_probe;

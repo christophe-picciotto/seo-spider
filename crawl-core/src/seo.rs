@@ -4,9 +4,11 @@
 //! structured data out of raw HTML; `analyze` applies Screaming-Frog-style
 //! rules to produce a list of actionable issues.
 
+use crate::codes::{issue, params};
 use crate::report::SeoData;
-use crate::report::{Hreflang, Issue, PageReport};
+use crate::report::{Hreflang, Issue, PageReport, TextParams};
 use scraper::{ElementRef, Html, Selector};
+use std::borrow::Cow;
 use url::Url;
 
 /// Nombre maximal de `src` d'images sans alt conserves par page.
@@ -581,56 +583,74 @@ pub fn analyze(report: &PageReport) -> Vec<Issue> {
         None => return Vec::new(),
     };
 
+    // Chaque problème porte, à côté de sa phrase française (INCHANGÉE : elle est
+    // enregistrée dans les crawls, et `category` sert d'identifiant aux filtres),
+    // un code stable et ses paramètres, dont l'interface tire sa traduction.
+    // Cf. `codes`. Les phrases sont verrouillées par les tests de ce module.
     let mut issues: Vec<Issue> = Vec::new();
-    let mut push = |severity: &str, category: &str, message: String| {
+    // Le code est une constante : emprunté, jamais copié (`Cow::Borrowed`).
+    let mut push = |severity: &str, category: &str, code: &'static str, message: String, params: TextParams| {
         issues.push(Issue {
             url: report.url.clone(),
             severity: severity.to_string(),
             category: category.to_string(),
             message,
+            code: Cow::Borrowed(code),
+            params,
         });
     };
+    let none = TextParams::new;
 
     // --- Response code ----------------------------------------------------
     if report.status >= 400 {
-        push("critical", "Réponse", format!("Code réponse {}", report.status));
+        push("critical", "Réponse", issue::STATUS_ERROR, format!("Code réponse {}", report.status),
+            params(&[("status", report.status.into())]));
     } else if report.status >= 300 {
-        push("warning", "Réponse", format!("Redirection {}", report.status));
+        push("warning", "Réponse", issue::REDIRECT, format!("Redirection {}", report.status),
+            params(&[("status", report.status.into())]));
     }
 
     // --- Title ------------------------------------------------------------
     let has_title = seo.title.as_deref().map(|t| !t.is_empty()).unwrap_or(false);
     if !has_title {
-        push("critical", "Titres", "Title manquant".to_string());
+        push("critical", "Titres", issue::TITLE_MISSING, "Title manquant".to_string(), none());
     } else if seo.title_len > 60 {
-        push("warning", "Titres", format!("Title trop long ({} car.)", seo.title_len));
+        push("warning", "Titres", issue::TITLE_TOO_LONG, format!("Title trop long ({} car.)", seo.title_len),
+            params(&[("len", seo.title_len.into())]));
     } else if seo.title_len < 30 {
-        push("opportunity", "Titres", format!("Title court ({})", seo.title_len));
+        push("opportunity", "Titres", issue::TITLE_TOO_SHORT, format!("Title court ({})", seo.title_len),
+            params(&[("len", seo.title_len.into())]));
     }
 
     // --- Meta description -------------------------------------------------
     let has_desc = seo.meta_description.as_deref().map(|d| !d.is_empty()).unwrap_or(false);
     if !has_desc {
-        push("warning", "Meta description", "Meta description manquante".to_string());
+        push("warning", "Meta description", issue::META_DESC_MISSING,
+            "Meta description manquante".to_string(), none());
     } else if seo.meta_description_len > 160 {
         push(
             "warning",
             "Meta description",
+            issue::META_DESC_TOO_LONG,
             format!("Meta description trop longue ({})", seo.meta_description_len),
+            params(&[("len", seo.meta_description_len.into())]),
         );
     } else if seo.meta_description_len < 70 {
         push(
             "opportunity",
             "Meta description",
+            issue::META_DESC_TOO_SHORT,
             format!("Meta description courte ({})", seo.meta_description_len),
+            params(&[("len", seo.meta_description_len.into())]),
         );
     }
 
     // --- H1 ---------------------------------------------------------------
     if seo.h1_count == 0 {
-        push("warning", "H1", "H1 manquant".to_string());
+        push("warning", "H1", issue::H1_MISSING, "H1 manquant".to_string(), none());
     } else if seo.h1_count > 1 {
-        push("warning", "H1", format!("{} H1 (devrait être unique)", seo.h1_count));
+        push("warning", "H1", issue::H1_MULTIPLE, format!("{} H1 (devrait être unique)", seo.h1_count),
+            params(&[("n", seo.h1_count.into())]));
     }
 
     // --- Images -----------------------------------------------------------
@@ -638,18 +658,20 @@ pub fn analyze(report: &PageReport) -> Vec<Issue> {
         push(
             "opportunity",
             "Images",
+            issue::IMAGES_MISSING_ALT,
             format!("{} image(s) sans attribut alt", seo.images_missing_alt),
+            params(&[("n", seo.images_missing_alt.into())]),
         );
     }
 
     // --- Directives -------------------------------------------------------
     if seo.noindex {
-        push("warning", "Directives", "Page en noindex".to_string());
+        push("warning", "Directives", issue::NOINDEX, "Page en noindex".to_string(), none());
     }
 
     // --- Canonical --------------------------------------------------------
     if seo.canonical.is_none() {
-        push("opportunity", "Canonical", "Canonical manquant".to_string());
+        push("opportunity", "Canonical", issue::CANONICAL_MISSING, "Canonical manquant".to_string(), none());
     }
 
     // --- Canonical : page canonicalisée (pointe vers une autre URL) -------
@@ -657,20 +679,22 @@ pub fn analyze(report: &PageReport) -> Vec<Issue> {
         push(
             "warning",
             "Canonical",
+            issue::CANONICALISED,
             "Page canonicalisée (non-indexable)".to_string(),
+            none(),
         );
     }
 
     // --- Directives : X-Robots-Tag noindex (en-tête HTTP) -----------------
     if let Some(xrt) = seo.x_robots_tag.as_deref() {
         if xrt.to_ascii_lowercase().contains("noindex") {
-            push("warning", "Directives", "X-Robots-Tag noindex".to_string());
+            push("warning", "Directives", issue::X_ROBOTS_NOINDEX, "X-Robots-Tag noindex".to_string(), none());
         }
     }
 
     // --- Pagination -------------------------------------------------------
     if seo.pagination_next.is_some() || seo.pagination_prev.is_some() {
-        push("info", "Pagination", "Page paginee".to_string());
+        push("info", "Pagination", issue::PAGINATED, "Page paginee".to_string(), none());
     }
 
     // --- Données structurees ----------------------------------------------
@@ -683,7 +707,9 @@ pub fn analyze(report: &PageReport) -> Vec<Issue> {
         push(
             "warning",
             "Données structurees",
+            issue::SD_INVALID,
             format!("Données structurees invalides ({})", first),
+            params(&[("detail", first.as_str().into())]),
         );
     }
 
@@ -693,17 +719,21 @@ pub fn analyze(report: &PageReport) -> Vec<Issue> {
             push(
                 "warning",
                 "Sécurité",
+                issue::MIXED_CONTENT,
                 format!(
                     "Contenu mixte ({} ressources http)",
                     security.mixed_content.len()
                 ),
+                params(&[("n", security.mixed_content.len().into())]),
             );
         }
         for header in &security.missing_headers {
             push(
                 "info",
                 "Sécurité",
+                issue::SECURITY_HEADER_MISSING,
                 format!("En-tête sécurité manquant: {}", header),
+                params(&[("header", header.as_str().into())]),
             );
         }
     }
@@ -711,16 +741,17 @@ pub fn analyze(report: &PageReport) -> Vec<Issue> {
     // --- URL : qualité de l'URL -------------------------------------------
     if let Some(flags) = report.url_flags.as_ref() {
         if flags.non_ascii {
-            push("info", "URL", "URL avec caractères non-ASCII".to_string());
+            push("info", "URL", issue::URL_NON_ASCII, "URL avec caractères non-ASCII".to_string(), none());
         }
         if flags.length > 115 {
-            push("opportunity", "URL", format!("URL longue ({})", flags.length));
+            push("opportunity", "URL", issue::URL_TOO_LONG, format!("URL longue ({})", flags.length),
+                params(&[("len", flags.length.into())]));
         }
         if flags.uppercase {
-            push("info", "URL", "URL avec majuscules".to_string());
+            push("info", "URL", issue::URL_UPPERCASE, "URL avec majuscules".to_string(), none());
         }
         if flags.underscores {
-            push("info", "URL", "URL avec underscores".to_string());
+            push("info", "URL", issue::URL_UNDERSCORES, "URL avec underscores".to_string(), none());
         }
     }
 
@@ -767,5 +798,247 @@ mod tests {
 
         assert_eq!(seo.images_missing_alt as usize, MAX_MISSING_ALT_URLS + 50);
         assert_eq!(seo.images_missing_alt_urls.len(), MAX_MISSING_ALT_URLS);
+    }
+
+    // --- Codes des problèmes (chantier i18n) -------------------------------
+    //
+    // Les phrases et les catégories ci-dessous sont des VALEURS ENREGISTRÉES dans
+    // les crawls de l'utilisateur, relues par les anciennes versions et filtrées
+    // par l'interface : elles ne doivent pas bouger d'un caractère, accents
+    // manquants compris. L'interface traduit à partir du code et des paramètres.
+
+    use crate::codes::{render, template_of, ISSUE_TEXTS_FR};
+    use crate::report::{SecurityData, UrlFlags};
+    use std::collections::{BTreeMap, HashSet};
+
+    /// Trois pages qui déclenchent, à elles trois, chaque problème une fois.
+    fn pages_qui_declenchent_tout() -> Vec<PageReport> {
+        let page = |status: u16, seo: SeoData| PageReport {
+            url: "https://exemple.fr/".to_string(),
+            status,
+            seo: Some(seo),
+            ..Default::default()
+        };
+
+        // A : tout ce qui manque, plus toutes les alertes de sécurité et d'URL.
+        let mut a = page(404, SeoData {
+            title: None,
+            meta_description: None,
+            h1_count: 0,
+            images_missing_alt: 3,
+            noindex: true,
+            canonical: None,
+            x_robots_tag: Some("noindex, nofollow".to_string()),
+            pagination_next: Some("https://exemple.fr/?page=2".to_string()),
+            structured_data_valid: false,
+            structured_data_errors: vec!["Bloc 1: @type manquant".to_string()],
+            ..Default::default()
+        });
+        a.security = Some(SecurityData {
+            https: true,
+            mixed_content: vec!["http://a.fr/x.js".to_string(), "http://a.fr/y.css".to_string()],
+            missing_headers: vec!["X-Frame-Options".to_string()],
+        });
+        a.url_flags = Some(UrlFlags {
+            length: 130,
+            non_ascii: true,
+            underscores: true,
+            uppercase: true,
+            ..Default::default()
+        });
+
+        // B : trop longs, multiples, redirection, page canonicalisée.
+        let b = page(301, SeoData {
+            title: Some("x".repeat(72)),
+            title_len: 72,
+            meta_description: Some("y".repeat(172)),
+            meta_description_len: 172,
+            h1_count: 2,
+            canonical: Some("https://exemple.fr/autre/".to_string()),
+            canonicalised: true,
+            structured_data_valid: true,
+            ..Default::default()
+        });
+
+        // C : trop courts.
+        let c = page(200, SeoData {
+            title: Some("Court".to_string()),
+            title_len: 25,
+            meta_description: Some("Courte".to_string()),
+            meta_description_len: 59,
+            h1_count: 1,
+            canonical: Some("https://exemple.fr/".to_string()),
+            structured_data_valid: true,
+            ..Default::default()
+        });
+        vec![a, b, c]
+    }
+
+    /// Chaque problème produit porte un code connu, chaque code est produit, et
+    /// les sévérités, catégories et phrases sont exactement celles d'avant.
+    #[test]
+    fn chaque_probleme_porte_un_code_et_les_valeurs_n_ont_pas_bouge() {
+        let attendu: BTreeMap<&str, (&str, &str, &str)> = [
+            (issue::STATUS_ERROR, ("critical", "Réponse", "Code réponse 404")),
+            (issue::REDIRECT, ("warning", "Réponse", "Redirection 301")),
+            (issue::TITLE_MISSING, ("critical", "Titres", "Title manquant")),
+            (issue::TITLE_TOO_LONG, ("warning", "Titres", "Title trop long (72 car.)")),
+            (issue::TITLE_TOO_SHORT, ("opportunity", "Titres", "Title court (25)")),
+            (issue::META_DESC_MISSING, ("warning", "Meta description", "Meta description manquante")),
+            (issue::META_DESC_TOO_LONG, ("warning", "Meta description", "Meta description trop longue (172)")),
+            (issue::META_DESC_TOO_SHORT, ("opportunity", "Meta description", "Meta description courte (59)")),
+            (issue::H1_MISSING, ("warning", "H1", "H1 manquant")),
+            (issue::H1_MULTIPLE, ("warning", "H1", "2 H1 (devrait être unique)")),
+            (issue::IMAGES_MISSING_ALT, ("opportunity", "Images", "3 image(s) sans attribut alt")),
+            (issue::NOINDEX, ("warning", "Directives", "Page en noindex")),
+            (issue::CANONICAL_MISSING, ("opportunity", "Canonical", "Canonical manquant")),
+            (issue::CANONICALISED, ("warning", "Canonical", "Page canonicalisée (non-indexable)")),
+            (issue::X_ROBOTS_NOINDEX, ("warning", "Directives", "X-Robots-Tag noindex")),
+            (issue::PAGINATED, ("info", "Pagination", "Page paginee")),
+            (
+                issue::SD_INVALID,
+                ("warning", "Données structurees", "Données structurees invalides (Bloc 1: @type manquant)"),
+            ),
+            (issue::MIXED_CONTENT, ("warning", "Sécurité", "Contenu mixte (2 ressources http)")),
+            (
+                issue::SECURITY_HEADER_MISSING,
+                ("info", "Sécurité", "En-tête sécurité manquant: X-Frame-Options"),
+            ),
+            (issue::URL_NON_ASCII, ("info", "URL", "URL avec caractères non-ASCII")),
+            (issue::URL_TOO_LONG, ("opportunity", "URL", "URL longue (130)")),
+            (issue::URL_UPPERCASE, ("info", "URL", "URL avec majuscules")),
+            (issue::URL_UNDERSCORES, ("info", "URL", "URL avec underscores")),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(attendu.len(), issue::ALL.len());
+
+        let mut vus: BTreeMap<String, Issue> = BTreeMap::new();
+        for p in pages_qui_declenchent_tout() {
+            for it in analyze(&p) {
+                assert!(issue::ALL.contains(&it.code.as_ref()), "code absent ou inconnu : {it:?}");
+                // Code emprunté à la constante : aucune allocation par problème.
+                assert!(matches!(it.code, Cow::Borrowed(_)), "code alloué : {it:?}");
+                assert!(vus.insert(it.code.to_string(), it.clone()).is_none(), "code produit deux fois : {}", it.code);
+            }
+        }
+        let codes_vus: HashSet<&str> = vus.keys().map(|c| c.as_str()).collect();
+        let codes_tous: HashSet<&str> = issue::ALL.iter().copied().collect();
+        assert_eq!(codes_vus, codes_tous, "un code n'est jamais produit par les pages de test");
+
+        for (code, it) in &vus {
+            let (severite, categorie, message) = attendu[code.as_str()];
+            assert_eq!(it.severity, severite, "{code}");
+            assert_eq!(it.category, categorie, "{code}");
+            assert_eq!(it.message, message, "{code}");
+            // Le code et les paramètres suffisent à reconstruire la phrase : c'est
+            // tout ce que voit l'interface quand elle traduit.
+            assert_eq!(render(template_of(ISSUE_TEXTS_FR, code), &it.params), it.message, "{code}");
+        }
+
+        // Nombres en nombres, détails en texte (I18N choisit le pluriel sur un nombre).
+        assert_eq!(vus["title_too_long"].params["len"], serde_json::json!(72));
+        assert_eq!(vus["images_missing_alt"].params["n"], serde_json::json!(3));
+        assert_eq!(vus["security_header_missing"].params["header"], serde_json::json!("X-Frame-Options"));
+        assert_eq!(vus["sd_invalid"].params["detail"], serde_json::json!("Bloc 1: @type manquant"));
+        assert!(vus["title_missing"].params.is_empty());
+    }
+
+    /// Les 23 problèmes s'écrivent, AU CARACTÈRE PRÈS, comme avec la première
+    /// forme des champs ajoutés (`code: String`, `params: BTreeMap<String,
+    /// Value>`), remplacée le 13/11/2026 par une forme compacte (constat P2-1 de
+    /// la relecture) : même JSON, donc mêmes crawls enregistrés.
+    #[test]
+    fn json_des_problemes_identique_a_la_premiere_forme() {
+        #[derive(serde::Serialize)]
+        struct IssuePremiereForme {
+            url: String,
+            severity: String,
+            category: String,
+            message: String,
+            #[serde(skip_serializing_if = "String::is_empty")]
+            code: String,
+            #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+            params: BTreeMap<String, serde_json::Value>,
+        }
+        let mut n = 0;
+        for p in pages_qui_declenchent_tout() {
+            for it in analyze(&p) {
+                let avant = IssuePremiereForme {
+                    url: it.url.clone(),
+                    severity: it.severity.clone(),
+                    category: it.category.clone(),
+                    message: it.message.clone(),
+                    code: it.code.to_string(),
+                    params: it.params.iter().map(|(k, v)| (k.to_string(), v.clone())).collect(),
+                };
+                assert_eq!(
+                    serde_json::to_string(&it).unwrap(),
+                    serde_json::to_string(&avant).unwrap(),
+                    "{}",
+                    it.code
+                );
+                n += 1;
+            }
+        }
+        assert_eq!(n, issue::ALL.len());
+    }
+
+    /// Les catégories sont des identifiants (filtres, regroupements) : la liste
+    /// complète est figée.
+    #[test]
+    fn categories_figees() {
+        let mut cats: Vec<String> = Vec::new();
+        for p in pages_qui_declenchent_tout() {
+            for it in analyze(&p) {
+                if !cats.contains(&it.category) {
+                    cats.push(it.category);
+                }
+            }
+        }
+        cats.sort();
+        let mut attendu = vec![
+            "Réponse", "Titres", "Meta description", "H1", "Images", "Directives",
+            "Canonical", "Pagination", "Données structurees", "Sécurité", "URL",
+        ];
+        attendu.sort();
+        assert_eq!(cats, attendu);
+    }
+
+    /// Les erreurs de données structurées sont des textes figés (l'interface les
+    /// reconnaît à leur valeur) ; la première est recopiée dans le problème.
+    #[test]
+    fn erreurs_de_donnees_structurees_figees() {
+        let html = r#"<html><head>
+            <script type="application/ld+json">{ pas du json</script>
+            <script type="application/ld+json">{"@context":"https://schema.org"}</script>
+            <script type="application/ld+json">{"@type":"Thing"}</script>
+            <script type="application/ld+json">{"@context":"https://schema.org","@type":"Thing"}</script>
+        </head><body></body></html>"#;
+        let seo = extract_seo(html, "https://exemple.fr/", Some("exemple.fr"));
+        assert!(!seo.structured_data_valid);
+        assert_eq!(
+            seo.structured_data_errors,
+            vec!["Bloc 1: JSON invalide", "Bloc 2: @type manquant", "Bloc 3: @context manquant"]
+        );
+
+        let report = PageReport { url: "https://exemple.fr/".to_string(), status: 200, seo: Some(seo), ..Default::default() };
+        let it = analyze(&report).into_iter().find(|i| i.code == issue::SD_INVALID).unwrap();
+        assert_eq!(it.message, "Données structurees invalides (Bloc 1: JSON invalide)");
+        assert_eq!(it.params["detail"], serde_json::json!("Bloc 1: JSON invalide"));
+    }
+
+    /// Repli historique : données invalides sans erreur listée -> « (erreur) ».
+    #[test]
+    fn donnees_structurees_invalides_sans_detail() {
+        let report = PageReport {
+            url: "https://exemple.fr/".to_string(),
+            status: 200,
+            seo: Some(SeoData { structured_data_valid: false, ..Default::default() }),
+            ..Default::default()
+        };
+        let it = analyze(&report).into_iter().find(|i| i.code == issue::SD_INVALID).unwrap();
+        assert_eq!(it.message, "Données structurees invalides (erreur)");
+        assert_eq!(it.params["detail"], serde_json::json!("erreur"));
     }
 }

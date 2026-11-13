@@ -24,17 +24,94 @@
   // site". DOIT rester aligne sur `HARD_MAX_PAGES` (crawl-core/src/crawler.rs) :
   // cette valeur n'est qu'un LIBELLÉ, elle ne limite rien côté UI.
   var MAX_PAGES_HARD = 200000;
-  var MAX_PAGES_HARD_LABEL = MAX_PAGES_HARD.toLocaleString("fr-FR");
+  // Libellé du plafond au format de nombre de la langue (« 200 000 » en
+  // français). Calculé à chaque affichage : la langue peut changer à chaud.
+  function maxPagesHardLabel() { return I18N.fmtNumber(MAX_PAGES_HARD); }
+
+  // =========================================================================
+  // Traduction (window.I18N, chargé avant ce fichier : voir ui/i18n.js)
+  // =========================================================================
+  // Un texte gardé dans l'état (barre d'état, message bref…) est une CLÉ et ses
+  // paramètres, jamais la phrase : au changement de langue, il se recalcule.
+  // Un paramètre peut être lui-même un message (ex. « 3 site(s) »).
+  function msg(key, params) { return { key: key, params: params || null }; }
+  function msgText(m) {
+    if (!m) return "";
+    if (typeof m === "string") return m;
+    var p = null;
+    if (m.params) {
+      p = {};
+      for (var k in m.params) {
+        if (!Object.prototype.hasOwnProperty.call(m.params, k)) continue;
+        var v = m.params[k];
+        p[k] = (v && typeof v === "object" && v.key) ? msgText(v) : v;
+      }
+    }
+    return I18N.t(m.key, p);
+  }
+  // Texte traduit destiné à du HTML : le texte (et ses paramètres ordinaires)
+  // est échappé, les paramètres de `html` sont insérés tels quels — ce sont
+  // déjà des fragments HTML (badges, liens, <strong>). Une clé par phrase,
+  // même quand un morceau de la phrase est mis en forme.
+  function tHtml(key, params, html) {
+    var p = {}, k;
+    if (params) for (k in params) if (Object.prototype.hasOwnProperty.call(params, k)) p[k] = params[k];
+    if (html) for (k in html) if (Object.prototype.hasOwnProperty.call(html, k)) p[k] = "\u0000" + k + "\u0000";
+    var s = esc(I18N.t(key, p));
+    if (html) for (k in html) if (Object.prototype.hasOwnProperty.call(html, k)) s = s.split("\u0000" + k + "\u0000").join(html[k]);
+    return s;
+  }
+
+  // Séparateur décimal de la langue (« , » en français), mémorisé jusqu'au
+  // prochain changement de langue.
+  var decimalSepCache = null;
+  function decimalSep() {
+    if (decimalSepCache === null) decimalSepCache = String(I18N.fmtNumber(1.5)).replace(/[0-9]/g, "") || ".";
+    return decimalSepCache;
+  }
+  // Nombre à `digits` décimales : les chiffres de toFixed, le séparateur de la
+  // langue. Remplace les anciens `toFixed(n).replace(".", ",")` : en
+  // français, le résultat est identique.
+  function fmtDecimal(x, digits) { return x.toFixed(digits).replace(".", decimalSep()); }
+
+  // Nombre à décimales des poids, du débit et du ratio texte/code, au format de
+  // la langue (« 12,3 » en allemand, « 12.3 » en anglais) ; `legacy` = son
+  // écriture d'aujourd'hui (toFixed ou String : POINT décimal).
+  //
+  // PROVISOIRE — EXCEPTION FRANÇAISE, en attente de la décision de Chris : en
+  // français, ces nombres gardent EXACTEMENT leur écriture d'aujourd'hui, point
+  // compris (« 12.3 Ko », « 3.4 » p/s, « 12.3 % »). Pour passer au format de la
+  // langue en français aussi (« 12,3 Ko »), supprimer la ligne marquée.
+  //
+  // Formateur mémorisé par langue et par nombre de décimales : appelé avec des
+  // options, I18N.fmtNumber construit un Intl.NumberFormat à chaque appel
+  // (≈ 10 µs mesurées), et l'onglet Bande passante en demande deux par ligne.
+  // Même résultat : Intl.NumberFormat(I18N.lang, options), I18N.fmtNumber en repli.
+  var decFmt = { lang: null, map: {} };
+  function fmtDec(x, minDigits, maxDigits, legacy) {
+    if (I18N.lang === "fr") return legacy;   // PROVISOIRE : exception française, à retirer
+    var opts = { minimumFractionDigits: minDigits, maximumFractionDigits: maxDigits };
+    if (decFmt.lang !== I18N.lang) decFmt = { lang: I18N.lang, map: {} };
+    var k = minDigits + ":" + maxDigits;
+    if (!Object.prototype.hasOwnProperty.call(decFmt.map, k)) {
+      try { decFmt.map[k] = new Intl.NumberFormat(I18N.lang, opts); } catch (e) { decFmt.map[k] = null; }
+    }
+    return decFmt.map[k] ? decFmt.map[k].format(x) : I18N.fmtNumber(x, opts);
+  }
 
   // =========================================================================
   // Utilitaires de formatage
   // =========================================================================
+  // Unité de la langue (o/Ko/Mo/Go en français) ; nombre au format de la
+  // langue, sauf en français où il garde son point d'aujourd'hui (cf. fmtDec).
   function fmtBytes(bytes) {
-    if (!bytes || bytes < 0) return "0 o";
-    if (bytes < 1024) return bytes + " o";
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " Ko";
-    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + " Mo";
-    return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " Go";
+    if (!bytes || bytes < 0) return I18N.t("unit.bytes", { n: 0 });
+    if (bytes < 1024) return I18N.t("unit.bytes", { n: bytes });
+    var x;
+    if (bytes < 1024 * 1024) { x = bytes / 1024; return I18N.t("unit.kb", { n: fmtDec(x, 1, 1, x.toFixed(1)) }); }
+    if (bytes < 1024 * 1024 * 1024) { x = bytes / (1024 * 1024); return I18N.t("unit.mb", { n: fmtDec(x, 2, 2, x.toFixed(2)) }); }
+    x = bytes / (1024 * 1024 * 1024);
+    return I18N.t("unit.gb", { n: fmtDec(x, 2, 2, x.toFixed(2)) });
   }
   // Echappe le HTML (titres/meta peuvent contenir < > & " issus du site).
   function esc(v) {
@@ -72,44 +149,46 @@
     return "http--muted";
   }
 
-  // Explication (sens + impact SEO) de chaque code HTTP, pour l'infobulle au survol.
+  // Explication (sens + impact SEO) de chaque code HTTP, pour l'infobulle au
+  // survol : code -> clé de traduction.
   var HTTP_EXPLAIN = {
-    0:   "Pas de réponse : page inaccessible, bloquée par robots.txt, ou erreur réseau / délai dépassé.",
-    200: "OK : la page répond normalement.",
-    201: "Créé : la ressource a été créée avec succès.",
-    204: "Aucun contenu : réponse valide mais sans corps.",
-    206: "Contenu partiel : réponse fragmentée (requête Range).",
-    301: "Redirection permanente : la page a définitivement déménagé. Le jus SEO est transmis à la cible — pensez à mettre à jour les liens.",
-    302: "Redirection temporaire : déplacement provisoire. Le jus SEO n'est pas (ou peu) transmis. Si le changement est définitif, préférez un 301.",
-    303: "Voir ailleurs : redirige vers une autre URL (typiquement après un POST).",
-    304: "Non modifié : la version en cache est encore valide, rien n'est retéléchargé.",
-    307: "Redirection temporaire stricte : comme 302, mais conserve la méthode HTTP.",
-    308: "Redirection permanente stricte : comme 301 (transmet le jus SEO), mais conserve la méthode HTTP.",
-    400: "Requête invalide : le serveur n'a pas compris la requête.",
-    401: "Authentification requise : il faut être connecté pour accéder à la page.",
-    403: "Accès interdit : le serveur refuse l'accès (droits, pare-feu, blocage de robot). Vérifiez que Googlebot n'est pas bloqué.",
-    404: "Introuvable : la page n'existe pas (lien cassé). À corriger — rediriger en 301 ou retirer les liens entrants.",
-    405: "Méthode non autorisée : la méthode HTTP (GET, POST…) n'est pas permise ici.",
-    406: "Non acceptable : le serveur ne peut pas fournir le format demandé.",
-    408: "Délai de requête dépassé : le serveur a trop attendu.",
-    410: "Supprimé définitivement : page retirée volontairement (désindexation plus forte qu'un 404).",
-    418: "Je suis une théière (clin d'oeil ; serveur facétieux).",
-    429: "Trop de requêtes : le serveur limite le débit. Ralentissez le crawl (baissez Req/sec).",
-    451: "Indisponible pour raisons légales.",
-    500: "Erreur serveur interne : bug ou panne côté serveur. À corriger en priorité (bloque l'indexation).",
-    501: "Non implémenté : le serveur ne gère pas cette fonctionnalité.",
-    502: "Passerelle invalide : un serveur intermédiaire a reçu une réponse invalide.",
-    503: "Service indisponible : serveur surchargé ou en maintenance. Temporaire, mais à surveiller.",
-    504: "Délai de passerelle dépassé : un serveur intermédiaire n'a pas répondu à temps."
+    0:   "http.explain_0",
+    200: "http.explain_200",
+    201: "http.explain_201",
+    204: "http.explain_204",
+    206: "http.explain_206",
+    301: "http.explain_301",
+    302: "http.explain_302",
+    303: "http.explain_303",
+    304: "http.explain_304",
+    307: "http.explain_307",
+    308: "http.explain_308",
+    400: "http.explain_400",
+    401: "http.explain_401",
+    403: "http.explain_403",
+    404: "http.explain_404",
+    405: "http.explain_405",
+    406: "http.explain_406",
+    408: "http.explain_408",
+    410: "http.explain_410",
+    418: "http.explain_418",
+    429: "http.explain_429",
+    451: "http.explain_451",
+    500: "http.explain_500",
+    501: "http.explain_501",
+    502: "http.explain_502",
+    503: "http.explain_503",
+    504: "http.explain_504"
   };
+  // Le code en tête (« 404 · … ») est une étiquette, pas un mot de la phrase.
   function httpExplain(status) {
     var s = parseInt(status, 10) || 0;
-    if (HTTP_EXPLAIN[s]) return s + " · " + HTTP_EXPLAIN[s];
-    if (s >= 200 && s < 300) return s + " · Succès (2xx) : la requête a abouti.";
-    if (s >= 300 && s < 400) return s + " · Redirection (3xx) : la ressource est ailleurs.";
-    if (s >= 400 && s < 500) return s + " · Erreur client (4xx) : page absente, accès refusé, etc.";
-    if (s >= 500)            return s + " · Erreur serveur (5xx) : problème côté serveur.";
-    return s + " · Code inhabituel.";
+    if (HTTP_EXPLAIN[s]) return s + " · " + I18N.t(HTTP_EXPLAIN[s]);
+    if (s >= 200 && s < 300) return s + " · " + I18N.t("http.class_2xx");
+    if (s >= 300 && s < 400) return s + " · " + I18N.t("http.class_3xx");
+    if (s >= 400 && s < 500) return s + " · " + I18N.t("http.class_4xx");
+    if (s >= 500)            return s + " · " + I18N.t("http.class_5xx");
+    return s + " · " + I18N.t("http.unusual");
   }
   // Cellule "Code HTTP" : pastille colorée + infobulle explicative au survol.
   function httpCodeHtml(status) {
@@ -122,11 +201,12 @@
   function respMs(p) {
     return p && p.response_time_ms != null ? (p.response_time_ms || 0) : 0;
   }
-  // Formate un temps : "<n> ms" si < 1000 ms, sinon "<x,x> s" (virgule FR).
+  // Formate un temps : "<n> ms" si < 1000 ms, sinon "<x,x> s" (séparateur
+  // décimal de la langue : virgule en français).
   function fmtSpeed(ms) {
     ms = ms || 0;
-    if (ms < 1000) return ms + " ms";
-    return (ms / 1000).toFixed(1).replace(".", ",") + " s";
+    if (ms < 1000) return I18N.t("unit.ms", { n: ms });
+    return I18N.t("unit.s", { n: fmtDecimal(ms / 1000, 1) });
   }
   // Classe de couleur facon "rapidite" : vert <=500 ms, orange <=1500 ms,
   // rouge au-dela. Renvoie "" si pas de mesure (0) pour rester neutre.
@@ -174,7 +254,8 @@
   }
 
   // Qui a RÉELLEMENT servi la page : "Cloudflare", "HiveCache", "WP Rocket"...
-  // ou "origine" quand la requête est allée jusqu'au serveur.
+  // ou "origine" quand la requête est allée jusqu'au serveur. Valeur BRUTE du
+  // moteur (comparée telle quelle) ; l'affichage passe par engineCacheText().
   function cacheServedBy(p) {
     var c = cacheOf(p);
     return c && c.served_by ? String(c.served_by) : "";
@@ -184,52 +265,40 @@
   // « est alle chercher plus loin ». C'est la seule chose qu'on veut savoir
   // en lisant la liste des couches.
   function layerRole(st) {
-    if (st === "HIT" || st === "EDGE" || st === "STALE" || st === "UPDATING") return "a fourni la page";
-    if (st === "MISS" || st === "EXPIRED") return "n'avait pas la page";
-    if (st === "REVALIDATED") return "a vérifié auprès du serveur";
-    if (st === "BYPASS") return "a été contourne";
-    if (st === "DYNAMIC") return "ne met pas cette page en cache";
-    if (!st) return "présent, sans indication";
+    if (st === "HIT" || st === "EDGE" || st === "STALE" || st === "UPDATING") return I18N.t("cachetip.role_served");
+    if (st === "MISS" || st === "EXPIRED") return I18N.t("cachetip.role_missing");
+    if (st === "REVALIDATED") return I18N.t("cachetip.role_revalidated");
+    if (st === "BYPASS") return I18N.t("cachetip.role_bypassed");
+    if (st === "DYNAMIC") return I18N.t("cachetip.role_dynamic");
+    if (!st) return I18N.t("cachetip.role_unknown");
     return "";
   }
 
   // Une couche formatee : « Cloudflare : MISS — n'avait pas la page ».
   function layerText(l) {
     if (!l) return "";
-    var t = (l.engine || l.header || "?") + " : " + (l.raw || l.status || "?");
+    var engine = engineCacheText(l.engine || l.header || "?");
+    var raw = engineCacheText(l.raw || l.status || "?");
     var role = layerRole(l.status);
-    if (role) t += "  — " + role;
-    return t;
+    return role ? I18N.t("cachetip.layer_role", { engine: engine, raw: raw, role: role })
+                : I18N.t("cachetip.layer", { engine: engine, raw: raw });
   }
 
   // Phrase expliquant un verdict, en francais et sans jargon. C'est elle qui
   // ouvre l'infobulle : le code technique ne dit rien a qui ne le connait pas.
   function cacheMeaning(st) {
     switch (st) {
-      case "HIT":
-        return "Page servie depuis le cache : le serveur n'a pas été sollicité.";
-      case "MISS":
-        return "Le cache n'avait pas la page : le serveur a dû la générer.";
-      case "EDGE":
-        return "Page hébergée sur le réseau Cloudflare (Pages / Workers).\n" +
-               "Il n'y a pas de serveur d'origine a solliciter : ni HIT ni MISS possibles.";
-      case "EXPIRED":
-        return "Le cache avait la page mais périmée : il est allé la revalider auprès du serveur.";
-      case "REVALIDATED":
-        return "Le cache a vérifié sa copie auprès du serveur, qui l'a confirmée à jour.";
-      case "STALE":
-        return "Page servie périmée pendant que le cache la rafraîchit en arrière-plan.";
-      case "UPDATING":
-        return "Page servie périmée, sa mise à jour est en cours.";
-      case "BYPASS":
-        return "Le cache a été contourne : une règle, un cookie ou un en-tête l'a interdit.";
-      case "DYNAMIC":
-        return "Cloudflare ne met pas cette page en cache : aucune règle ne la couvre.\n" +
-               "Chaque visite atteint le serveur.";
-      case "PRERENDER":
-        return "Page pré-générée servie telle quelle.";
-      case "NONE":
-        return "Aucune mise en cache pour cette réponse.";
+      case "HIT":         return I18N.t("cachetip.meaning_hit");
+      case "MISS":        return I18N.t("cachetip.meaning_miss");
+      case "EDGE":        return I18N.t("cachetip.meaning_edge");
+      case "EXPIRED":     return I18N.t("cachetip.meaning_expired");
+      case "REVALIDATED": return I18N.t("cachetip.meaning_revalidated");
+      case "STALE":       return I18N.t("cachetip.meaning_stale");
+      case "UPDATING":    return I18N.t("cachetip.meaning_updating");
+      case "BYPASS":      return I18N.t("cachetip.meaning_bypass");
+      case "DYNAMIC":     return I18N.t("cachetip.meaning_dynamic");
+      case "PRERENDER":   return I18N.t("cachetip.meaning_prerender");
+      case "NONE":        return I18N.t("cachetip.meaning_none");
       default:
         return "";
     }
@@ -243,9 +312,9 @@
   // et `cfOrigin` est la plus parlante : a zero, le serveur n'a pas été touche.
   function serverTimingLines(raw) {
     var LABELS = {
-      cfedge:   "au point de présence Cloudflare le plus proche",
-      cforigin: "sur le serveur d'origine",
-      cfworker: "dans un Worker (code exécute sur le réseau Cloudflare)",
+      cfedge:   "cachetip.timing_edge",
+      cforigin: "cachetip.timing_origin",
+      cfworker: "cachetip.timing_worker",
       cfcachestatus: null
     };
     var out = [];
@@ -257,10 +326,12 @@
       var ms = parseFloat(m[2]);
       var label = LABELS[key];
       if (!label) continue;
-      var line = "   " + ms + " ms  " + label;
+      // Colonnes d'un petit tableau texte : durée, puis étape du trajet. La durée
+      // peut avoir des décimales (« dur=0.5 ») : format de la langue (cf. fmtDec).
+      var line = "   " + I18N.t("unit.ms", { n: fmtDec(ms, 0, 3, String(ms)) }) + "  " + I18N.t(label);
       // La ligne qui repond à la question qu'on se pose vraiment.
       if (key === "cforigin") {
-        line += ms > 0 ? "  <- il a travaille" : "  <- il n'a pas été sollicité";
+        line += "  " + (ms > 0 ? I18N.t("cachetip.origin_worked") : I18N.t("cachetip.origin_idle"));
       }
       out.push(line);
     }
@@ -270,27 +341,32 @@
   // Infobulle : le verdict explique en clair, puis qui a servi, puis le detail
   // technique. C'est le desaccord entre couches qui est parlant (CDN MISS +
   // cache d'origine HIT).
+  // Mémorisée par objet cache et par langue : l'infobulle est demandée deux
+  // fois par ligne (colonnes Cache et Servi par) à chaque rendu, et ne dépend
+  // que des données de la page. Une WeakMap n'ajoute rien aux pages (qui sont
+  // enregistrées telles quelles dans crawls/*.json).
+  var cacheTitleMemo = typeof WeakMap === "function" ? new WeakMap() : null;
   function cacheTitle(p) {
     var c = cacheOf(p);
-    if (!c) {
-      return "Aucun en-tête de cache dans la réponse.\n" +
-             "Impossible de conclure — et ce n'est PAS un MISS : " +
-             "le serveur n'a simplement rien dit à ce sujet.";
-    }
+    if (!c) return I18N.t("cachetip.no_headers");
+    var memoOk = cacheTitleMemo && typeof c === "object";   // une WeakMap n'accepte que des objets
+    var memo = memoOk && cacheTitleMemo.get(c);
+    if (memo && memo.lang === I18N.lang) return memo.text;
     var parts = [];
 
     // 1) Le verdict, en toutes lettres.
     var meaning = cacheMeaning(c.status);
-    parts.push(c.status ? (c.status + (meaning ? " — " + meaning : "")) : "Statut indetermine.");
+    parts.push(c.status ? (meaning ? I18N.t("cachetip.verdict", { status: c.status, meaning: meaning }) : c.status)
+                        : I18N.t("cachetip.status_unknown"));
 
     // 2) Qui a fourni la page.
     if (c.served_by) {
       parts.push("");
       parts.push(c.served_by === "origine"
-        ? "Servi par : le serveur d'origine (aucun cache n'a repondu)"
-        : "Servi par : " + c.served_by);
+        ? I18N.t("cachetip.served_origin")
+        : I18N.t("cachetip.served_by", { who: engineCacheText(c.served_by) }));
     }
-    if (c.age != null) parts.push("En cache depuis : " + fmtAge(c.age));
+    if (c.age != null) parts.push(I18N.t("cachetip.age", { age: fmtAge(c.age) }));
 
     // 3) Le detail technique, traduit quand c'est possible.
     var st = (c.source === "server-timing") ? c.raw : null;
@@ -304,7 +380,7 @@
       var lines = serverTimingLines(st);
       if (lines.length) {
         parts.push("");
-        parts.push("Temps mesures par Cloudflare :");
+        parts.push(I18N.t("cachetip.timings_title"));
         parts = parts.concat(lines);
       }
     }
@@ -313,7 +389,7 @@
     var layers = Array.isArray(c.layers) ? c.layers : [];
     if (layers.length > 1) {
       parts.push("");
-      parts.push("Couches traversees, de l'extérieur vers le serveur :");
+      parts.push(I18N.t("cachetip.layers_title"));
       for (var i = 0; i < layers.length; i++) {
         parts.push("   " + (i + 1) + ". " + layerText(layers[i]));
       }
@@ -322,38 +398,43 @@
     // 5) La source, pour qui veut verifier.
     if (c.source) {
       parts.push("");
-      parts.push("(lu dans l'en-tête " + c.source + ")");
+      parts.push(I18N.t("cachetip.read_from", { header: c.source }));
     }
-    return parts.join("\n");
+    var text = parts.join("\n");
+    if (memoOk) cacheTitleMemo.set(c, { lang: I18N.lang, text: text });
+    return text;
   }
 
   // Age lisible : secondes, minutes, heures ou jours.
   function fmtAge(s) {
     s = s || 0;
-    if (s < 60) return s + " s";
-    if (s < 3600) return Math.round(s / 60) + " min";
-    if (s < 86400) return (s / 3600).toFixed(1).replace(".", ",") + " h";
-    return (s / 86400).toFixed(1).replace(".", ",") + " j";
+    if (s < 60) return I18N.t("unit.s", { n: s });
+    if (s < 3600) return I18N.t("unit.min", { n: Math.round(s / 60) });
+    if (s < 86400) return I18N.t("unit.h", { n: fmtDecimal(s / 3600, 1) });
+    return I18N.t("unit.d", { n: fmtDecimal(s / 86400, 1) });
   }
 
   // Ligne "Cache" du panneau de detail : verdict, en-tête qui a tranche, age,
-  // puis TOUTES les couches quand il y en a plusieurs.
+  // puis TOUTES les couches quand il y en a plusieurs. Chaque segment est une
+  // phrase ; les séparateurs « | » et « — » sont de la mise en page.
   function cacheInfoText(p) {
     var c = cacheOf(p);
-    if (!c) return "— aucun en-tête de cache (ce n'est pas un MISS : le serveur n'a rien dit)";
+    if (!c) return I18N.t("cachetip.info_no_headers");
     var out = (c.status || "?");
     var meaning = cacheMeaning(c.status);
     // L'explication d'abord : le code seul ne parle qu'aux inities.
-    if (meaning) out += " — " + meaning.replace(/\n/g, " ");
+    if (meaning) out = I18N.t("cachetip.verdict", { status: out, meaning: meaning.replace(/\n/g, " ") });
     if (c.served_by) {
-      out += "  |  Servi par " + (c.served_by === "origine" ? "le serveur d'origine" : c.served_by);
+      out += "  |  " + (c.served_by === "origine"
+        ? I18N.t("cachetip.info_served_origin")
+        : I18N.t("cachetip.info_served_by", { who: engineCacheText(c.served_by) }));
     }
-    if (c.age != null) out += "  |  en cache depuis " + fmtAge(c.age);
+    if (c.age != null) out += "  |  " + I18N.t("cachetip.info_age", { age: fmtAge(c.age) });
     var layers = Array.isArray(c.layers) ? c.layers : [];
     if (layers.length > 1) {
       var txt = [];
       for (var i = 0; i < layers.length; i++) txt.push(layerText(layers[i]));
-      out += "  —  couches : " + txt.join("  >  ");
+      out += "  —  " + I18N.t("cachetip.info_layers", { layers: txt.join("  >  ") });
     }
     return out;
   }
@@ -369,12 +450,13 @@
 
   // Cellule "Servi par" : le moteur qui a fourni la page. "origine" est mis en
   // evidence — c'est le cas ou le serveur a réellement travaille, donc celui
-  // qui coute et qu'on cherche a reduire.
+  // qui coute et qu'on cherche a reduire. Comparaison sur la valeur brute du
+  // moteur, affichage traduit.
   function cacheByCellHtml(p) {
     var by = cacheServedBy(p);
     if (!by) return '<span class="muted">—</span>';
     var cls = (by === "origine") ? "cache-by cache-by--origin" : "cache-by";
-    return '<span class="' + cls + '" title="' + esc(cacheTitle(p)) + '">' + esc(by) + '</span>';
+    return '<span class="' + cls + '" title="' + esc(cacheTitle(p)) + '">' + esc(engineCacheText(by)) + '</span>';
   }
 
   // Cellule URL : lien tronque, titre complet au survol.
@@ -387,7 +469,7 @@
   function urlCellHtml(url) {
     var u = esc(url || "");
     return '<a href="' + u + '" rel="noopener noreferrer" title="' +
-           u + '&#10;Double-clic : ouvrir dans le navigateur" class="cell-url">' +
+           u + '&#10;' + esc(I18N.t("cell.url_open_hint")) + '" class="cell-url">' +
            esc(truncUrl(url, 90)) + '</a>';
   }
   function pill(kind, label) {
@@ -565,6 +647,12 @@
     paused: false,                      // VAGUE 4 (C) : crawl mis en pause (Stop)
     rateStartTs: 0,                     // pour estimer le débit pages/seconde
 
+    // Barre de statut : message d'état (clé + paramètres, cf. msg) et poids
+    // affiché, gardés pour être réécrits au changement de langue.
+    statusMsg: null,
+    statusBytes: 0,
+    statusRate: null,                   // débit affiché (pages/s), null = « 0 » initial
+
     unlisteners: []
   };
 
@@ -573,9 +661,12 @@
 
   // =========================================================================
   // Definition des ONGLETS
-  // Chaque onglet : columns (liste d'objets {key,label,num?,w?}) + une fonction
-  // row(p) qui renvoie, pour chaque colonne, { html, text, sort }. "html" pour
-  // l'affichage, "text" pour l'export CSV, "sort" pour le tri (valeur brute).
+  // Chaque onglet : columns (liste d'objets {key,labelKey|label,num?,w?}) + une
+  // fonction row(p) qui renvoie, pour chaque colonne, { html, text, sort }.
+  // "html" pour l'affichage, "text" pour l'export CSV, "sort" pour le tri
+  // (valeur brute). `key` est l'IDENTIFIANT de la colonne (tri, largeurs
+  // mémorisées) ; l'en-tête affiché vient de `labelKey` (clé de traduction) ou,
+  // pour un terme technique jamais traduit (HTTPS, X-Robots-Tag…), de `label`.
   // Les onglets sur les pages utilisent kind:"pages". L'onglet "links" liste
   // tous les outlinks (kind:"links"), "issues" liste les problèmes (kind:"issues").
   // =========================================================================
@@ -585,16 +676,16 @@
     internal: {
       kind: "pages",
       columns: [
-        { key: "url",       label: "Adresse" },
-        { key: "status",    label: "Code", num: true },
-        { key: "cache",     label: "Cache" },
-        { key: "cacheby",   label: "Servi par" },
-        { key: "ctype",     label: "Type" },
-        { key: "speed",     label: "Vitesse", num: true },
-        { key: "words",     label: "Mots", num: true },
-        { key: "title",     label: "Title" },
-        { key: "indexable", label: "Indexable" },
-        { key: "outlinks",  label: "Outlinks", num: true }
+        { key: "url",       labelKey: "col.address" },
+        { key: "status",    labelKey: "col.status_code", titleKey: "col.status_code_full", num: true },
+        { key: "cache",     labelKey: "col.cache" },
+        { key: "cacheby",   labelKey: "col.served_by", titleKey: "col.served_by_full" },
+        { key: "ctype",     labelKey: "col.content_type" },
+        { key: "speed",     labelKey: "col.speed", titleKey: "col.speed_full", num: true },
+        { key: "words",     labelKey: "col.words", titleKey: "col.words_full", num: true },
+        { key: "title",     labelKey: "col.title" },
+        { key: "indexable", labelKey: "col.indexable", titleKey: "col.indexable_full" },
+        { key: "outlinks",  labelKey: "col.outlinks", num: true }
       ],
       row: function (p) {
         var s = seoOf(p);
@@ -602,6 +693,7 @@
         var words = s ? (s.word_count || 0) : 0;
         var indexable = s ? !!s.indexable : false;
         var nout = Array.isArray(p.outlinks) ? p.outlinks.length : 0;
+        var servedBy = engineCacheText(cacheServedBy(p));
         return [
           { html: urlCellHtml(p.url), text: p.url || "", sort: p.url || "" },
           { html: httpCodeHtml(p.status),
@@ -611,15 +703,15 @@
           { html: cacheCellHtml(p), text: cacheStatus(p), sort: cacheStatus(p) },
           // Qui a fourni la page : trier ici isole d'un coup toutes les pages
           // servies par "origine", celles qui font travailler le serveur.
-          { html: cacheByCellHtml(p), text: cacheServedBy(p), sort: cacheServedBy(p) },
+          { html: cacheByCellHtml(p), text: servedBy, sort: servedBy },
           { html: esc(shortType(p.content_type)), text: p.content_type || "", sort: p.content_type || "" },
           // VAGUE 4 (A) : temps de réponse colore (vert/orange/rouge), triable.
           { html: '<span class="col-num">' + speedCellHtml(respMs(p)) + '</span>',
             text: respMs(p) ? String(respMs(p)) : "", sort: respMs(p) },
           { html: '<span class="col-num">' + words + '</span>', text: String(words), sort: words },
           { html: esc(title || "—"), text: title, sort: title },
-          { html: indexable ? pill("ok", "Indexable") : pill("err", "Non indexable"),
-            text: indexable ? "Indexable" : "Non indexable", sort: indexable ? 1 : 0 },
+          { html: indexable ? pill("ok", I18N.t("cell.indexable")) : pill("err", I18N.t("cell.non_indexable")),
+            text: indexable ? I18N.t("cell.indexable") : I18N.t("cell.non_indexable"), sort: indexable ? 1 : 0 },
           { html: '<span class="col-num">' + nout + '</span>', text: String(nout), sort: nout }
         ];
       }
@@ -629,10 +721,10 @@
     response: {
       kind: "pages",
       columns: [
-        { key: "url",      label: "Adresse" },
-        { key: "status",   label: "Code", num: true },
-        { key: "ctype",    label: "Type" },
-        { key: "redirect", label: "Redirige vers" }
+        { key: "url",      labelKey: "col.address" },
+        { key: "status",   labelKey: "col.status_code", titleKey: "col.status_code_full", num: true },
+        { key: "ctype",    labelKey: "col.content_type" },
+        { key: "redirect", labelKey: "col.redirect_to" }
       ],
       row: function (p) {
         var redir = p.redirect_to || "";
@@ -652,13 +744,13 @@
     url: {
       kind: "pages",
       columns: [
-        { key: "url",        label: "Adresse" },
-        { key: "length",     label: "Longueur", num: true },
-        { key: "nonascii",   label: "non-ASCII" },
-        { key: "underscores", label: "Underscores" },
-        { key: "uppercase",  label: "Majuscules" },
-        { key: "slashes",    label: "Slashes //" },
-        { key: "params",     label: "Paramètres" }
+        { key: "url",        labelKey: "col.address" },
+        { key: "length",     labelKey: "col.length", num: true },
+        { key: "nonascii",   labelKey: "col.non_ascii" },
+        { key: "underscores", labelKey: "col.underscores" },
+        { key: "uppercase",  labelKey: "col.uppercase" },
+        { key: "slashes",    labelKey: "col.slashes" },
+        { key: "params",     labelKey: "col.parameters" }
       ],
       row: function (p) {
         var f = flagsOf(p);
@@ -669,22 +761,24 @@
         var uppercase = f ? !!f.uppercase : false;
         var multipleSlashes = f ? !!f.multiple_slashes : false;
         var params = f ? !!f.params : false;
+        var yes = I18N.t("cell.yes_lc"), no = I18N.t("cell.no_lc");
+        var yesHtml = '<span class="bool-yes">' + esc(yes) + '</span>';
         // Surlignage de la longueur si > 115 (le surlignage de ligne est gere par rowClass).
         var lenHtml = '<span class="col-num' + (len > 115 ? ' num-bad' : '') + '">' + len + '</span>';
         return [
           // La classe row--alert (posee via rowClass plus bas) surligne la ligne.
           { html: urlCellHtml(p.url), text: p.url || "", sort: p.url || "" },
           { html: lenHtml, text: String(len), sort: len },
-          { html: nonAscii ? '<span class="bool-yes">oui</span>' : '<span class="bool-no">—</span>',
-            text: nonAscii ? "oui" : "non", sort: nonAscii ? 1 : 0 },
-          { html: underscores ? '<span class="bool-yes">oui</span>' : '<span class="bool-no">—</span>',
-            text: underscores ? "oui" : "non", sort: underscores ? 1 : 0 },
-          { html: uppercase ? '<span class="bool-yes">oui</span>' : '<span class="bool-no">—</span>',
-            text: uppercase ? "oui" : "non", sort: uppercase ? 1 : 0 },
-          { html: multipleSlashes ? '<span class="bool-yes">oui</span>' : '<span class="bool-no">—</span>',
-            text: multipleSlashes ? "oui" : "non", sort: multipleSlashes ? 1 : 0 },
-          { html: params ? '<span class="bool-yes">oui</span>' : '<span class="bool-no">—</span>',
-            text: params ? "oui" : "non", sort: params ? 1 : 0 }
+          { html: nonAscii ? yesHtml : '<span class="bool-no">—</span>',
+            text: nonAscii ? yes : no, sort: nonAscii ? 1 : 0 },
+          { html: underscores ? yesHtml : '<span class="bool-no">—</span>',
+            text: underscores ? yes : no, sort: underscores ? 1 : 0 },
+          { html: uppercase ? yesHtml : '<span class="bool-no">—</span>',
+            text: uppercase ? yes : no, sort: uppercase ? 1 : 0 },
+          { html: multipleSlashes ? yesHtml : '<span class="bool-no">—</span>',
+            text: multipleSlashes ? yes : no, sort: multipleSlashes ? 1 : 0 },
+          { html: params ? yesHtml : '<span class="bool-no">—</span>',
+            text: params ? yes : no, sort: params ? 1 : 0 }
         ];
       },
       // Surligne la ligne entière si alerte (URL trop longue, non-ASCII ou double slash).
@@ -702,10 +796,10 @@
     security: {
       kind: "pages",
       columns: [
-        { key: "url",     label: "Adresse" },
+        { key: "url",     labelKey: "col.address" },
         { key: "https",   label: "HTTPS" },
-        { key: "mixed",   label: "Contenu mixte", num: true },
-        { key: "headers", label: "En-têtes manquants" }
+        { key: "mixed",   labelKey: "col.mixed_content", num: true },
+        { key: "headers", labelKey: "col.missing_headers" }
       ],
       row: function (p) {
         var sec = secOf(p);
@@ -723,8 +817,8 @@
         }
         return [
           { html: urlCellHtml(p.url), text: p.url || "", sort: p.url || "" },
-          { html: https ? pill("ok", "oui") : pill("err", "non"),
-            text: https ? "oui" : "non", sort: https ? 1 : 0 },
+          { html: https ? pill("ok", I18N.t("cell.yes_lc")) : pill("err", I18N.t("cell.no_lc")),
+            text: https ? I18N.t("cell.yes_lc") : I18N.t("cell.no_lc"), sort: https ? 1 : 0 },
           { html: mixed.length ? '<span class="col-num num-bad">' + mixed.length + '</span>'
                                : '<span class="col-num">0</span>',
             text: String(mixed.length), sort: mixed.length },
@@ -739,11 +833,11 @@
     titles: {
       kind: "pages",
       columns: [
-        { key: "url",   label: "Adresse" },
-        { key: "title", label: "Title" },
-        { key: "len",   label: "Longueur", num: true },
-        { key: "dup",   label: "Dupliqué" },
-        { key: "state", label: "État" }
+        { key: "url",   labelKey: "col.address" },
+        { key: "title", labelKey: "col.title" },
+        { key: "len",   labelKey: "col.length", num: true },
+        { key: "dup",   labelKey: "col.duplicate" },
+        { key: "state", labelKey: "col.state" }
       ],
       row: function (p) {
         var s = seoOf(p);
@@ -755,8 +849,8 @@
           { html: urlCellHtml(p.url), text: p.url || "", sort: p.url || "" },
           { html: esc(title || "—"), text: title, sort: title },
           { html: '<span class="col-num">' + len + '</span>', text: String(len), sort: len },
-          { html: dup ? pill("warn", "Oui") : '<span class="muted">—</span>',
-            text: dup ? "Oui" : "Non", sort: dup ? 1 : 0 },
+          { html: dup ? pill("warn", I18N.t("cell.yes")) : '<span class="muted">—</span>',
+            text: dup ? I18N.t("cell.yes") : I18N.t("cell.no"), sort: dup ? 1 : 0 },
           { html: pill(st.kind, st.label), text: st.label, sort: st.label }
         ];
       }
@@ -766,11 +860,11 @@
     meta: {
       kind: "pages",
       columns: [
-        { key: "url",  label: "Adresse" },
-        { key: "meta", label: "Meta Description" },
-        { key: "len",  label: "Longueur", num: true },
-        { key: "dup",  label: "Dupliqué" },
-        { key: "state", label: "État" }
+        { key: "url",  labelKey: "col.address" },
+        { key: "meta", labelKey: "col.meta_description" },
+        { key: "len",  labelKey: "col.length", num: true },
+        { key: "dup",  labelKey: "col.duplicate" },
+        { key: "state", labelKey: "col.state" }
       ],
       row: function (p) {
         var s = seoOf(p);
@@ -782,8 +876,8 @@
           { html: urlCellHtml(p.url), text: p.url || "", sort: p.url || "" },
           { html: esc(meta || "—"), text: meta, sort: meta },
           { html: '<span class="col-num">' + len + '</span>', text: String(len), sort: len },
-          { html: dup ? pill("warn", "Oui") : '<span class="muted">—</span>',
-            text: dup ? "Oui" : "Non", sort: dup ? 1 : 0 },
+          { html: dup ? pill("warn", I18N.t("cell.yes")) : '<span class="muted">—</span>',
+            text: dup ? I18N.t("cell.yes") : I18N.t("cell.no"), sort: dup ? 1 : 0 },
           { html: pill(st.kind, st.label), text: st.label, sort: st.label }
         ];
       }
@@ -793,11 +887,11 @@
     h1: {
       kind: "pages",
       columns: [
-        { key: "url",   label: "Adresse" },
-        { key: "h1",    label: "Premier H1" },
-        { key: "count", label: "Nombre", num: true },
-        { key: "dup",   label: "Dupliqué" },
-        { key: "state", label: "État" }
+        { key: "url",   labelKey: "col.address" },
+        { key: "h1",    labelKey: "col.first_h1" },
+        { key: "count", labelKey: "col.count", num: true },
+        { key: "dup",   labelKey: "col.duplicate" },
+        { key: "state", labelKey: "col.state" }
       ],
       row: function (p) {
         var s = seoOf(p);
@@ -810,8 +904,8 @@
           { html: urlCellHtml(p.url), text: p.url || "", sort: p.url || "" },
           { html: esc(first || "—"), text: first, sort: first },
           { html: '<span class="col-num">' + count + '</span>', text: String(count), sort: count },
-          { html: dup ? pill("warn", "Oui") : '<span class="muted">—</span>',
-            text: dup ? "Oui" : "Non", sort: dup ? 1 : 0 },
+          { html: dup ? pill("warn", I18N.t("cell.yes")) : '<span class="muted">—</span>',
+            text: dup ? I18N.t("cell.yes") : I18N.t("cell.no"), sort: dup ? 1 : 0 },
           { html: pill(st.kind, st.label), text: st.label, sort: st.label }
         ];
       }
@@ -823,9 +917,9 @@
     content: {
       kind: "pages",
       columns: [
-        { key: "url",     label: "Adresse" },
-        { key: "words",   label: "Mots", num: true },
-        { key: "neardup", label: "Near-dup", num: true }
+        { key: "url",     labelKey: "col.address" },
+        { key: "words",   labelKey: "col.words", titleKey: "col.words_full", num: true },
+        { key: "neardup", labelKey: "col.near_dup", num: true }
       ],
       row: function (p) {
         var s = seoOf(p);
@@ -833,14 +927,14 @@
         var sims = nearDupOf(p);                 // URLs quasi-dupliquées (memorise)
         var n = sims.length;
         var ndHtml = n
-          ? '<span class="state-pill state-pill--warn">Oui (' + n + ')</span>'
+          ? '<span class="state-pill state-pill--warn">' + esc(I18N.t("cell.yes_count", { n: n })) + '</span>'
           : '<span class="muted">—</span>';
         return [
           { html: urlCellHtml(p.url), text: p.url || "", sort: p.url || "" },
           { html: '<span class="col-num">' + words + '</span>', text: String(words), sort: words },
           // tri par nombre de similaires (desc = les plus dupliquées en tête) ;
           // le texte CSV liste les URLs similaires pour exploitation hors-ligne.
-          { html: ndHtml, text: n ? (n + " : " + sims.join(" | ")) : "0", sort: n }
+          { html: ndHtml, text: n ? I18N.t("cell.near_dup_csv", { n: n, urls: sims.join(" | ") }) : "0", sort: n }
         ];
       },
       // Surligne la ligne si la page a au moins une quasi-dupliquée.
@@ -851,17 +945,17 @@
     images: {
       kind: "pages",
       columns: [
-        { key: "url",     label: "Adresse" },
-        { key: "total",   label: "Images", num: true },
-        { key: "missing", label: "Sans alt", num: true },
-        { key: "state",   label: "État" }
+        { key: "url",     labelKey: "col.address" },
+        { key: "total",   labelKey: "col.images", num: true },
+        { key: "missing", labelKey: "col.missing_alt", num: true },
+        { key: "state",   labelKey: "col.state" }
       ],
       row: function (p) {
         var s = seoOf(p);
         var total = s ? (s.images_total || 0) : 0;
         var missing = s ? (s.images_missing_alt || 0) : 0;
         var kind = missing > 0 ? "warn" : "ok";
-        var label = missing > 0 ? (missing + " sans alt") : "OK";
+        var label = missing > 0 ? I18N.t("cell.n_missing_alt", { n: missing }) : I18N.t("state.ok");
         return [
           { html: urlCellHtml(p.url), text: p.url || "", sort: p.url || "" },
           { html: '<span class="col-num">' + total + '</span>', text: String(total), sort: total },
@@ -876,9 +970,9 @@
     canonical: {
       kind: "pages",
       columns: [
-        { key: "url",   label: "Adresse" },
-        { key: "canon", label: "Canonical" },
-        { key: "state", label: "Type" }
+        { key: "url",   labelKey: "col.address" },
+        { key: "canon", labelKey: "col.canonical" },
+        { key: "state", labelKey: "col.canonical_type" }
       ],
       row: function (p) {
         var s = seoOf(p);
@@ -896,13 +990,13 @@
     directives: {
       kind: "pages",
       columns: [
-        { key: "url",       label: "Adresse" },
-        { key: "robots",    label: "Meta Robots" },
+        { key: "url",       labelKey: "col.address" },
+        { key: "robots",    labelKey: "col.meta_robots" },
         { key: "xrobots",   label: "X-Robots-Tag" },
-        { key: "indexable", label: "Indexable" },
+        { key: "indexable", labelKey: "col.indexable", titleKey: "col.indexable_full" },
         { key: "noindex",   label: "Noindex" },
         { key: "nofollow",  label: "Nofollow" },
-        { key: "canonsd",   label: "Canonicalisée" }
+        { key: "canonsd",   labelKey: "col.canonicalised" }
       ],
       row: function (p) {
         var s = seoOf(p);
@@ -912,18 +1006,20 @@
         var noindex = s ? !!s.noindex : false;
         var nofollow = s ? !!s.nofollow : false;
         var canonicalised = s ? !!s.canonicalised : false;          // canonical != URL (Vague 2)
+        var yes = I18N.t("cell.yes_lc"), no = I18N.t("cell.no_lc");
+        var yesHtml = '<span class="bool-yes">' + esc(yes) + '</span>';
         return [
           { html: urlCellHtml(p.url), text: p.url || "", sort: p.url || "" },
           { html: esc(robots || "—"), text: robots, sort: robots },
           { html: esc(xrobots || "—"), text: xrobots, sort: xrobots },
-          { html: indexable ? pill("ok", "Oui") : pill("err", "Non"),
-            text: indexable ? "Oui" : "Non", sort: indexable ? 1 : 0 },
-          { html: noindex ? '<span class="bool-yes">oui</span>' : '<span class="bool-no">—</span>',
-            text: noindex ? "oui" : "non", sort: noindex ? 1 : 0 },
-          { html: nofollow ? '<span class="bool-yes">oui</span>' : '<span class="bool-no">—</span>',
-            text: nofollow ? "oui" : "non", sort: nofollow ? 1 : 0 },
-          { html: canonicalised ? '<span class="bool-yes">oui</span>' : '<span class="bool-no">—</span>',
-            text: canonicalised ? "oui" : "non", sort: canonicalised ? 1 : 0 }
+          { html: indexable ? pill("ok", I18N.t("cell.yes")) : pill("err", I18N.t("cell.no")),
+            text: indexable ? I18N.t("cell.yes") : I18N.t("cell.no"), sort: indexable ? 1 : 0 },
+          { html: noindex ? yesHtml : '<span class="bool-no">—</span>',
+            text: noindex ? yes : no, sort: noindex ? 1 : 0 },
+          { html: nofollow ? yesHtml : '<span class="bool-no">—</span>',
+            text: nofollow ? yes : no, sort: nofollow ? 1 : 0 },
+          { html: canonicalised ? yesHtml : '<span class="bool-no">—</span>',
+            text: canonicalised ? yes : no, sort: canonicalised ? 1 : 0 }
         ];
       }
     },
@@ -936,9 +1032,9 @@
     hreflang: {
       kind: "pages",
       columns: [
-        { key: "url",   label: "Adresse" },
-        { key: "hl",    label: "Hreflang (lang -> href)" },
-        { key: "recip", label: "Reciproque" }
+        { key: "url",   labelKey: "col.address" },
+        { key: "hl",    labelKey: "col.hreflang" },
+        { key: "recip", labelKey: "col.reciprocal" }
       ],
       row: function (p) {
         var s = seoOf(p);
@@ -957,11 +1053,12 @@
         if (!hl.length) { recipHtml = '<span class="muted">—</span>'; recipText = ""; recipSort = -1; }
         else if (r && r.missingBack && r.missingBack.length) {
           recipHtml = '<span class="state-pill state-pill--warn" title="' +
-                      esc(r.missingBack.join(" | ")) + '">Manquant (' + r.missingBack.length + ')</span>';
-          recipText = "Manquant : " + r.missingBack.join(" | ");
+                      esc(r.missingBack.join(" | ")) + '">' +
+                      esc(I18N.t("cell.recip_missing_count", { n: r.missingBack.length })) + '</span>';
+          recipText = I18N.t("cell.recip_missing_list", { urls: r.missingBack.join(" | ") });
           recipSort = 1;
         } else {
-          recipHtml = pill("ok", "OK"); recipText = "OK"; recipSort = 0;
+          recipHtml = pill("ok", I18N.t("state.ok")); recipText = I18N.t("state.ok"); recipSort = 0;
         }
         return [
           { html: urlCellHtml(p.url), text: p.url || "", sort: p.url || "" },
@@ -983,7 +1080,7 @@
         return !!(s && (s.pagination_prev || s.pagination_next));
       },
       columns: [
-        { key: "url",  label: "Adresse" },
+        { key: "url",  labelKey: "col.address" },
         { key: "prev", label: "rel=prev" },
         { key: "next", label: "rel=next" }
       ],
@@ -1005,10 +1102,10 @@
     schema: {
       kind: "pages",
       columns: [
-        { key: "url",    label: "Adresse" },
-        { key: "types",  label: "Types" },
-        { key: "valid",  label: "Valide" },
-        { key: "errors", label: "Erreurs", num: true }
+        { key: "url",    labelKey: "col.address" },
+        { key: "types",  labelKey: "col.types" },
+        { key: "valid",  labelKey: "col.valid" },
+        { key: "errors", labelKey: "col.errors", num: true }
       ],
       row: function (p) {
         var s = seoOf(p);
@@ -1019,20 +1116,22 @@
         // D) Badges de type CLIQUABLES : un clic ouvre le detail JSON-LD brut.
         var typesHtml = hasData
           ? types.map(function (t) {
-              return '<span class="badge badge--schema" title="Voir le JSON-LD brut">' + esc(t) + '</span>';
+              return '<span class="badge badge--schema" title="' + esc(I18N.t("cell.view_jsonld")) + '">' + esc(t) + '</span>';
             }).join(" ")
           : '<span class="muted">—</span>';
         // "Valide" n'a de sens que si la page porte des données structurees.
         var validHtml, validText, validSort;
         if (!hasData) { validHtml = '<span class="bool-no">—</span>'; validText = ""; validSort = -1; }
-        else if (valid) { validHtml = pill("ok", "oui"); validText = "oui"; validSort = 1; }
-        else { validHtml = pill("err", "non"); validText = "non"; validSort = 0; }
-        // Erreurs : nombre + première erreur en infobulle.
+        else if (valid) { validHtml = pill("ok", I18N.t("cell.yes_lc")); validText = I18N.t("cell.yes_lc"); validSort = 1; }
+        else { validHtml = pill("err", I18N.t("cell.no_lc")); validText = I18N.t("cell.no_lc"); validSort = 0; }
+        // Erreurs : nombre + première erreur en infobulle. Textes du moteur,
+        // affichés dans la langue de l'interface quand ils sont reconnus.
         var errHtml, errText;
         if (!errors.length) { errHtml = '<span class="col-num">0</span>'; errText = "0"; }
         else {
-          errHtml = '<span class="col-num num-bad" title="' + esc(errors.join(" | ")) + '">' + errors.length + '</span>';
-          errText = errors.join(", ");
+          var errShown = errors.map(sdErrorText);
+          errHtml = '<span class="col-num num-bad" title="' + esc(errShown.join(" | ")) + '">' + errors.length + '</span>';
+          errText = errShown.join(", ");
         }
         return [
           { html: urlCellHtml(p.url), text: p.url || "", sort: p.url || "" },
@@ -1053,10 +1152,10 @@
     links: {
       kind: "links",
       columns: [
-        { key: "from",     label: "Source" },
-        { key: "target",   label: "Destination" },
-        { key: "anchor",   label: "Ancre" },
-        { key: "type",     label: "Type" },
+        { key: "from",     labelKey: "col.source" },
+        { key: "target",   labelKey: "col.destination" },
+        { key: "anchor",   labelKey: "col.anchor" },
+        { key: "type",     labelKey: "col.link_type" },
         { key: "rel",      label: "Rel" }
       ],
       // Les lignes sont produites par allLinks() (voir plus bas).
@@ -1065,28 +1164,32 @@
           { html: urlCellHtml(l.from),   text: l.from || "",   sort: l.from || "" },
           { html: urlCellHtml(l.target), text: l.target || "", sort: l.target || "" },
           { html: esc(l.anchor || "—"),  text: l.anchor || "", sort: l.anchor || "" },
-          { html: l.internal ? pill("ok", "Interne") : pill("muted", "Externe"),
-            text: l.internal ? "Interne" : "Externe", sort: l.internal ? 0 : 1 },
+          { html: l.internal ? pill("ok", I18N.t("cell.internal")) : pill("muted", I18N.t("cell.external")),
+            text: l.internal ? I18N.t("cell.internal") : I18N.t("cell.external"), sort: l.internal ? 0 : 1 },
           { html: esc(l.rel || "—"), text: l.rel || "", sort: l.rel || "" }
         ];
       }
     },
 
     // ----- Problèmes : issues agregees -----
+    // Catégorie et message sont des textes du MOTEUR (ou de ce fichier pour
+    // hreflang) : affichés traduits, la valeur brute restant l'identifiant.
     issues: {
       kind: "issues",
       columns: [
-        { key: "severity", label: "Sévérité" },
-        { key: "category", label: "Catégorie" },
-        { key: "url",      label: "Adresse" },
-        { key: "message",  label: "Message" }
+        { key: "severity", labelKey: "col.severity" },
+        { key: "category", labelKey: "col.category" },
+        { key: "url",      labelKey: "col.address" },
+        { key: "message",  labelKey: "col.message" }
       ],
       row: function (it) {
+        var cat = catLabel(it.category);
+        var message = issueText(it);
         return [
           { html: pill(sevKind(it.severity), sevLabel(it.severity)), text: it.severity, sort: sevRank(it.severity) },
-          { html: esc(it.category || "—"), text: it.category || "", sort: it.category || "" },
+          { html: esc(cat || "—"), text: cat || "", sort: cat || "" },
           { html: urlCellHtml(it.url), text: it.url || "", sort: it.url || "" },
-          { html: esc(it.message || ""), text: it.message || "", sort: it.message || "" }
+          { html: esc(message || ""), text: message || "", sort: message || "" }
         ];
       }
     },
@@ -1100,24 +1203,26 @@
     sitemap: {
       kind: "sitemap",
       columns: [
-        { key: "url",    label: "Adresse" },
-        { key: "status", label: "État" },
-        { key: "code",   label: "Code HTTP", num: true }
+        { key: "url",    labelKey: "col.address" },
+        { key: "status", labelKey: "col.sitemap_state" },
+        { key: "code",   labelKey: "col.http_code", num: true }
       ],
       row: function (it) {
         // it : { url, inSitemap, crawled, status }
         var stHtml, stText, stSort;
         if (it.kind === "orphan") {
           // Dans le sitemap mais jamais atteinte par le crawl.
-          stHtml = '<span class="state-pill state-pill--warn" title="Déclarée dans le sitemap mais non atteinte par le crawl">Orpheline</span>';
-          stText = "Orpheline (sitemap, non crawlée)"; stSort = 1;
+          stHtml = '<span class="state-pill state-pill--warn" title="' + esc(I18N.t("cell.orphan_title")) + '">' +
+                   esc(I18N.t("cell.orphan")) + '</span>';
+          stText = I18N.t("cell.orphan_csv"); stSort = 1;
         } else if (it.kind === "notin") {
           // Crawlée mais absente du sitemap.
-          stHtml = '<span class="state-pill state-pill--muted" title="Page atteinte par le crawl mais absente du sitemap">Hors sitemap</span>';
-          stText = "Hors sitemap"; stSort = 2;
+          stHtml = '<span class="state-pill state-pill--muted" title="' + esc(I18N.t("cell.not_in_sitemap_title")) + '">' +
+                   esc(I18N.t("cell.not_in_sitemap")) + '</span>';
+          stText = I18N.t("cell.not_in_sitemap"); stSort = 2;
         } else {
           // Dans le sitemap ET crawlée.
-          stHtml = pill("ok", "Crawlée"); stText = "Crawlée"; stSort = 0;
+          stHtml = pill("ok", I18N.t("cell.crawled")); stText = I18N.t("cell.crawled"); stSort = 0;
         }
         var codeHtml = it.crawled
           ? httpCodeHtml(it.status)
@@ -1137,15 +1242,15 @@
     bandwidth: {
       kind: "pages",
       columns: [
-        { key: "url",    label: "Adresse" },
-        { key: "tech",   label: "Techno" },
-        { key: "weight", label: "Poids total", num: true },
-        { key: "speed",  label: "Vitesse", num: true },
-        { key: "imgs",   label: "Images", num: true },
-        { key: "req",    label: "Requêtes", num: true },
-        { key: "dyn",    label: "dont dyn.", num: true },
-        { key: "miss",   label: "Cache MISS", num: true },
-        { key: "probe",  label: "Sonde" },
+        { key: "url",    labelKey: "col.address" },
+        { key: "tech",   labelKey: "col.tech" },
+        { key: "weight", labelKey: "col.total_size", titleKey: "col.total_size_full", num: true },
+        { key: "speed",  labelKey: "col.speed", titleKey: "col.speed_full", num: true },
+        { key: "imgs",   labelKey: "col.images", num: true },
+        { key: "req",    labelKey: "col.requests", titleKey: "col.requests_full", num: true },
+        { key: "dyn",    labelKey: "col.dynamic", titleKey: "col.dynamic_full", num: true },
+        { key: "miss",   labelKey: "col.cache_miss", titleKey: "col.cache_miss_full", num: true },
+        { key: "probe",  labelKey: "col.probe" },
         { key: "bar",    label: "" }
       ],
       row: function (p) {
@@ -1191,27 +1296,29 @@
   }
 
   // ----- Logique d'état (manquant / court / long / ok) ---------------------
+  // `kind` est l'identifiant (couleur de la pastille) ; `label` est le texte
+  // affiché, traduit à chaque appel (les lignes sont recalculées à chaque rendu).
   function titleState(title, len) {
-    if (!title) return { kind: "err",  label: "Manquant" };
-    if (len < 30) return { kind: "warn", label: "Court" };
-    if (len > 60) return { kind: "warn", label: "Long" };
-    return { kind: "ok", label: "OK" };
+    if (!title) return { kind: "err",  label: I18N.t("state.title_missing") };
+    if (len < 30) return { kind: "warn", label: I18N.t("state.title_short") };
+    if (len > 60) return { kind: "warn", label: I18N.t("state.title_long") };
+    return { kind: "ok", label: I18N.t("state.ok") };
   }
   function metaState(meta, len) {
-    if (!meta) return { kind: "err",  label: "Manquant" };
-    if (len < 70) return { kind: "warn", label: "Court" };
-    if (len > 160) return { kind: "warn", label: "Long" };
-    return { kind: "ok", label: "OK" };
+    if (!meta) return { kind: "err",  label: I18N.t("state.meta_missing") };
+    if (len < 70) return { kind: "warn", label: I18N.t("state.meta_short") };
+    if (len > 160) return { kind: "warn", label: I18N.t("state.meta_long") };
+    return { kind: "ok", label: I18N.t("state.ok") };
   }
   function h1State(count) {
-    if (count === 0) return { kind: "err",  label: "Manquant" };
-    if (count > 1)   return { kind: "warn", label: "Multiple" };
-    return { kind: "ok", label: "OK" };
+    if (count === 0) return { kind: "err",  label: I18N.t("state.h1_missing") };
+    if (count > 1)   return { kind: "warn", label: I18N.t("state.h1_multiple") };
+    return { kind: "ok", label: I18N.t("state.ok") };
   }
   function canonState(pageUrl, canon) {
-    if (!canon) return { kind: "warn", label: "Manquant" };
-    if (normUrl(canon) === normUrl(pageUrl)) return { kind: "ok", label: "Self" };
-    return { kind: "muted", label: "Autre" };
+    if (!canon) return { kind: "warn", label: I18N.t("state.canonical_missing") };
+    if (normUrl(canon) === normUrl(pageUrl)) return { kind: "ok", label: I18N.t("state.canonical_self") };
+    return { kind: "muted", label: I18N.t("state.canonical_other") };
   }
   function sevKind(sev) {
     if (sev === "critical") return "err";
@@ -1220,16 +1327,91 @@
     return "muted";
   }
   function sevLabel(sev) {
-    if (sev === "critical")    return "Critique";
-    if (sev === "warning")     return "Avertissement";
-    if (sev === "opportunity") return "Opportunite";
-    return "Info";
+    if (sev === "critical")    return I18N.t("severity.critical");
+    if (sev === "warning")     return I18N.t("severity.warning");
+    if (sev === "opportunity") return I18N.t("severity.opportunity");
+    return I18N.t("severity.info");
   }
   function sevRank(sev) {
     if (sev === "critical") return 0;
     if (sev === "warning") return 1;
     if (sev === "opportunity") return 2;
     return 3;
+  }
+
+  // En-tête affiché d'une colonne (cf. définition des onglets) : libellé COURT,
+  // les colonnes étroites n'offrent que 43 px de texte à 1100 px.
+  function colLabel(col) {
+    if (!col) return "";
+    return col.labelKey ? I18N.t(col.labelKey) : (col.label || "");
+  }
+  // Libellé COMPLET : infobulle de l'en-tête, export CSV, barre de sélection.
+  // `titleKey` quand il diffère du libellé court ; en français, les deux sont
+  // le libellé d'aujourd'hui.
+  function colTitle(col) {
+    if (!col) return "";
+    return col.titleKey ? I18N.t(col.titleKey) : colLabel(col);
+  }
+
+  // ----- Textes écrits par le MOTEUR ----------------------------------------
+  // Problèmes SEO, catégories, erreurs de page, textes de cache, erreurs de
+  // données structurées : le moteur les écrit en français et ils sont
+  // ENREGISTRÉS dans les crawls. window.EngineTexts (ui/engine-texts.js) les
+  // reconnaît et donne leur clé ; sans lui, ou s'il ne reconnaît rien, la
+  // valeur brute s'affiche (jamais une case vide). La valeur brute reste
+  // l'identifiant comparé (filtres, regroupements, "origine"…).
+  function engineCall(name, arg) {
+    var E = window.EngineTexts;
+    if (!E || typeof E[name] !== "function") return null;
+    try { return E[name](arg); } catch (e) { console.error("EngineTexts." + name, e); return null; }
+  }
+  // Résultat d'EngineTexts : une clé, ou { key, params }.
+  function engineResult(r) {
+    return typeof r === "string" ? I18N.t(r) : I18N.t(r.key, r.params);
+  }
+  // Message d'un problème. `it.i18n` : problème fabriqué par ce fichier
+  // (hreflang) ; `it.src` : l'objet d'origine du moteur (avec ses codes).
+  // Mémorisé par objet du moteur et par langue (l'onglet Problèmes en affiche
+  // des dizaines de milliers à chaque rendu) ; WeakMap : rien n'est ajouté aux
+  // données enregistrées.
+  var issueTextMemo = typeof WeakMap === "function" ? new WeakMap() : null;
+  function issueText(it) {
+    if (!it) return "";
+    if (it.i18n) return msgText(it.i18n);
+    var src = it.src || it;
+    var memoOk = issueTextMemo && typeof src === "object";
+    var memo = memoOk && issueTextMemo.get(src);
+    if (memo && memo.lang === I18N.lang) return memo.text;
+    var r = engineCall("issue", src);
+    var text = r ? engineResult(r) : (it.message || "");
+    if (memoOk) issueTextMemo.set(src, { lang: I18N.lang, text: text });
+    return text;
+  }
+  // Libellé d'une catégorie, mémorisé par langue (il y en a une douzaine).
+  var catLabelMemo = { lang: null, map: {} };
+  function catLabel(name) {
+    if (!name) return "";
+    if (catLabelMemo.lang !== I18N.lang) catLabelMemo = { lang: I18N.lang, map: {} };
+    if (Object.prototype.hasOwnProperty.call(catLabelMemo.map, name)) return catLabelMemo.map[name];
+    var r = engineCall("category", name);
+    return (catLabelMemo.map[name] = r ? engineResult(r) : name);
+  }
+  function pageErrorText(p) {
+    if (!p || !p.error) return "";
+    var r = engineCall("pageError", p);
+    return r ? engineResult(r) : p.error;
+  }
+  // cacheTextParams (extension d'engine-texts.js) couvre aussi les textes à
+  // nombre (« cached@ il y a 12855 s ») ; cacheText (contrat) en repli.
+  function engineCacheText(s) {
+    if (!s) return s;
+    var r = (window.EngineTexts && typeof window.EngineTexts.cacheTextParams === "function")
+      ? engineCall("cacheTextParams", s) : engineCall("cacheText", s);
+    return r ? engineResult(r) : s;
+  }
+  function sdErrorText(e) {
+    var r = engineCall("sdError", e);
+    return r ? engineResult(r) : e;
   }
 
   // =========================================================================
@@ -1282,8 +1464,10 @@
       for (var j = 0; j < iss.length; j++) {
         var it = iss[j] || {};
         var sv = it.severity || "info";
+        // `src` : l'objet du moteur tel quel, pour qu'EngineTexts y retrouve
+        // les codes que le moteur ajoute (affichage traduit du message).
         issues.push({ url: it.url || p.url || "", severity: sv,
-                      category: it.category || "", message: it.message || "" });
+                      category: it.category || "", message: it.message || "", src: it });
         if (sev[sv] === undefined) sev[sv] = 0;
         sev[sv] += 1;
       }
@@ -1494,8 +1678,7 @@
     if (banner) {
       if (S.activeTab === "content" && S.nearDupSkipped) {
         banner.hidden = false;
-        banner.textContent = "Détection des near-duplicates désactivée : plus de " +
-          NEAR_DUP_MAX_PAGES + " pages (le calcul O(n^2) serait trop couteux).";
+        banner.textContent = I18N.t("grid.near_dup_disabled", { max: NEAR_DUP_MAX_PAGES });
       } else {
         banner.hidden = true;
       }
@@ -1504,7 +1687,7 @@
     // --- En-tête (colonnes triables au clic) ---
     //
     // L'en-tête n'est RÉÉCRIT que si son contenu logique change : onglet, tri,
-    // ou largeurs enregistrées. Le reconstruire à chaque rendu — donc à chaque
+    // largeurs enregistrées, ou langue. Le reconstruire à chaque rendu — donc à chaque
     // page reçue pendant un crawl — detruisait les <th> en continu, avec deux
     // consequences visibles :
     //   - un clic de tri etait AVALE quand le remplacement tombait entre le
@@ -1519,7 +1702,7 @@
         if (Object.prototype.hasOwnProperty.call(savedTab, wk)) widthsSig += wk + ":" + savedTab[wk] + ";";
       }
     }
-    var headSig = S.activeTab + "|" + S.sort.key + "|" + S.sort.dir + "|" + widthsSig;
+    var headSig = S.activeTab + "|" + S.sort.key + "|" + S.sort.dir + "|" + widthsSig + "|" + I18N.lang;
     if (head.__sig !== headSig) {
       var hh = "<tr>";
       for (var c = 0; c < def.columns.length; c++) {
@@ -1528,7 +1711,9 @@
         if (S.sort.key === col.key) cls = S.sort.dir === "asc" ? "sort-asc" : "sort-desc";
         var savedW = savedTab && savedTab[col.key];
         var wStyle = savedW ? ' style="width:' + savedW + 'px"' : '';
-        hh += '<th data-key="' + esc(col.key) + '" class="' + cls + '"' + wStyle + '>' + esc(col.label) + '<span class="col-resizer"></span></th>';
+        var tip = colTitle(col);   // libellé complet au survol (l'en-tête peut être coupé)
+        hh += '<th data-key="' + esc(col.key) + '" class="' + cls + '"' + wStyle + (tip ? ' title="' + esc(tip) + '"' : '') + '>' +
+              esc(colLabel(col)) + '<span class="col-resizer"></span></th>';
       }
       hh += "</tr>";
       head.innerHTML = hh;
@@ -1600,17 +1785,17 @@
           // Distingue "pas de sitemap du tout" de "vue/filtre sans résultat".
           if (S.sitemapView === "all" && !S.sitemapUrls.length) {
             empty.textContent = S.pages.length
-              ? "Aucun sitemap trouvé pour ce site."
-              : "Lancez un crawl pour analyser le sitemap.";
+              ? I18N.t("grid.no_sitemap")
+              : I18N.t("grid.sitemap_start");
           } else if (S.sitemapView === "orphan" && S.sitemapUrls.length && !S.search) {
-            empty.textContent = "Aucune orpheline : toutes les URLs du sitemap ont été atteintes par le crawl.";
+            empty.textContent = I18N.t("grid.no_orphans");
           } else {
-            empty.textContent = "Aucune URL ne correspond à cette vue.";
+            empty.textContent = I18N.t("grid.sitemap_no_match");
           }
         } else {
           empty.textContent = S.pages.length
-            ? "Aucune ligne ne correspond au filtre."
-            : "Lancez un crawl pour voir les résultats ici.";
+            ? I18N.t("grid.no_match")
+            : I18N.t("grid.start");
         }
       }
     }
@@ -1662,60 +1847,62 @@
   // Chaque catégorie à un predicate(p) ; cliquer applique catFilter +
   // bascule sur l'onglet pertinent.
   // =========================================================================
-  // Definition des catégories (groupes -> lignes).
+  // Definition des catégories (groupes -> lignes). `id` et `tab` sont des
+  // identifiants (filtre actif, onglet cible) ; `groupKey` et `labelKey` sont
+  // les clés de traduction des textes affichés.
   var OVERVIEW = [
-    { group: "Codes de réponse", tab: "response", rows: [
-      { id: "resp2xx", label: "Succès (2xx)", tone: "ok",   pred: function (p) { return p.status >= 200 && p.status < 300; } },
-      { id: "resp3xx", label: "Redirections (3xx)", tone: "warn", pred: function (p) { return p.status >= 300 && p.status < 400; } },
-      { id: "resp4xx", label: "Erreurs client (4xx)", tone: "err", pred: function (p) { return p.status >= 400 && p.status < 500; } },
-      { id: "resp5xx", label: "Erreurs serveur (5xx)", tone: "err", pred: function (p) { return p.status >= 500; } }
+    { groupKey: "overview.group_response", tab: "response", rows: [
+      { id: "resp2xx", labelKey: "overview.resp_2xx", tone: "ok",   pred: function (p) { return p.status >= 200 && p.status < 300; } },
+      { id: "resp3xx", labelKey: "overview.resp_3xx", tone: "warn", pred: function (p) { return p.status >= 300 && p.status < 400; } },
+      { id: "resp4xx", labelKey: "overview.resp_4xx", tone: "err", pred: function (p) { return p.status >= 400 && p.status < 500; } },
+      { id: "resp5xx", labelKey: "overview.resp_5xx", tone: "err", pred: function (p) { return p.status >= 500; } }
     ]},
-    { group: "Titres", tab: "titles", rows: [
-      { id: "titleMissing", label: "Manquant", tone: "err",  pred: function (p) { var s = seoOf(p); return !s || !s.title; } },
-      { id: "titleLong",    label: "> 60 car.", tone: "warn", pred: function (p) { var s = seoOf(p); return s && s.title && s.title_len > 60; } },
-      { id: "titleShort",   label: "< 30 car.", tone: "warn", pred: function (p) { var s = seoOf(p); return s && s.title && s.title_len < 30; } },
-      { id: "titleDup",     label: "Dupliqué", tone: "warn", pred: dupPred("title", dupKeyTitle) }
+    { groupKey: "overview.group_titles", tab: "titles", rows: [
+      { id: "titleMissing", labelKey: "overview.title_missing", tone: "err",  pred: function (p) { var s = seoOf(p); return !s || !s.title; } },
+      { id: "titleLong",    labelKey: "overview.title_long", tone: "warn", pred: function (p) { var s = seoOf(p); return s && s.title && s.title_len > 60; } },
+      { id: "titleShort",   labelKey: "overview.title_short", tone: "warn", pred: function (p) { var s = seoOf(p); return s && s.title && s.title_len < 30; } },
+      { id: "titleDup",     labelKey: "overview.title_dup", tone: "warn", pred: dupPred("title", dupKeyTitle) }
     ]},
-    { group: "Meta Description", tab: "meta", rows: [
-      { id: "metaMissing", label: "Manquant", tone: "err",  pred: function (p) { var s = seoOf(p); return !s || !s.meta_description; } },
-      { id: "metaLong",    label: "> 160 car.", tone: "warn", pred: function (p) { var s = seoOf(p); return s && s.meta_description && s.meta_description_len > 160; } },
-      { id: "metaShort",   label: "< 70 car.", tone: "warn", pred: function (p) { var s = seoOf(p); return s && s.meta_description && s.meta_description_len < 70; } },
-      { id: "metaDup",     label: "Dupliqué", tone: "warn", pred: dupPred("meta", dupKeyMeta) }
+    { groupKey: "overview.group_meta", tab: "meta", rows: [
+      { id: "metaMissing", labelKey: "overview.meta_missing", tone: "err",  pred: function (p) { var s = seoOf(p); return !s || !s.meta_description; } },
+      { id: "metaLong",    labelKey: "overview.meta_long", tone: "warn", pred: function (p) { var s = seoOf(p); return s && s.meta_description && s.meta_description_len > 160; } },
+      { id: "metaShort",   labelKey: "overview.meta_short", tone: "warn", pred: function (p) { var s = seoOf(p); return s && s.meta_description && s.meta_description_len < 70; } },
+      { id: "metaDup",     labelKey: "overview.meta_dup", tone: "warn", pred: dupPred("meta", dupKeyMeta) }
     ]},
-    { group: "H1", tab: "h1", rows: [
-      { id: "h1Missing",  label: "Manquant", tone: "err",  pred: function (p) { var s = seoOf(p); return !s || (s.h1_count || 0) === 0; } },
-      { id: "h1Multiple", label: "Multiple", tone: "warn", pred: function (p) { var s = seoOf(p); return s && (s.h1_count || 0) > 1; } },
-      { id: "h1Dup",      label: "Dupliqué", tone: "warn", pred: dupPred("h1", dupKeyH1) }
+    { groupKey: "overview.group_h1", tab: "h1", rows: [
+      { id: "h1Missing",  labelKey: "overview.h1_missing", tone: "err",  pred: function (p) { var s = seoOf(p); return !s || (s.h1_count || 0) === 0; } },
+      { id: "h1Multiple", labelKey: "overview.h1_multiple", tone: "warn", pred: function (p) { var s = seoOf(p); return s && (s.h1_count || 0) > 1; } },
+      { id: "h1Dup",      labelKey: "overview.h1_dup", tone: "warn", pred: dupPred("h1", dupKeyH1) }
     ]},
-    { group: "Contenu", tab: "content", rows: [
-      { id: "nearDup", label: "Near-duplicates", tone: "warn", pred: function (p) { return nearDupOf(p).length > 0; } }
+    { groupKey: "overview.group_content", tab: "content", rows: [
+      { id: "nearDup", labelKey: "overview.near_dup", tone: "warn", pred: function (p) { return nearDupOf(p).length > 0; } }
     ]},
-    { group: "Images", tab: "images", rows: [
-      { id: "imgMissingAlt", label: "Sans alt", tone: "warn", pred: function (p) { var s = seoOf(p); return s && (s.images_missing_alt || 0) > 0; } }
+    { groupKey: "overview.group_images", tab: "images", rows: [
+      { id: "imgMissingAlt", labelKey: "overview.img_missing_alt", tone: "warn", pred: function (p) { var s = seoOf(p); return s && (s.images_missing_alt || 0) > 0; } }
     ]},
-    { group: "Canonicals", tab: "canonical", rows: [
-      { id: "canonMissing", label: "Manquant", tone: "warn", pred: function (p) { var s = seoOf(p); return !s || !s.canonical; } },
-      { id: "canonicalised", label: "Canonicalisées", tone: "warn", pred: function (p) { var s = seoOf(p); return !!(s && s.canonicalised); } }
+    { groupKey: "overview.group_canonicals", tab: "canonical", rows: [
+      { id: "canonMissing", labelKey: "overview.canonical_missing", tone: "warn", pred: function (p) { var s = seoOf(p); return !s || !s.canonical; } },
+      { id: "canonicalised", labelKey: "overview.canonicalised", tone: "warn", pred: function (p) { var s = seoOf(p); return !!(s && s.canonicalised); } }
     ]},
-    { group: "Indexabilite", tab: "directives", rows: [
-      { id: "idxYes", label: "Indexable", tone: "ok",  pred: function (p) { var s = seoOf(p); return s && s.indexable; } },
-      { id: "idxNo",  label: "Non indexable", tone: "err", pred: function (p) { var s = seoOf(p); return !s || !s.indexable; } }
+    { groupKey: "overview.group_indexability", tab: "directives", rows: [
+      { id: "idxYes", labelKey: "overview.indexable", tone: "ok",  pred: function (p) { var s = seoOf(p); return s && s.indexable; } },
+      { id: "idxNo",  labelKey: "overview.non_indexable", tone: "err", pred: function (p) { var s = seoOf(p); return !s || !s.indexable; } }
     ]},
     // ----- Nouveaux groupes Vague 2 -----
-    { group: "URL", tab: "url", rows: [
-      { id: "urlNonAscii", label: "Non-ASCII", tone: "warn", pred: function (p) { var f = flagsOf(p); return !!(f && f.non_ascii); } },
-      { id: "urlLong",     label: "Longues (>115)", tone: "warn", pred: function (p) {
+    { groupKey: "overview.group_url", tab: "url", rows: [
+      { id: "urlNonAscii", labelKey: "overview.url_non_ascii", tone: "warn", pred: function (p) { var f = flagsOf(p); return !!(f && f.non_ascii); } },
+      { id: "urlLong",     labelKey: "overview.url_long", tone: "warn", pred: function (p) {
           var f = flagsOf(p);
           var len = f && f.length != null ? f.length : (p.url ? p.url.length : 0);
           return len > 115;
       } }
     ]},
-    { group: "Sécurité", tab: "security", rows: [
-      { id: "secMixed",   label: "Contenu mixte", tone: "err",  pred: function (p) { return mixedContentOf(p).length > 0; } },
-      { id: "secHeaders", label: "En-têtes manquants", tone: "warn", pred: function (p) { return missingHeadersOf(p).length > 0; } }
+    { groupKey: "overview.group_security", tab: "security", rows: [
+      { id: "secMixed",   labelKey: "overview.mixed_content", tone: "err",  pred: function (p) { return mixedContentOf(p).length > 0; } },
+      { id: "secHeaders", labelKey: "overview.missing_headers", tone: "warn", pred: function (p) { return missingHeadersOf(p).length > 0; } }
     ]},
-    { group: "Hreflang", tab: "hreflang", rows: [
-      { id: "hreflangNoBack", label: "Sans lien retour", tone: "warn", pred: function (p) { return hasHreflangMissingBack(p); } }
+    { groupKey: "overview.group_hreflang", tab: "hreflang", rows: [
+      { id: "hreflangNoBack", labelKey: "overview.hreflang_no_return", tone: "warn", pred: function (p) { return hasHreflangMissingBack(p); } }
     ]}
   ];
 
@@ -1842,16 +2029,20 @@
     // Derive les issues "Hreflang sans lien retour" (sévérité warning) pour
     // l'onglet Problèmes. Une issue par page concernee, message listant les
     // cibles sans reciprocite. Recalculee à chaque cycle (pas d'accumulation).
+    // `category` reste l'identifiant "Hreflang" ; le message est gardé sous
+    // forme de clé (`i18n`) et traduit à l'affichage (cf. issueText).
     var issues = [];
     for (var u = 0; u < S.pages.length; u++) {
       var pp = S.pages[u];
       var rr = recip[normUrl(pp.url)];
       if (rr && rr.missingBack && rr.missingBack.length) {
+        var hm = msg("jsissue.hreflang_no_return", { urls: rr.missingBack.join(", ") });
         issues.push({
           url: pp.url || "",
           severity: "warning",
           category: "Hreflang",
-          message: "Hreflang sans lien retour vers : " + rr.missingBack.join(", ")
+          message: msgText(hm),
+          i18n: hm
         });
       }
     }
@@ -1908,7 +2099,7 @@
     var html = "";
     for (var g = 0; g < OVERVIEW.length; g++) {
       var grp = OVERVIEW[g];
-      html += '<div class="ov-group"><div class="ov-group-title">' + esc(grp.group) + '</div>';
+      html += '<div class="ov-group"><div class="ov-group-title">' + esc(I18N.t(grp.groupKey)) + '</div>';
       for (var r = 0; r < grp.rows.length; r++) {
         var row = grp.rows[r];
         var n = countFor(row.pred);
@@ -1916,7 +2107,7 @@
         var activeCls = (S.catId === row.id) ? " is-active" : "";
         html += '<div class="ov-row' + toneCls + activeCls + '" data-cat="' + row.id +
                 '" data-tab="' + grp.tab + '" data-empty="' + (n ? 0 : 1) + '">' +
-                '<span class="ov-label">' + esc(row.label) + '</span>' +
+                '<span class="ov-label">' + esc(I18N.t(row.labelKey)) + '</span>' +
                 '<span class="ov-count">' + n + '</span></div>';
       }
       html += '</div>';
@@ -1928,10 +2119,10 @@
     var nOrphan = countSitemapOrphans();
     var nNotIn  = countNotInSitemap();
     var nSmTotal = S.sitemapUrls.length;
-    html += '<div class="ov-group"><div class="ov-group-title">Sitemap</div>';
-    html += smRow("all",   "URLs du sitemap", nSmTotal, nSmTotal ? "ok" : "");
-    html += smRow("orphan","Orphelines",      nOrphan, "warn");
-    html += smRow("notin", "Hors sitemap",    nNotIn,  "warn");
+    html += '<div class="ov-group"><div class="ov-group-title">' + esc(I18N.t("overview.group_sitemap")) + '</div>';
+    html += smRow("all",   I18N.t("overview.sitemap_all"),    nSmTotal, nSmTotal ? "ok" : "");
+    html += smRow("orphan", I18N.t("overview.sitemap_orphans"), nOrphan, "warn");
+    html += smRow("notin", I18N.t("overview.sitemap_not_in"),  nNotIn,  "warn");
     html += '</div>';
 
     tree.innerHTML = html;
@@ -2050,7 +2241,15 @@
   function selColumnLabel() {
     var def = TABS[S.activeTab];
     var c = def && def.columns[S.sel.col];
-    return c ? c.label : "";
+    return c ? colTitle(c) : "";
+  }
+  // Même libellé, gardé comme message (retraduisible) dans un texte mémorisé.
+  function selColumnMsg() {
+    var def = TABS[S.activeTab];
+    var c = def && def.columns[S.sel.col];
+    if (!c) return "";
+    if (c.titleKey) return msg(c.titleKey);
+    return c.labelKey ? msg(c.labelKey) : (c.label || "");
   }
 
   // Ecriture dans le presse-papiers : API moderne d'abord, repli sur l'ancien
@@ -2078,24 +2277,40 @@
     return ok;
   }
 
+  // État du bouton Copier : null (repos), "done" (copié) ou "fail" (échec),
+  // pour pouvoir le retraduire pendant son retour visuel.
+  var copyBtnState = null;
+  function renderCopyButton() {
+    var b = $("multi-sel-copy");
+    if (!b) return;
+    b.textContent = copyBtnState === "done" ? I18N.t("sel.copied")
+                  : copyBtnState === "fail" ? I18N.t("sel.copy_failed")
+                  : I18N.t("sel.copy");
+    b.title = I18N.t("sel.copy_title");
+  }
+
   function copySelection() {
     hideCtxMenu();
     var lines = selTexts();
     if (!lines.length) return;
-    var label = selColumnLabel();
+    var label = selColumnMsg();
     copyText(lines.join("\n"), function (ok) {
       // Retour VISIBLE : le presse-papiers est invisible, sans message rien ne
       // dit que la copie a eu lieu ni ce qui a été copie.
-      toast(ok ? (lines.length + " valeur(s) copiee(s) \u2014 colonne " + label) : "Échec de la copie");
+      toast(ok ? msg("toast.copied", { count: lines.length, n: lines.length, col: label }) : msg("toast.copy_failed"));
       var b = $("multi-sel-copy");
       if (b) {
-        b.textContent = ok ? "Copie !" : "Échec";
+        copyBtnState = ok ? "done" : "fail";
+        renderCopyButton();
         b.classList.toggle("is-done", ok);
-        setTimeout(function () { b.textContent = "Copier"; b.classList.remove("is-done"); }, 1600);
+        setTimeout(function () { copyBtnState = null; renderCopyButton(); b.classList.remove("is-done"); }, 1600);
       }
     });
   }
 
+  // La phrase « N cellule(s) · colonne » est un gabarit de index.html (agent
+  // interface, contrat §12) : ce fichier n'écrit que les VALEURS de ses cases,
+  // le nombre brut et le libellé de colonne ; l'accord suit le nombre en direct.
   function updateSelBar() {
     var bar = $("multi-sel");
     if (!bar) return;
@@ -2105,22 +2320,29 @@
     setText("multi-sel-col", selColumnLabel());
   }
 
-  // Message flottant bref, en bas de la fenêtre.
-  function toast(msg) {
+  // Message flottant bref, en bas de la fenêtre. `m` : un message (clé +
+  // paramètres, cf. msg) ou un texte déjà prêt.
+  function toast(m) {
     var t = $("toast");
     if (!t) return;
-    t.textContent = msg;
+    toast._m = m;
+    t.textContent = msgText(m);
     t.hidden = false;
     clearTimeout(toast._h);
     toast._h = setTimeout(function () { t.hidden = true; }, 2000);
   }
 
   // --- Menu contextuel (clic droit sur une cellule) -----------------------
+  // « Copier N valeur(s) — colonne » : gabarit de index.html (agent interface) ;
+  // ce fichier n'en écrit que les deux cases (nombre brut, libellé de colonne).
+  function fillCtxMenu() {
+    setText("ctx-copy-count", selCount());
+    setText("ctx-col-label", selColumnLabel());
+  }
   function showCtxMenu(x, y) {
     var m = $("ctx-menu");
     if (!m) return;
-    setText("ctx-copy-count", selCount());
-    setText("ctx-col-label", selColumnLabel());
+    fillCtxMenu();
     // « Ouvrir » n'a de sens que sur une cellule d'adresse.
     var open = $("ctx-open");
     if (open) open.hidden = !(S.sel.col === 0 && selCount() === 1);
@@ -2237,16 +2459,16 @@
     if (S.detailTab === "inlinks") {
       body.innerHTML = renderLinkTable(
         inl.map(function (x) { return { url: x.from, anchor: x.anchor, rel: x.rel }; }),
-        ["Source (qui pointe ici)", "Ancre", "Rel"],
+        [I18N.t("detail.h_inlink_source"), I18N.t("detail.h_anchor"), "Rel"],
         ["url", "anchor", "rel"],
-        "Aucun lien entrant détecté parmi les pages crawlées."
+        I18N.t("detail.no_inlinks")
       );
     } else if (S.detailTab === "outlinks") {
       body.innerHTML = renderLinkTable(
         outs.map(function (l) { return { url: l.target, anchor: l.anchor, rel: l.rel, internal: l.internal }; }),
-        ["Destination", "Ancre", "Type", "Rel"],
+        [I18N.t("detail.h_destination"), I18N.t("detail.h_anchor"), I18N.t("detail.h_link_type"), "Rel"],
         ["url", "anchor", "type", "rel"],
-        "Aucun lien sortant sur cette page."
+        I18N.t("detail.no_outlinks")
       );
     } else if (S.detailTab === "images") {
       body.innerHTML = renderImagesMissingAlt(p);
@@ -2290,11 +2512,13 @@
       var s = seoOf(p);
       var types = s && Array.isArray(s.structured_data_types) ? s.structured_data_types : [];
       if (types.length) {
-        return '<div class="detail-empty">Types detectes : ' +
-               types.map(function (t) { return '<span class="badge">' + esc(t) + '</span>'; }).join(" ") +
-               '<br>Aucun bloc JSON-LD brut fourni pour cette page.</div>';
+        return '<div class="detail-empty">' +
+               tHtml("detail.sd_types_detected", null, {
+                 types: types.map(function (t) { return '<span class="badge">' + esc(t) + '</span>'; }).join(" ")
+               }) +
+               '<br>' + esc(I18N.t("detail.sd_no_raw_block")) + '</div>';
       }
-      return '<div class="detail-empty">Aucune donnée structuree (JSON-LD) sur cette page.</div>';
+      return '<div class="detail-empty">' + esc(I18N.t("detail.sd_none")) + '</div>';
     }
     var html = '<div class="sd-list">';
     for (var i = 0; i < raw.length; i++) {
@@ -2306,11 +2530,12 @@
         label = jsonLdTypeLabel(obj);
       } catch (e) {
         pretty = String(block);                    // JSON invalide : brut tel quel
-        label = "(JSON invalide)";
+        label = I18N.t("detail.sd_invalid_json");
       }
       html += '<div class="sd-block">' +
-              '<div class="sd-block-head">Bloc ' + (i + 1) +
-              (label ? ' — <span class="sd-type">' + esc(label) + '</span>' : '') +
+              '<div class="sd-block-head">' +
+              (label ? tHtml("detail.sd_block_typed", { n: i + 1 }, { type: '<span class="sd-type">' + esc(label) + '</span>' })
+                     : esc(I18N.t("detail.sd_block", { n: i + 1 }))) +
               '</div>' +
               '<pre class="sd-json">' + esc(pretty) + '</pre>' +
               '</div>';
@@ -2331,7 +2556,7 @@
       for (var k = 0; k < keys.length; k++) {
         var key = keys[k];
         if (key === "url") h += "<td>" + urlCellHtml(it.url) + "</td>";
-        else if (key === "type") h += "<td>" + (it.internal ? pill("ok", "Interne") : pill("muted", "Externe")) + "</td>";
+        else if (key === "type") h += "<td>" + (it.internal ? pill("ok", I18N.t("cell.internal")) : pill("muted", I18N.t("cell.external"))) + "</td>";
         else h += "<td>" + esc(it[key] || "—") + "</td>";
       }
       h += "</tr>";
@@ -2361,15 +2586,15 @@
     var emptyMsg = missing > 0
       // Le compteur est la mais pas la liste : rapport enregistré AVANT que le
       // backend ne remonte les URLs. Le dire, sinon on cherche un bug ailleurs.
-      ? missing + " image(s) sans alt comptee(s), mais aucune URL enregistrée : ce crawl est anterieur à cette version, relancez-le."
-      : "Toutes les images de cette page ont un attribut alt.";
-    var h = renderLinkTable(items, ["Image (src)", "Fichier"], ["url", "file"], emptyMsg);
+      ? I18N.t("detail.alt_counted_no_urls", { count: missing, n: missing })
+      : I18N.t("detail.alt_all_ok");
+    var h = renderLinkTable(items, [I18N.t("detail.h_image_src"), I18N.t("detail.h_file")], ["url", "file"], emptyMsg);
     // Le compteur peut depasser la liste : doublons fusionnes, plafond backend,
     // ou `src` vide. On l'explique plutot que de laisser croire à une liste
     // tronquee par erreur.
     if (items.length && missing > items.length) {
-      h += '<div class="detail-empty">' + esc(missing + " sans alt au total, " + items.length +
-           " URL(s) distincte(s) : la même image répétée ne compte qu'une ligne.") + '</div>';
+      h += '<div class="detail-empty">' +
+           esc(I18N.t("detail.alt_more_than_urls", { count: items.length, missing: missing, n: items.length })) + '</div>';
     }
     return h;
   }
@@ -2377,8 +2602,8 @@
   // Apercu SERP (title bleu, url verte, meta grise).
   function renderSerp(p) {
     var s = seoOf(p);
-    var title = s && s.title ? s.title : "(titre manquant)";
-    var meta = s && s.meta_description ? s.meta_description : "(meta description manquante)";
+    var title = s && s.title ? s.title : I18N.t("detail.serp_no_title");
+    var meta = s && s.meta_description ? s.meta_description : I18N.t("detail.serp_no_meta");
     var url = p.url || "";
     var pretty = url.replace(/^https?:\/\//, "").replace(/\/$/, "");
     pretty = pretty.replace(/\//g, " › ");
@@ -2386,7 +2611,7 @@
            '<div class="serp-url">' + esc(pretty) + '</div>' +
            '<div class="serp-title">' + esc(title) + '</div>' +
            '<div class="serp-desc">' + esc(meta) + '</div>' +
-           '<div class="serp-note">Apercu indicatif du rendu dans les résultats Google.</div>' +
+           '<div class="serp-note">' + esc(I18N.t("detail.serp_note")) + '</div>' +
            '</div>';
   }
 
@@ -2394,19 +2619,19 @@
   // Repli sur le schema de l'URL si l'objet security n'est pas fourni.
   function secInfoHttps(p) {
     var sec = secOf(p);
-    if (sec && typeof sec.https === "boolean") return sec.https ? "Oui" : "Non";
-    return (p.url && /^https:/i.test(p.url)) ? "Oui" : "Non";
+    if (sec && typeof sec.https === "boolean") return sec.https ? I18N.t("cell.yes") : I18N.t("cell.no");
+    return (p.url && /^https:/i.test(p.url)) ? I18N.t("cell.yes") : I18N.t("cell.no");
   }
   function secInfoMixed(p) {
     var m = mixedContentOf(p);
-    if (!m.length) return "Aucun";
+    if (!m.length) return I18N.t("detail.no_mixed_content");
     // On liste les premieres ressources mixtes pour faciliter le diagnostic.
     var head = m.slice(0, 5).join("  |  ");
-    return m.length + " ressource(s) : " + head + (m.length > 5 ? "  | ..." : "");
+    return I18N.t("detail.mixed_resources", { count: m.length, n: m.length, list: head + (m.length > 5 ? "  | ..." : "") });
   }
   function secInfoHeaders(p) {
     var h = missingHeadersOf(p);
-    return h.length ? h.join(", ") : "Aucun";
+    return h.length ? h.join(", ") : I18N.t("detail.no_missing_headers");
   }
   // --- Helpers texte pour les données structurees (Vague 2) ---
   // "Valide" n'a de sens que si la page porte des données structurees.
@@ -2414,19 +2639,19 @@
     var s = seoOf(p);
     var types = s && Array.isArray(s.structured_data_types) ? s.structured_data_types : [];
     if (!types.length) return "—";
-    return (s && s.structured_data_valid) ? "Oui" : "Non";
+    return (s && s.structured_data_valid) ? I18N.t("cell.yes") : I18N.t("cell.no");
   }
   function schemaInfoErrors(p) {
     var s = seoOf(p);
     var errs = s && Array.isArray(s.structured_data_errors) ? s.structured_data_errors : [];
-    return errs.length ? errs.join("  |  ") : "Aucune";
+    return errs.length ? errs.map(sdErrorText).join("  |  ") : I18N.t("detail.no_sd_errors");
   }
 
   // --- Helpers panneau detail (Vague 3) ---
   // Liste HTML des URLs quasi-dupliquées à la page p (liens cliquables), ou "—".
   function nearDupHtml(p) {
     var sims = nearDupOf(p);
-    if (!sims.length) return '<span class="muted">Aucune</span>';
+    if (!sims.length) return '<span class="muted">' + esc(I18N.t("detail.no_near_dup")) + '</span>';
     // Les clés memorisees sont des URLs normalisées ; on retrouve l'URL d'origine
     // via S.byUrl pour un affichage propre (sinon on retombe sur la clé).
     var parts = sims.map(function (k) {
@@ -2434,7 +2659,7 @@
       var u = pg && pg.url ? pg.url : k;
       return urlCellHtml(u);
     });
-    return sims.length + ' page(s) : ' + parts.join("  |  ");
+    return tHtml("detail.near_dup_pages", { count: sims.length, n: sims.length }, { urls: parts.join("  |  ") });
   }
   // Texte de l'état de reciprocite hreflang pour la page p.
   function hreflangRecipHtml(p) {
@@ -2444,44 +2669,56 @@
     var r = S.hreflangRecip[normUrl(p.url)];
     if (r && r.missingBack && r.missingBack.length) {
       var parts = r.missingBack.map(function (u) { return urlCellHtml(u); });
-      return '<span class="bool-yes">Lien retour manquant</span> : ' + parts.join("  |  ");
+      return tHtml("detail.hreflang_missing_list", null, {
+        label: '<span class="bool-yes">' + esc(I18N.t("detail.hreflang_missing_label")) + '</span>',
+        urls: parts.join("  |  ")
+      });
     }
-    return '<span style="color:var(--ok);font-weight:600">OK (reciproque)</span>';
+    return '<span style="color:var(--ok);font-weight:600">' + esc(I18N.t("detail.hreflang_ok")) + '</span>';
+  }
+
+  // Ratio texte/code en %, une décimale au plus (« 12.3 % » aujourd'hui en français).
+  function textRatioText(s) {
+    var r = Math.round((s.text_ratio || 0) * 1000) / 10;
+    return I18N.t("unit.percent", { n: fmtDec(r, 0, 1, String(r)) });
   }
 
   // Vue "Infos / En-têtes" : liste clé/valeur.
   function renderInfo(p) {
     var s = seoOf(p);
+    var yes = I18N.t("cell.yes"), no = I18N.t("cell.no");
     var rows = [
-      ["Adresse", p.url || ""],
-      ["Code HTTP", String(p.status || 0)],
-      ["Cache", cacheInfoText(p)],
+      [I18N.t("detail.k_address"), p.url || ""],
+      [I18N.t("detail.k_http_code"), String(p.status || 0)],
+      [I18N.t("detail.k_cache"), cacheInfoText(p)],
       ["Content-Type", p.content_type || "—"],
-      ["Sonde", probeLabel(p.measured_with)],
-      ["Poids total", fmtBytes(p.total_bytes || 0)],
-      ["Requêtes", String(p.request_count || 0) + " (dont " + (p.dynamic_requests || 0) + " dyn.)"],
-      ["Redirige vers", p.redirect_to || "—"],
-      ["Chaîne de redirection", (Array.isArray(p.redirect_chain) && p.redirect_chain.length) ? p.redirect_chain.join("  ->  ") : "—"],
-      ["Canonical", (s && s.canonical) ? s.canonical : "—"],
-      ["Canonicalisée", (s && s.canonicalised) ? "Oui" : "Non"],
-      ["Meta robots", (s && s.meta_robots) ? s.meta_robots : "—"],
+      [I18N.t("detail.k_probe"), probeLabel(p.measured_with)],
+      [I18N.t("detail.k_total_size"), fmtBytes(p.total_bytes || 0)],
+      [I18N.t("detail.k_requests"), I18N.t("detail.requests_value", { total: p.request_count || 0, dyn: p.dynamic_requests || 0 })],
+      [I18N.t("detail.k_redirect_to"), p.redirect_to || "—"],
+      [I18N.t("detail.k_redirect_chain"), (Array.isArray(p.redirect_chain) && p.redirect_chain.length) ? p.redirect_chain.join("  ->  ") : "—"],
+      [I18N.t("detail.k_canonical"), (s && s.canonical) ? s.canonical : "—"],
+      [I18N.t("detail.k_canonicalised"), (s && s.canonicalised) ? yes : no],
+      [I18N.t("detail.k_meta_robots"), (s && s.meta_robots) ? s.meta_robots : "—"],
       ["X-Robots-Tag", (s && s.x_robots_tag) ? s.x_robots_tag : "—"],
-      ["Indexable", (s && s.indexable) ? "Oui" : "Non"],
-      ["Langue", (s && s.lang) ? s.lang : "—"],
-      ["Viewport", (s && s.viewport) ? s.viewport : "—"],
-      ["Charset", (s && s.charset) ? s.charset : "—"],
-      ["Mots", s ? String(s.word_count || 0) : "0"],
-      ["Ratio texte/code", s ? (Math.round((s.text_ratio || 0) * 1000) / 10) + " %" : "—"],
-      ["Liens internes / externes", s ? ((s.internal_links || 0) + " / " + (s.external_links || 0)) : "—"],
-      ["Technos", (Array.isArray(p.tech) && p.tech.length) ? p.tech.join(", ") : "—"],
-      ["Données structurees valides", schemaInfoValid(p)],
-      ["Erreurs données structurees", schemaInfoErrors(p)],
+      [I18N.t("detail.k_indexable"), (s && s.indexable) ? yes : no],
+      [I18N.t("detail.k_language"), (s && s.lang) ? s.lang : "—"],
+      [I18N.t("detail.k_viewport"), (s && s.viewport) ? s.viewport : "—"],
+      [I18N.t("detail.k_charset"), (s && s.charset) ? s.charset : "—"],
+      [I18N.t("detail.k_words"), s ? String(s.word_count || 0) : "0"],
+      // Signe % et nombre au format de la langue (en français : écriture d'aujourd'hui, cf. fmtDec).
+      [I18N.t("detail.k_text_ratio"), s ? textRatioText(s) : "—"],
+      [I18N.t("detail.k_links_int_ext"), s ? ((s.internal_links || 0) + " / " + (s.external_links || 0)) : "—"],
+      [I18N.t("detail.k_techs"), (Array.isArray(p.tech) && p.tech.length) ? p.tech.join(", ") : "—"],
+      [I18N.t("detail.k_sd_valid"), schemaInfoValid(p)],
+      [I18N.t("detail.k_sd_errors"), schemaInfoErrors(p)],
       ["HTTPS", secInfoHttps(p)],
-      ["Contenu mixte", secInfoMixed(p)],
-      ["En-têtes manquants", secInfoHeaders(p)],
+      [I18N.t("detail.k_mixed_content"), secInfoMixed(p)],
+      [I18N.t("detail.k_missing_headers"), secInfoHeaders(p)],
       ["rel=prev", (s && s.pagination_prev) ? s.pagination_prev : "—"],
       ["rel=next", (s && s.pagination_next) ? s.pagination_next : "—"],
-      ["Erreur", p.error || "—"]
+      // Erreur écrite par le moteur : traduite quand EngineTexts la reconnaît.
+      [I18N.t("detail.k_error"), pageErrorText(p) || "—"]
     ];
     var h = '<div class="kv">';
     for (var i = 0; i < rows.length; i++) {
@@ -2492,11 +2729,11 @@
     // injectees hors de la boucle car nearDupHtml/hreflangRecipHtml renvoient du
     // HTML déjà echappe en interne (urlCellHtml echappe l'URL).
     // VAGUE 4 (A) : temps de réponse colore (pastille vert/orange/rouge).
-    h += '<div class="kv-row"><div class="kv-key">Temps de réponse</div>' +
+    h += '<div class="kv-row"><div class="kv-key">' + esc(I18N.t("detail.k_response_time")) + '</div>' +
          '<div class="kv-val">' + speedCellHtml(respMs(p)) + '</div></div>';
-    h += '<div class="kv-row"><div class="kv-key">Near-duplicates</div>' +
+    h += '<div class="kv-row"><div class="kv-key">' + esc(I18N.t("detail.k_near_dup")) + '</div>' +
          '<div class="kv-val">' + nearDupHtml(p) + '</div></div>';
-    h += '<div class="kv-row"><div class="kv-key">Hreflang reciproque</div>' +
+    h += '<div class="kv-row"><div class="kv-key">' + esc(I18N.t("detail.k_hreflang_recip")) + '</div>' +
          '<div class="kv-val">' + hreflangRecipHtml(p) + '</div></div>';
     h += "</div>";
     return h;
@@ -2504,6 +2741,8 @@
 
   // Vue "Source" : on n'a pas le HTML brut côté frontend, on affiche donc une
   // synthese structuree (title, meta, H1, H2, og, twitter) en texte mono.
+  // Les étiquettes alignées (URL, Status, <title>…) sont des noms techniques,
+  // identiques dans toutes les langues.
   function renderSource(p) {
     var s = seoOf(p);
     var lines = [];
@@ -2522,7 +2761,7 @@
       var tw = s.twitter || {};
       Object.keys(tw).forEach(function (k) { lines.push("twitter:" + k + " = " + tw[k]); });
     } else {
-      lines.push("(pas de données SEO : page en erreur ou non-HTML)");
+      lines.push(I18N.t("detail.source_no_seo"));
     }
     return '<textarea class="source-box" readonly>' + esc(lines.join("\n")) + '</textarea>';
   }
@@ -2543,13 +2782,15 @@
     setText("status-done", done);
     setText("status-total", totalLabel);
     setText("status-queued", queued);
+    S.statusBytes = bytes;           // gardé pour retraduire l'unité à chaud
     setText("status-bytes", fmtBytes(bytes));
 
     // Débit moyen en pages/seconde depuis le début du run.
     if (S.rateStartTs) {
       var elapsed = (Date.now() - S.rateStartTs) / 1000;
       var rate = elapsed > 0 ? (done / elapsed) : 0;
-      setText("status-rate", rate.toFixed(1));
+      S.statusRate = rate;           // gardé pour le réécrire au format d'une autre langue
+      setText("status-rate", fmtDec(rate, 1, 1, rate.toFixed(1)));
     }
 
     // Workers RÉELLEMENT occupés / threads configurés.
@@ -2585,24 +2826,37 @@
     var start = $("btn-start");
     var stop  = $("btn-stop");
     var clear = $("btn-clear");
+    // Les trois boutons appartiennent à ce fichier (texte ET infobulle) :
+    // l'agent interface ne les marque pas, ils sont réécrits ici à chaque état
+    // et à chaque changement de langue.
     if (start) {
       start.disabled = S.running;                 // actif sauf pendant un crawl actif
-      start.textContent = S.paused ? "Reprendre" : "Démarrer";
+      start.textContent = S.paused ? I18N.t("btn.resume") : I18N.t("btn.start");
       start.title = S.paused
-        ? "Reprendre le crawl en pause (sans effacer les données déjà collectees)"
-        : "Lancer un nouveau crawl";
+        ? I18N.t("btn.resume_title")
+        : I18N.t("btn.start_title");
     }
     if (stop) {
       stop.disabled = !S.running;                  // actif seulement pendant un crawl actif
-      stop.title = "Mettre en pause (les données collectees sont conservees)";
+      stop.textContent = I18N.t("btn.stop");
+      stop.title = I18N.t("btn.stop_title");
     }
     if (clear) {
       clear.disabled = false;                      // toujours disponible
-      clear.title = "Effacer toutes les données et remettre a zero";
+      clear.textContent = I18N.t("btn.clear");
+      clear.title = I18N.t("btn.clear_title");
     }
   }
 
-  function setStatusState(txt) { setText("status-state", txt); }
+  // Texte d'état de la barre de statut. `m` : un message (cf. msg) — gardé
+  // tel quel pour être recalculé au changement de langue.
+  // Le même texte va dans le title : la barre coupe le message par « … » quand
+  // la place manque, il reste lisible au survol.
+  function setStatusState(m) {
+    S.statusMsg = m;
+    var txt = msgText(m), el = $("status-state");
+    if (el) { el.textContent = txt; el.title = txt; }
+  }
 
   function updateMultiStatus() {
     var el = $("status-multi");
@@ -2610,16 +2864,19 @@
     if (S.multi.target > 1) {
       el.hidden = false;
       var isList = !!(S.multi.seeds && S.multi.seeds.length);
-      var idx = Math.min(S.multi.done + (S.running ? 1 : 0), S.multi.target);
+      // En cours ET en pause, le site affiché est celui qui n'est pas fini (en
+      // pause, ce libellé est rejoué au changement de langue).
+      var idx = Math.min(S.multi.done + ((S.running || S.paused) ? 1 : 0), S.multi.target);
       // En multi-sites, afficher AUSSI le site en cours : sur une liste de 40
       // domaines, "Site 12/40" seul ne dit pas lequel est en train de tourner.
-      var label = isList
-        ? "Site " + idx + "/" + S.multi.target + " · " + hostOf(S.multi.config.seed_url)
-        : "Run " + idx + "/" + S.multi.target;
-      el.textContent = label + " — cumul " + fmtBytes(S.multi.totalBytes) +
-                       " (" + S.multi.totalPages + " pages)";
+      var p = { i: idx, total: S.multi.target, bytes: fmtBytes(S.multi.totalBytes),
+                count: S.multi.totalPages, pages: S.multi.totalPages };
+      if (isList) p.host = hostOf(S.multi.config.seed_url);
+      el.textContent = I18N.t(isList ? "status.multi_site" : "status.multi_run", p);
+      el.title = el.textContent;      // lisible au survol quand la barre le coupe
     } else {
       el.hidden = true;
+      el.removeAttribute("title");
     }
   }
 
@@ -2638,11 +2895,11 @@
       updateStatus(p);
       // VAGUE 4 (C) : si on vient de mettre en PAUSE, un dernier progress peut
       // arriver (page courante terminée) -> on garde le libellé "En pause".
-      if (p.current_url && !S.paused) setStatusState("Crawl : " + truncUrl(p.current_url, 70));
+      if (p.current_url && !S.paused) setStatusState(msg("status.crawling", { url: truncUrl(p.current_url, 70) }));
     }).then(function (u) { S.unlisteners.push(u); });
 
     TAURI.event.listen("crawl:error", function (event) {
-      setStatusState("Erreur : " + (event.payload || "inconnue"));
+      setStatusState(msg("status.error", { error: event.payload || msg("status.unknown") }));
       console.error("crawl:error", event.payload);
     }).then(function (u) { S.unlisteners.push(u); });
 
@@ -2741,13 +2998,13 @@
     S.paused = false;
     updateButtons();
     S.rateStartTs = Date.now();
-    setStatusState("Demarrage...");
+    setStatusState(msg("status.starting"));
     updateMultiStatus();
     scheduleRender();
 
     TAURI.core.invoke("start_crawl", { config: S.multi.config })
       .catch(function (err) {
-        setStatusState("Erreur : " + (err || "inconnue"));
+        setStatusState(msg("status.error", { error: err || msg("status.unknown") }));
         console.error("start_crawl error:", err);
         finishSequence();
       });
@@ -2766,14 +3023,14 @@
     S.multi.running = true;
     updateButtons();
     S.rateStartTs = Date.now();
-    setStatusState("Reprise du crawl...");
+    setStatusState(msg("status.resuming"));
     updateMultiStatus();
 
     // On se re-abonne aux événements (ils avaient été laisses actifs, mais on
     // garantit l'état) puis on relance le crawl backend avec la même config.
     TAURI.core.invoke("start_crawl", { config: S.multi.config })
       .catch(function (err) {
-        setStatusState("Erreur : " + (err || "inconnue"));
+        setStatusState(msg("status.error", { error: err || msg("status.unknown") }));
         console.error("start_crawl (resume) error:", err);
         finishSequence();
       });
@@ -2799,7 +3056,7 @@
       sitemap_urls: S.sitemapUrls || []
     });
     TAURI.core.invoke("save_crawl", { id: seed, json: crawlData, dir: saveDirArg() })
-      .then(function (path) { if (path) { S.lastSavePath = path; if (showPath) setStatusState("Enregistre : " + path); } })
+      .then(function (path) { if (path) { S.lastSavePath = path; if (showPath) setStatusState(msg("status.saved", { path: path })); } })
       .catch(function (err) { console.error("save_crawl error:", err); });
   }
 
@@ -2811,9 +3068,13 @@
     var fill = $("status-fill");
     if (fill) fill.style.width = "100%";
     var isList = !!(S.multi.seeds && S.multi.seeds.length);
+    // Deux nombres, deux accords : chaque groupe « N site(s) » est un message
+    // à part entière, la phrase les place.
+    var nDone = S.multi.done, nPages = S.multi.totalPages;
+    var pagesMsg = msg("status.n_pages", { count: nPages, n: nPages });
     setStatusState(isList
-      ? "Termine — " + S.multi.done + " site(s), " + S.multi.totalPages + " page(s)."
-      : "Termine — " + S.multi.done + " run(s), " + S.multi.totalPages + " page(s).");
+      ? msg("status.done_sites", { sites: msg("status.n_sites", { count: nDone, n: nDone }), pages: pagesMsg })
+      : msg("status.done_runs", { runs: msg("status.n_runs", { count: nDone, n: nDone }), pages: pagesMsg }));
     // Plus aucun worker ne tourne : le dernier `crawl:progress` a été emis par
     // le dernier worker ALORS QU'IL etait encore compte actif (voulu en cours de
     // crawl, mensonger une fois termine).
@@ -2910,8 +3171,9 @@
     for (var s = 0; s < S.sitemapUrls.length; s++) {
       if (S.sitemapUrls[s]) S.sitemapSet[normUrl(S.sitemapUrls[s])] = true;
     }
-    var when = data.date ? (" (enregistré le " + String(data.date).slice(0, 10) + ")") : "";
-    setStatusState("Consultation : " + (data.seed_url || "") + " — " + pages.length + " page(s)" + when);
+    var vp = { url: data.seed_url || "", count: pages.length, n: pages.length };
+    if (data.date) vp.date = String(data.date).slice(0, 10);
+    setStatusState(msg(data.date ? "status.viewing_dated" : "status.viewing", vp));
     updateButtons();
     scheduleRender();
   }
@@ -2920,23 +3182,35 @@
   function showCrawlChoice(url, data) {
     var old = $("crawl-choice-modal"); if (old) old.parentNode.removeChild(old);
     var nb = Array.isArray(data.pages) ? data.pages.length : 0;
-    var when = data.date ? (" le " + String(data.date).slice(0, 10)) : "";
+    var date = data.date ? String(data.date).slice(0, 10) : "";
     var ov = document.createElement("div");
     ov.id = "crawl-choice-modal";
     ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999;";
     var box = document.createElement("div");
     box.style.cssText = "background:var(--header-bg2,#f5f6f8);color:var(--text,#1c2330);border:1px solid var(--border,#ccd);border-radius:8px;padding:18px 20px;max-width:500px;font-size:13px;box-shadow:0 10px 40px rgba(0,0,0,.35);";
     box.innerHTML =
-      '<div style="font-weight:600;margin-bottom:8px;font-size:14px;">Crawl déjà enregistré</div>' +
-      '<div style="margin-bottom:16px;line-height:1.45;">Le site <strong>' + esc(url) + '</strong> a déjà été crawle' + when +
-      ' (' + nb + ' page(s) enregistrées). Que veux-tu faire ?</div>' +
+      '<div style="font-weight:600;margin-bottom:8px;font-size:14px;"></div>' +
+      '<div style="margin-bottom:16px;line-height:1.45;"></div>' +
       '<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">' +
-      '<button type="button" id="cc-cancel" class="btn">Annuler</button>' +
-      '<button type="button" id="cc-review" class="btn">Revoir cet enregistrement</button>' +
-      '<button type="button" id="cc-new" class="btn btn--primary">Nouveau crawl</button>' +
+      '<button type="button" id="cc-cancel" class="btn"></button>' +
+      '<button type="button" id="cc-review" class="btn"></button>' +
+      '<button type="button" id="cc-new" class="btn btn--primary"></button>' +
       '</div>';
     ov.appendChild(box);
     document.body.appendChild(ov);
+    // Textes posés (et reposés au changement de langue, cf. onLangChange) sans
+    // reconstruire les boutons : leurs gestionnaires restent en place.
+    var titleEl = box.children[0], textEl = box.children[1];
+    ov.__fill = function () {
+      titleEl.textContent = I18N.t("dialog.saved_title");
+      textEl.innerHTML = tHtml(date ? "dialog.saved_text_dated" : "dialog.saved_text",
+                               { count: nb, n: nb, date: date },
+                               { url: '<strong>' + esc(url) + '</strong>' });
+      setText("cc-cancel", I18N.t("dialog.cancel"));
+      setText("cc-review", I18N.t("dialog.review"));
+      setText("cc-new", I18N.t("dialog.new_crawl"));
+    };
+    ov.__fill();
     function close() { if (ov.parentNode) ov.parentNode.removeChild(ov); }
     $("cc-cancel").onclick = close;
     $("cc-review").onclick = function () { close(); loadSavedCrawl(data); };
@@ -2997,30 +3271,35 @@
     if (!b) return;
     if (!IMPORT.urls.length) { b.hidden = true; b.innerHTML = ""; return; }
     b.hidden = false;
-    b.innerHTML = IMPORT.urls.length + " site" + (IMPORT.urls.length > 1 ? "s" : "") +
-                  ' <span class="x" title="Retirer la liste">×</span>';
+    b.innerHTML = esc(I18N.t("import.badge", { count: IMPORT.urls.length, n: IMPORT.urls.length })) +
+                  ' <span class="x" title="' + esc(I18N.t("import.remove_title")) + '">×</span>';
     b.querySelector(".x").addEventListener("click", function () {
       IMPORT.urls = [];
       renderImportBadge();
-      setStatusState("Liste retiree.");
+      setStatusState(msg("status.list_removed"));
     });
   }
 
   function onImportList() {
     if (!TAURI) return;
-    TAURI.core.invoke("pick_url_list").then(function (urls) {
+    // Libellés des filtres du dialogue natif, dans la langue de l'interface
+    // (paramètres facultatifs côté Rust : sans eux, libellés français).
+    TAURI.core.invoke("pick_url_list", {
+      filterName: I18N.t("engine.dialog_url_list"),
+      allFilesName: I18N.t("engine.dialog_all_files")
+    }).then(function (urls) {
       if (!urls) return;                       // dialogue annule
       if (!urls.length) {
-        setStatusState("Aucune URL exploitable dans ce fichier.");
+        setStatusState(msg("status.import_empty"));
         return;
       }
       IMPORT.urls = urls;
       renderImportBadge();
       // Montre la 1re URL dans la barre : l'utilisateur voit ce qui va partir.
       var se = $("seed-url"); if (se) se.value = urls[0];
-      setStatusState(urls.length + " URL(s) importée(s) — cliquez sur Crawler pour lancer la série.");
+      setStatusState(msg("status.imported", { count: urls.length, n: urls.length }));
     }).catch(function (err) {
-      setStatusState("Import impossible : " + (err || "erreur inconnue"));
+      setStatusState(msg("status.import_failed", { error: err || msg("status.unknown_error") }));
       console.error("pick_url_list error:", err);
     });
   }
@@ -3128,7 +3407,7 @@
 
   function onSubmit(evt) {
     evt.preventDefault();
-    if (!TAURI) { alert("Interface Tauri non disponible. Lancez l'application via Tauri."); return; }
+    if (!TAURI) { alert(I18N.t("dialog.no_tauri")); return; }
 
     // VAGUE 4 (C) — Aligne sur le backend (start_crawl = démarrer OU reprendre).
     // Si un crawl est EN PAUSE et que l'URL saisie correspond à la seed en pause
@@ -3203,7 +3482,7 @@
     S.running = false;
     S.paused = true;                        // -> "Reprendre" disponible
     updateButtons();
-    setStatusState("En pause — " + S.pages.length + " page(s) collectee(s).");
+    setStatusState(msg("status.paused", { count: S.pages.length, n: S.pages.length }));
     // Les workers finissent leur page courante puis sortent : le compteur ne
     // doit pas rester fige sur la dernière valeur observee en plein crawl.
     setText("status-workers", 0);
@@ -3231,10 +3510,11 @@
     clearCategoryFilter();
     resetData();
     var fill = $("status-fill"); if (fill) fill.style.width = "0%";
-    setStatusState("En attente");
+    setStatusState(msg("status.idle"));
     setText("status-done", 0); setText("status-total", 0);
-    setText("status-queued", 0); setText("status-rate", 0);
-    setText("status-bytes", "0 o");
+    setText("status-queued", 0); setText("status-rate", 0); S.statusRate = null;
+    S.statusBytes = 0;
+    setText("status-bytes", fmtBytes(0));
     setText("status-workers", 0); setText("status-threads", 0);
     updateMultiStatus();
     S.paused = false;                  // VAGUE 4 (C) : retour à l'état idle
@@ -3267,10 +3547,11 @@
     var found = findCat(catId);
     if (!found) return;
     S.catId = catId;
-    S.catFilter = { predicate: found.row.pred, label: found.row.label };
+    // On garde la CLÉ du libellé (retraduit au changement de langue), pas le texte.
+    S.catFilter = { predicate: found.row.pred, labelKey: found.row.labelKey };
     // Indicateur de filtre actif.
     var af = $("active-filter");
-    if (af) { af.hidden = false; setText("active-filter-label", found.row.label); }
+    if (af) { af.hidden = false; setText("active-filter-label", I18N.t(found.row.labelKey)); }
     setActiveTab(found.tab);
     renderOverview();
   }
@@ -3344,11 +3625,11 @@
       }
     }
     // Reutilise le helper commun downloadCsv (BOM + RFC4180).
-    var header = def.columns.map(function (c) { return c.label; });
+    var header = def.columns.map(function (c) { return colTitle(c); });
     var rows = mapped.map(function (cells) {
       return cells.map(function (c) { return c.text; });
     });
-    downloadCsv("crawl-" + S.activeTab, header, rows);
+    downloadCsv(I18N.t("export.file_tab", { tab: S.activeTab }), header, rows);
   }
 
   // =========================================================================
@@ -3365,10 +3646,12 @@
       for (var k = 0; k < outs.length; k++) {
         var l = outs[k]; if (!l) continue;
         rows.push([ p.url || "", l.target || "", l.anchor || "",
-                    l.rel || "", l.internal ? "Interne" : "Externe" ]);
+                    l.rel || "", l.internal ? I18N.t("cell.internal") : I18N.t("cell.external") ]);
       }
     }
-    downloadCsv("liens-tous", ["source", "target", "anchor", "rel", "interne"], rows);
+    downloadCsv(I18N.t("export.file_links"),
+                [I18N.t("export.h_source"), I18N.t("export.h_target"), I18N.t("export.h_anchor"), "rel", I18N.t("export.h_internal")],
+                rows);
   }
 
   // Toutes les images de toutes les pages : page,src,kind,octets.
@@ -3384,15 +3667,18 @@
         rows.push([ p.url || "", im.url || "", im.kind || "", String(im.bytes || 0) ]);
       }
     }
-    downloadCsv("images-toutes", ["page", "src", "kind", "octets"], rows);
+    downloadCsv(I18N.t("export.file_images"),
+                [I18N.t("export.h_page"), "src", I18N.t("export.h_kind"), I18N.t("export.h_bytes")], rows);
   }
 
   // Tous les problèmes (issues backend + hreflang JS) : sévérité,catégorie,adresse,message.
   function exportAllIssues() {
     var rows = S.issues.concat(S.hreflangIssues).map(function (it) {
-      return [ sevLabel(it.severity), it.category || "", it.url || "", it.message || "" ];
+      return [ sevLabel(it.severity), catLabel(it.category), it.url || "", issueText(it) ];
     });
-    downloadCsv("problèmes-tous", ["sévérité", "catégorie", "adresse", "message"], rows);
+    downloadCsv(I18N.t("export.file_issues"),
+                [I18N.t("export.h_severity"), I18N.t("export.h_category"), I18N.t("export.h_address"), I18N.t("export.h_message")],
+                rows);
   }
 
   // =========================================================================
@@ -3411,7 +3697,8 @@
       var dest = chain.length ? chain[chain.length - 1] : (p.redirect_to || "");
       rows.push([ p.url || "", chain.join(" -> "), dest ]);
     }
-    downloadCsv("rapport-redirections", ["url", "chaîne", "destination"], rows);
+    downloadCsv(I18N.t("report.file_redirects"),
+                [I18N.t("report.h_url"), I18N.t("report.h_chain"), I18N.t("report.h_destination")], rows);
   }
 
   // Canonicals : url, canonical, type (Self / Autre / Manquant).
@@ -3424,7 +3711,8 @@
       var st = canonState(p.url, canon);   // { kind, label } : Self / Autre / Manquant
       rows.push([ p.url || "", canon, st.label ]);
     }
-    downloadCsv("rapport-canonicals", ["url", "canonical", "type"], rows);
+    downloadCsv(I18N.t("report.file_canonicals"),
+                [I18N.t("report.h_url"), I18N.t("report.h_canonical"), I18N.t("report.h_type")], rows);
   }
 
   // Pages non-indexables : url, raison (noindex / canonicalisée / bloquée).
@@ -3440,14 +3728,14 @@
       if (indexable) continue;             // page indexable : exclue du rapport
       var reasons = [];
       if (s && s.noindex) reasons.push("noindex");
-      if (s && s.canonicalised) reasons.push("canonicalisée");
+      if (s && s.canonicalised) reasons.push(I18N.t("report.reason_canonicalised"));
       var code = p.status || 0;
-      if (code < 200 || code >= 300) reasons.push("bloquée (HTTP " + code + ")");
-      if (!s) reasons.push("non-HTML / erreur");
-      if (!reasons.length) reasons.push("non indexable");
+      if (code < 200 || code >= 300) reasons.push(I18N.t("report.reason_blocked", { code: code }));
+      if (!s) reasons.push(I18N.t("report.reason_not_html"));
+      if (!reasons.length) reasons.push(I18N.t("report.reason_non_indexable"));
       rows.push([ p.url || "", reasons.join(" ; ") ]);
     }
-    downloadCsv("rapport-non-indexables", ["url", "raison"], rows);
+    downloadCsv(I18N.t("report.file_non_indexable"), [I18N.t("report.h_url"), I18N.t("report.h_reason")], rows);
   }
 
   // Contenu mixte : url, ressources http (jointes par " | ").
@@ -3459,7 +3747,7 @@
       if (!mixed.length) continue;
       rows.push([ p.url || "", mixed.join(" | ") ]);
     }
-    downloadCsv("rapport-contenu-mixte", ["url", "ressources http"], rows);
+    downloadCsv(I18N.t("report.file_mixed_content"), [I18N.t("report.h_url"), I18N.t("report.h_http_resources")], rows);
   }
 
   // Aiguillage des actions des deux menus (data-export / data-report).
@@ -3566,7 +3854,7 @@
         if (path) {
           PREFS.saveDir = path; persistPrefs();
           if (input) input.value = path;
-          setStatusState("Dossier de sauvegarde : " + path);
+          setStatusState(msg("status.save_dir", { path: path }));
         }
       }).catch(function (e) { console.error("pick_folder:", e); });
     });
@@ -3574,12 +3862,12 @@
     var openBtn = $("btn-open-project");
     if (openBtn) openBtn.addEventListener("click", function () {
       if (!TAURI) return;
-      TAURI.core.invoke("pick_open_project").then(function (json) {
+      TAURI.core.invoke("pick_open_project", { filterName: I18N.t("engine.dialog_project") }).then(function (json) {
         if (!json) return;
         var data = null;
         try { data = JSON.parse(json); } catch (e) { data = null; }
         if (data && Array.isArray(data.pages)) { loadSavedCrawl(data); }
-        else { setStatusState("Fichier de projet invalide ou vide."); }
+        else { setStatusState(msg("status.bad_project")); }
       }).catch(function (e) { console.error("pick_open_project:", e); });
     });
   }
@@ -3656,6 +3944,26 @@
     });
   }
 
+  // Pastille IP : son texte et son infobulle sont écrits ici (l'agent
+  // interface ne les marque pas). Le résultat est gardé pour être retraduit.
+  var netInfo = null;   // null (en attente), { ip, rev } ou { error: true }
+  function renderNetInfo() {
+    var el = $("net-info"), txt = $("net-info-text");
+    if (!el || !txt) return;
+    if (!netInfo) {
+      txt.textContent = I18N.t("netinfo.pending");
+      el.title = I18N.t("netinfo.title_pending");
+      return;
+    }
+    if (netInfo.error) {
+      txt.textContent = I18N.t("netinfo.unavailable");
+      el.title = I18N.t("netinfo.title_pending");
+      return;
+    }
+    txt.textContent = netInfo.rev ? (netInfo.ip + " · " + netInfo.rev) : netInfo.ip;
+    el.title = netInfo.rev ? I18N.t("netinfo.title_rev", { ip: netInfo.ip, rev: netInfo.rev })
+                           : I18N.t("netinfo.title_no_rev", { ip: netInfo.ip });
+  }
   function loadNetInfo() {
     var el = $("net-info"), txt = $("net-info-text");
     if (!TAURI || !el || !txt) return;
@@ -3663,13 +3971,13 @@
       .then(function (info) {
         var ip = info && info.ip ? info.ip : "?";
         var rev = info && info.reverse_dns ? info.reverse_dns : null;
-        txt.textContent = rev ? (ip + " · " + rev) : ip;
-        el.title = rev ? ("IP publique sortante " + ip + " — reverse DNS : " + rev)
-                       : ("IP publique sortante " + ip + " — pas de reverse DNS");
+        netInfo = { ip: ip, rev: rev };
+        renderNetInfo();
         el.classList.remove("net-err"); el.classList.add("net-ok");
       })
       .catch(function (err) {
-        txt.textContent = "IP indisponible";
+        netInfo = { error: true };
+        renderNetInfo();
         el.classList.remove("net-ok"); el.classList.add("net-err");
         console.error("network_info error:", err);
       });
@@ -3701,6 +4009,16 @@
     refreshUrlDatalist();
   }
   // Autocomplete de la barre d'URL : propose les sites déjà crawles (historique).
+  // Libellé proposé pour une entrée. Une SÉRIE de sites (entrée avec `seeds`)
+  // s'affiche par une clé, dans la langue courante (en français : le texte
+  // d'aujourd'hui, « 3 sites (exemple.fr…) ») ; history.json garde le libellé
+  // écrit à l'époque (`url`), qui sert toujours à dédoublonner et s'affiche tel
+  // quel pour une entrée sans `seeds`.
+  function historyLabel(h) {
+    var seeds = Array.isArray(h.seeds) ? h.seeds : null;
+    if (!seeds || !seeds.length) return h.url;
+    return I18N.t("history.site_list", { count: seeds.length, n: seeds.length, host: hostOf(seeds[0]) });
+  }
   function refreshUrlDatalist() {
     var dl = $("url-history");
     if (!dl) return;
@@ -3711,7 +4029,7 @@
       var k = normUrl(u);                 // dedup par URL normalisée : un site ne s'affiche qu'une fois
       if (seen[k]) continue;
       seen[k] = 1;
-      opts.push('<option value="' + esc(u) + '"></option>');
+      opts.push('<option value="' + esc(historyLabel(history[i])) + '"></option>');
     }
     dl.innerHTML = opts.join("");
   }
@@ -3798,20 +4116,26 @@
     var unlim = $("opt-unlimited");
     var maxPages = $("max-pages");
 
+    // Textes du champ selon son état (verrouillé : libellé du plafond dans la
+    // valeur). Rappelé au changement de langue ; ne touche jamais `data-last`.
+    function maxPagesTexts() {
+      if (maxPages.classList.contains("is-locked")) {
+        maxPages.value = I18N.t("maxpages.locked_value", { max: maxPagesHardLabel() });
+        maxPages.title = I18N.t("maxpages.locked_title", { max: maxPagesHardLabel() });
+      } else {
+        maxPages.title = I18N.t("maxpages.title");
+      }
+    }
+
     function lockMaxPages() {
       // Memorise la dernière valeur saisie pour la restituer au declic.
       if (maxPages.type === "number" && maxPages.value) {
         maxPages.dataset.last = maxPages.value;
       }
       maxPages.type = "text";                 // "number" n'accepte pas de texte
-      maxPages.value = "∞ (max " + MAX_PAGES_HARD_LABEL + ")";
       maxPages.readOnly = true;
       maxPages.classList.add("is-locked");
-      maxPages.title =
-        "Tout le site : aucune limite de pages. Un garde-fou interne arrete le " +
-        "crawl a " + MAX_PAGES_HARD_LABEL + " pages (protection contre les sites " +
-        "a facettes ou a calendrier, ou le nombre d'URLs est quasi infini).\n" +
-        "Cliquez pour fixer vous-même une limite.";
+      maxPagesTexts();
     }
 
     function unlockMaxPages() {
@@ -3819,8 +4143,9 @@
       maxPages.value = maxPages.dataset.last || "500";
       maxPages.readOnly = false;
       maxPages.classList.remove("is-locked");
-      maxPages.title = "Nombre maximal de pages à crawler.";
+      maxPagesTexts();
     }
+    I18N.onChange(maxPagesTexts);
 
     function syncUnlimited() {
       if (unlim.checked) lockMaxPages(); else unlockMaxPages();
@@ -4000,15 +4325,59 @@
   }
 
   // =========================================================================
+  // CHANGEMENT DE LANGUE À CHAUD (I18N.onChange)
+  //
+  // Tout ce que ce fichier a écrit est réécrit dans la nouvelle langue, à
+  // partir de l'état : le crawl en cours, la sélection, le tri, les filtres,
+  // l'onglet actif et le panneau de détail ouvert ne bougent pas. Les textes
+  // statiques de index.html marqués data-i18n sont retraduits par I18N.apply,
+  // juste avant cet appel. (Le champ « Pages max » s'abonne dans setupControls.)
+  // =========================================================================
+  function onLangChange() {
+    decimalSepCache = null;
+    updateButtons();
+    setStatusState(S.statusMsg);
+    setText("status-bytes", fmtBytes(S.statusBytes || 0));
+    if (S.statusRate != null) setText("status-rate", fmtDec(S.statusRate, 1, 1, S.statusRate.toFixed(1)));
+    updateMultiStatus();
+    renderImportBadge();
+    renderNetInfo();
+    renderCopyButton();
+    refreshUrlDatalist();       // libellés des séries de sites proposées par l'autocomplétion
+    renderOverview();
+    renderGrid();               // l'en-tête se reconstruit : la langue est dans sa signature
+    if (S.selectedUrl) renderDetail();
+    if (S.catId) {
+      var found = findCat(S.catId);
+      if (found) setText("active-filter-label", I18N.t(found.row.labelKey));
+    }
+    var menu = $("ctx-menu");
+    if (menu && !menu.hidden) fillCtxMenu();
+    var tt = $("toast");
+    if (tt && !tt.hidden && toast._m) tt.textContent = msgText(toast._m);
+    var cc = $("crawl-choice-modal");
+    if (cc && cc.__fill) cc.__fill();
+  }
+
+  // =========================================================================
   // INITIALISATION
   // =========================================================================
   setupControls();
   updateButtons();        // VAGUE 4 (C) : état initial coherent des boutons
+  // Éléments de index.html dont ce fichier écrit le texte : leur texte initial
+  // est posé ici, dans la langue courante (« En attente », « 0 o », Copier…).
+  setStatusState(msg("status.idle"));
+  S.statusBytes = 0;
+  setText("status-bytes", fmtBytes(0));
+  renderCopyButton();
+  renderNetInfo();
+  fillCtxMenu();
   loadNetInfo();
   loadHistory();
   renderTabCounts();
   renderOverview();
   renderGrid();
   setActiveTab("internal");
+  I18N.onChange(onLangChange);
 
 })();

@@ -901,3 +901,125 @@ body.is-resizing-detail { user-select: none; cursor: ns-resize; }
 .grid thead th { position: relative; }
 .col-resizer { position: absolute; top: 0; right: 0; width: 6px; height: 100%; cursor: col-resize; user-select: none; z-index: 2; }
 .col-resizer:hover { background: var(--accent); opacity: .5; }
+
+
+/* =========================================================================
+   TRADUCTION (ui/i18n.js)
+   ========================================================================= */
+
+/* ----- Libellés isolés de leur compteur ----------------------------------
+   Pour être traduit, un libellé qui précède un compteur écrit par main.js est
+   enveloppé dans son propre <span>. Deux règles plus haut stylent TOUS les
+   span de ces boutons comme des compteurs : on rend au libellé l'allure du
+   texte nu qu'il était. */
+.dtab .dtab-label       { color: inherit; font-weight: inherit; margin-left: 0; }
+.sev-filter .sev-label  { font-weight: inherit; margin-left: 0; }
+
+/* Phrase à cases dans un conteneur flex (filtre actif, sélection multiple) :
+   l'enveloppe n'a pas de boîte, ses morceaux restent des éléments flex
+   séparés par le `gap` du parent, comme avant la traduction. */
+.i18n-flow { display: contents; }
+
+/* ----- Sélecteur de langue, à côté de « Réglages » ----------------------
+   Même allure que les menus « Export en masse » / « Rapports » (.menu-list,
+   .menu-item), mais piloté par i18n.js : pas de classe .menu, que main.js
+   referme sans prévenir. */
+.lang-menu { position: relative; display: inline-flex; flex: 0 0 auto; }
+.lang-btn { display: inline-flex; align-items: center; gap: 6px; }
+.lang-flag,
+.lang-auto-icon { display: block; flex: 0 0 auto; width: 20px; height: 15px; }
+/* Liseré : un drapeau blanc (Japon, Pologne, Russie) ne se perd pas sur fond clair. */
+.lang-flag { border-radius: 2px; box-shadow: 0 0 0 1px rgba(0, 0, 0, .15); }
+.lang-btn .lang-flag { width: 16px; height: 12px; }
+.lang-name { max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+.lang-caret { margin-left: -3px; }
+.lang-menu.is-open .lang-btn { background: #fff; border-color: var(--accent); color: var(--text); }
+.lang-menu.is-open .lang-list { display: block; }
+.lang-list { overflow-y: auto; }
+.menu-item.lang-item { display: flex; align-items: center; gap: 8px; }
+.lang-item .lang-label { flex: 1 1 auto; }
+.lang-hint { color: var(--text-soft); }
+.lang-check { flex: 0 0 auto; margin-left: 14px; color: var(--accent); font-weight: 700; visibility: hidden; }
+.lang-item[aria-checked="true"] { font-weight: 600; }
+.lang-item[aria-checked="true"] .lang-check { visibility: visible; }
+.lang-item:focus { outline: none; }
+.lang-item:focus-visible { background: var(--row-hover); color: var(--accent-dark); box-shadow: inset 0 0 0 1px var(--accent); }
+.lang-sep { height: 1px; margin: 4px 6px; background: var(--border-soft); }
+
+/* ----- Des libellés plus longs que le français ----------------------------
+   Règle commune aux barres denses : quand la place suffit, rien ne bouge
+   (mêmes positions qu'avant la traduction) ; quand elle manque (fenêtre
+   étroite, langue aux mots longs, crawl chargé), le secondaire rétrécit avec
+   des points de suspension, puis les éléments passent À LA LIGNE au lieu de
+   sortir de l'écran.
+   Mécanique : un élément qui doit céder de la place part d'une petite base
+   (flex-basis) et ne grandit jusqu'à son texte complet (max-width:
+   max-content) que si la place le permet ; un flex-grow de 1000 le sert avant
+   le champ qui absorbe le reste (URL, adresse en cours). */
+
+/* Barre du haut : le bloc IP descend jusqu'à sa pastille (adresse complète dans
+   son infobulle) ; le champ d'URL garde ses 200 px minimum et prend le reste. */
+.topbar-main { flex-wrap: wrap; row-gap: 6px; }
+.net-info { flex: 1000 1 31px; max-width: max-content; min-width: 0; overflow: hidden; }
+.net-dot { flex: 0 0 auto; }
+#net-info-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* « Réglages » et le sélecteur de langue passent ENSEMBLE à la ligne. Même écart
+   que la barre (8 px) : sur une seule ligne, rien ne bouge. */
+.topbar-group { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+
+/* Barre d'outils de la grille : les boutons de sévérité ne coupent plus leur
+   texte en deux lignes ; Export / Rapports / Export CSV passent ensemble à la
+   ligne, calés à droite. */
+.gridtools { flex-wrap: wrap; row-gap: 5px; }
+.gridtools-right { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.sev-filter,
+.active-filter,
+.multi-sel { white-space: nowrap; }
+
+/* Barre d'état : le message d'état et le cumul multi-sites rétrécissent
+   (jusqu'à 80 px), l'adresse en cours d'abord ; les compteurs restent entiers
+   et passent ensemble à la ligne s'il le faut ; et si le groupe des compteurs,
+   seul sur sa ligne, est encore plus large que la fenêtre, il se replie sur
+   lui-même (calé à droite). Il ne rétrécit jamais à côté d'autres éléments :
+   une ligne n'est remplie que d'éléments qui y tiennent entiers. */
+.statusbar { flex-wrap: wrap; height: auto; min-height: 26px; padding-top: 2px; padding-bottom: 2px; row-gap: 2px; }
+.statusbar #status-state,
+.statusbar .status-item--multi {
+  flex: 1000 1 80px; max-width: max-content; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.statusbar .status-url { flex: 1 1 0; }
+.status-stats {
+  display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 2px 14px;
+  flex: 0 1 auto; min-width: 0; margin-left: auto;
+}
+
+/* En-têtes de colonnes (écrits par main.js) : hors français, un libellé trop
+   long pour sa colonne finit par « … » au lieu d'être coupé net. En français,
+   l'affichage d'aujourd'hui est gardé tel quel (règle du chantier). */
+.grid thead th:not(:lang(fr)) { overflow: hidden; text-overflow: ellipsis; padding-left: 7px; }
+/* … et la flèche de tri, qui suivait le texte, serait alors rognée avec lui. Hors
+   français, elle se loge dans la marge droite qui existe déjà (8 px), sans son
+   espace de tête, contre le bord de la cellule (le <th> est en position:
+   relative) : le libellé garde toute sa place, trié ou non, aucune lettre ne
+   passe sous la flèche et la flèche n'a pas besoin de fond. Le pixel repris à
+   gauche (7 px au lieu de 8) fait tenir « Outlinks » (44 px) dans une colonne
+   étroite. Le français garde sa flèche après le texte. */
+.grid thead th:not(:lang(fr)).sort-asc::after { content: "\25B2"; }
+.grid thead th:not(:lang(fr)).sort-desc::after { content: "\25BC"; }
+.grid thead th:not(:lang(fr)).sort-asc::after,
+.grid thead th:not(:lang(fr)).sort-desc::after { position: absolute; right: 0; top: 50%; transform: translateY(-50%); }
+/* Colonnes étroites (Status, Speed, Outlinks…) : hors français, les libellés sont
+   plus longs et Windows les dessine un peu plus larges que le banc d'essai
+   (« Outlinks » : 45,2 px dans la vraie fenêtre). La première colonne (l'adresse)
+   y cède 6 % de la largeur, partagés entre les autres : 30 % au lieu de 36 %, soit
+   au moins 64 px par colonne étroite à 1100 px avec la barre de défilement. Une
+   largeur réglée à la souris (style posé par main.js) prime toujours. Le français
+   garde ses 36 %. */
+.grid th:first-child:not(:lang(fr)),
+.grid td:first-child:not(:lang(fr)) { width: 30%; }
+
+/* Champ « Pages max » verrouillé (« ∞ (max 200 000) », écrit par main.js) :
+   hors français, « max » se traduit par un mot plus long (« макс. », « maks. »)
+   et le nombre peut prendre un autre séparateur : 140 px au lieu de 118. */
+.setting input.is-locked:not(:lang(fr)) { width: 140px; }

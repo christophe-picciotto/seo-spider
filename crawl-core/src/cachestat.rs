@@ -864,4 +864,36 @@ mod tests {
         assert_eq!(c.status, "WEIRD-VALUE");
         assert_eq!(c.raw, "weird-value");
     }
+
+    // --- Textes du moteur (chantier i18n) -----------------------------------
+
+    /// Les textes que ce module écrit lui-même sont ENREGISTRÉS dans les crawls
+    /// et l'interface les reconnaît à leur valeur pour les traduire
+    /// (`ui/engine-texts.js`) ; `served_by == "origine"` y est en outre comparé
+    /// comme un identifiant. Ils sont donc figés, au caractère près.
+    #[test]
+    fn textes_du_moteur_figes() {
+        assert_eq!(ORIGIN, "origine");
+
+        let c = an(&[("age", "120")]).unwrap();
+        assert_eq!(c.engine, "cache HTTP");
+        assert_eq!(c.served_by, "cache HTTP");
+
+        let c = an(&[("cf-ray", "abc")]).unwrap();
+        assert_eq!(c.raw, "servi par le réseau, sans origine (aucun cf-cache-status)");
+        assert_eq!(c.layers[0].raw, c.raw);
+
+        let c = analyze(&HeaderMap::new(), "<!-- Performance optimized by WP Rocket -->").unwrap();
+        assert_eq!(c.layers[0].raw, "signature HTML");
+
+        let vieux = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() - 7200;
+        let c = analyze(&HeaderMap::new(), &format!("<!-- WP Rocket - Debug: cached@{vieux} -->")).unwrap();
+        let raw = &c.layers[0].raw;
+        let age: u64 = raw
+            .strip_prefix("cached@ il y a ")
+            .and_then(|r| r.strip_suffix(" s"))
+            .and_then(|n| n.parse().ok())
+            .unwrap_or_else(|| panic!("forme inattendue : {raw}"));
+        assert!((7200..7260).contains(&age), "{raw}");
+    }
 }

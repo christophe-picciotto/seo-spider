@@ -26,6 +26,7 @@ use chromiumoxide::cdp::browser_protocol::network::{
     EnableParams as NetworkEnableParams, EventLoadingFinished, EventResponseReceived, ResourceType,
 };
 
+use crate::codes::PageError;
 use crate::report::{AssetReport, PageReport, TypeStat};
 
 /// État partage entre les deux tâches d'ecoute et le thread principal.
@@ -286,7 +287,8 @@ pub async fn measure_page(
 
     // 3. Navigation + attente de fin de chargement + tempo d'inactivite réseau.
     //    On capture l'erreur eventuelle sans interrompre la collecte déjà faite.
-    let nav_error: Option<String> = match page.goto(target).await {
+    //    Phrase « navigation echouee: {e} » + son code (cf. `codes::PageError`).
+    let nav_error: Option<PageError> = match page.goto(target).await {
         Ok(_) => {
             // Attendre l'événement de navigation (best-effort).
             let _ = page.wait_for_navigation().await;
@@ -295,7 +297,7 @@ pub async fn measure_page(
             tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
             None
         }
-        Err(e) => Some(format!("navigation echouee: {e}")),
+        Err(e) => Some(PageError::ChromeNavigationFailed(e.to_string())),
     };
 
     // 4. HTML final + headers du document principal -> détection techno.
@@ -304,7 +306,7 @@ pub async fn measure_page(
 
     // 5. Construction du PageReport à partir de l'état partage.
     //    On prend un snapshot sous lock, puis on relache avant de fermer la page.
-    let report = {
+    let mut report = {
         let st = state.lock().await;
 
         // Statut + headers du document principal (première réponse de type Document).
@@ -348,10 +350,13 @@ pub async fn measure_page(
             vercel_cache_misses: st.vercel_cache_misses,
             images: st.images.clone(),
             measured_with: "chrome".to_string(),
-            error: nav_error,
+            error: None,
             ..Default::default()
         }
     };
+    if let Some(e) = &nav_error {
+        report.set_error(e);
+    }
 
     // 6. Fermeture de la page + arrêt des tâches d'ecoute.
     //    Fermer la page termine les streams d'événements -> les boucles `while`

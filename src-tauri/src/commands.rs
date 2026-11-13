@@ -504,14 +504,27 @@ pub async fn pick_folder(app: AppHandle) -> Result<Option<String>, String> {
     rx.await.map_err(|e| e.to_string())
 }
 
+/// Libellé d'un filtre de dialogue natif : celui que l'interface envoie, déjà
+/// traduit dans sa langue, sinon le libellé français historique (appel sans
+/// argument, ou interface d'avant la traduction).
+fn dialog_label(given: Option<String>, default_fr: &str) -> String {
+    match given {
+        Some(s) if !s.trim().is_empty() => s.trim().to_string(),
+        _ => default_fr.to_string(),
+    }
+}
+
 /// Ouvre un selecteur de FICHIER (.json) et renvoie le CONTENU du projet choisi,
 /// ou None si annule. Le frontend parse ce JSON et l'affiche (consultation).
+///
+/// `filter_name` (facultatif, `filterName` côté JS) : libellé du filtre dans la
+/// langue de l'interface (clé `engine.dialog_project`) ; « Projet de crawl » sinon.
 #[tauri::command]
-pub async fn pick_open_project(app: AppHandle) -> Result<Option<String>, String> {
+pub async fn pick_open_project(app: AppHandle, filter_name: Option<String>) -> Result<Option<String>, String> {
     let (tx, rx) = tokio::sync::oneshot::channel();
     app.dialog()
         .file()
-        .add_filter("Projet de crawl", &["json"])
+        .add_filter(dialog_label(filter_name, "Projet de crawl"), &["json"])
         .pick_file(move |file| {
             let content = file
                 .and_then(|f| f.into_path().ok())
@@ -534,13 +547,22 @@ pub async fn pick_open_project(app: AppHandle) -> Result<Option<String>, String>
 ///     crawl normal — sinon deux lignes designant la même ressource lanceraient
 ///     deux crawls complets ;
 ///   - doublons ecartes en conservant l'ordre du fichier.
+///
+/// `filter_name` / `all_files_name` (facultatifs, `filterName` / `allFilesName`
+/// côté JS) : libellés des deux filtres dans la langue de l'interface (clés
+/// `engine.dialog_url_list` et `engine.dialog_all_files`) ; « Liste d'URLs » et
+/// « Tous les fichiers » sinon.
 #[tauri::command]
-pub async fn pick_url_list(app: AppHandle) -> Result<Option<Vec<String>>, String> {
+pub async fn pick_url_list(
+    app: AppHandle,
+    filter_name: Option<String>,
+    all_files_name: Option<String>,
+) -> Result<Option<Vec<String>>, String> {
     let (tx, rx) = tokio::sync::oneshot::channel();
     app.dialog()
         .file()
-        .add_filter("Liste d'URLs", &["txt", "csv", "list"])
-        .add_filter("Tous les fichiers", &["*"])
+        .add_filter(dialog_label(filter_name, "Liste d'URLs"), &["txt", "csv", "list"])
+        .add_filter(dialog_label(all_files_name, "Tous les fichiers"), &["*"])
         .pick_file(move |file| {
             let content = file
                 .and_then(|f| f.into_path().ok())
@@ -610,7 +632,17 @@ fn parse_url_list(content: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{load_history_from, parse_url_list, slim_history};
+    use super::{dialog_label, load_history_from, parse_url_list, slim_history};
+
+    /// Sans libellé (ancienne interface, ou appel sans argument), le dialogue
+    /// garde ses libellés français historiques ; sinon il prend celui reçu.
+    #[test]
+    fn libelles_de_dialogue_traduits_ou_historiques() {
+        assert_eq!(dialog_label(None, "Projet de crawl"), "Projet de crawl");
+        assert_eq!(dialog_label(Some("   ".to_string()), "Liste d'URLs"), "Liste d'URLs");
+        assert_eq!(dialog_label(Some("Crawl project".to_string()), "Projet de crawl"), "Crawl project");
+        assert_eq!(dialog_label(Some(" All files ".to_string()), "Tous les fichiers"), "All files");
+    }
 
     /// Dossier temporaire vide, propre à un test (les tests tournent en parallèle).
     fn dossier_de_test(nom: &str) -> std::path::PathBuf {

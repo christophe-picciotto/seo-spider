@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SEO Spider</title>
+  <title data-i18n="page.title">SEO Spider</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -16,6 +16,11 @@
         |- workspace   : [ grille principale ] [ sidebar Overview ]
         |- détail      : panneau de détail (au clic sur une ligne)
         |- statusbar   : progression / file / débit / poids total
+
+       TRADUCTION (ui/i18n.js) : data-i18n, data-i18n-title, data-i18n-placeholder,
+       data-i18n-aria-label, et data-i18n-tpl pour une phrase qui entoure des
+       cases (data-i18n-slot) écrites par main.js. Un élément dont main.js écrit
+       le texte ou le title n'est PAS marqué : main.js le retraduit lui-même.
        ===================================================================== -->
   <div class="app">
 
@@ -24,29 +29,48 @@
       <form id="crawl-form" class="topbar-main" autocomplete="off">
         <input
           type="url" id="seed-url" name="seed_url" list="url-history"
-          class="url-input" placeholder="https://exemple.com" required />
+          class="url-input" placeholder="https://exemple.com" required
+          data-i18n-placeholder="topbar.url_placeholder" />
         <datalist id="url-history"></datalist>
         <button type="submit" id="btn-start" class="btn btn--primary">Démarrer</button>
         <button type="button" id="btn-stop"  class="btn btn--danger" disabled>Stop</button>
         <button type="button" id="btn-clear" class="btn">Vider</button>
         <button type="button" id="btn-import" class="btn"
-                title="Importer un fichier .txt ou .csv contenant une URL par ligne. Chaque site sera crawlé INTÉGRALEMENT, l'un après l'autre.">
+                title="Importer un fichier .txt ou .csv contenant une URL par ligne. Chaque site sera crawlé INTÉGRALEMENT, l'un après l'autre."
+                data-i18n="topbar.import" data-i18n-title="topbar.import_title">
           Importer une liste
         </button>
         <span class="import-badge" id="import-badge" hidden></span>
 
-        <label class="topbar-check" title="Crawler tout le site, sans limite de pages">
+        <label class="topbar-check" title="Crawler tout le site, sans limite de pages" data-i18n-title="topbar.unlimited_title">
           <input type="checkbox" id="opt-unlimited" checked />
-          <span>Tout le site</span>
+          <span data-i18n="topbar.unlimited">Tout le site</span>
         </label>
-        <label class="topbar-check" title="Respecter les règles du fichier robots.txt">
+        <label class="topbar-check" title="Respecter les règles du fichier robots.txt" data-i18n-title="topbar.robots_title">
           <input type="checkbox" id="opt-robots" checked />
-          <span>Respecter robots.txt</span>
+          <span data-i18n="topbar.robots">Respecter robots.txt</span>
         </label>
 
-        <button type="button" id="btn-toggle-settings" class="btn btn--ghost btn--sm" aria-expanded="false">
-          Réglages
-        </button>
+        <!-- « Réglages » et le sélecteur de langue restent ensemble quand la barre passe à la ligne. -->
+        <div class="topbar-group">
+          <button type="button" id="btn-toggle-settings" class="btn btn--ghost btn--sm" aria-expanded="false"
+                  data-i18n="topbar.settings">
+            Réglages
+          </button>
+
+          <!-- Sélecteur de langue : piloté par i18n.js (drapeaux dans ui/flags/). -->
+          <div class="lang-menu" id="lang-menu">
+            <button type="button" id="lang-btn" class="btn btn--ghost btn--sm lang-btn"
+                    aria-haspopup="menu" aria-expanded="false" aria-controls="lang-list"
+                    title="Langue de l'interface" data-i18n-title="lang.title">
+              <img class="lang-flag" id="lang-flag" src="flags/fr.svg" alt="" width="20" height="15" draggable="false" />
+              <span class="lang-name" id="lang-name">Français</span>
+              <span class="lang-caret" aria-hidden="true">&#9662;</span>
+            </button>
+            <div class="menu-list lang-list" id="lang-list" role="menu"
+                 aria-label="Langue de l'interface" data-i18n-aria-label="lang.title"></div>
+          </div>
+        </div>
 
         <!-- Info réseau (IP publique + reverse DNS) poussée à droite -->
         <span class="net-info" id="net-info" title="IP publique sortante + reverse DNS">
@@ -58,165 +82,179 @@
       <!-- Volet de réglages repliable -->
       <div class="settings-drawer" id="settings-drawer" hidden>
         <div class="setting">
-          <label for="max-pages">Pages max</label>
+          <label for="max-pages" data-i18n="drawer.max_pages">Pages max</label>
           <input type="number" id="max-pages" class="setting-num" value="500" min="1" max="1000000" data-last="500" />
         </div>
         <div class="setting">
-          <label for="max-depth">Profondeur max</label>
+          <label for="max-depth" data-i18n="drawer.max_depth">Profondeur max</label>
           <input type="number" id="max-depth" value="10" min="1" max="50" />
         </div>
-        <div class="setting" title="Débit maximal : cadence d'envoi des requêtes (plafond anti-surcharge serveur). Ce plafond est GLOBAL : tant qu'il est actif, ajouter des threads ne change rien.">
-          <label for="rps">Req / sec</label>
+        <div class="setting" title="Débit maximal : cadence d'envoi des requêtes (plafond anti-surcharge serveur). Ce plafond est GLOBAL : tant qu'il est actif, ajouter des threads ne change rien."
+             data-i18n-title="drawer.rps_title">
+          <label for="rps" data-i18n="drawer.rps">Req / sec</label>
           <input type="number" id="rps" value="5" min="1" max="50" step="1" />
         </div>
-        <div class="setting" title="Nombre de pages telechargees EN PARALLELE (workers simultanes)">
-          <label for="threads">Threads</label>
+        <div class="setting" title="Nombre de pages téléchargées EN PARALLÈLE (workers simultanés)"
+             data-i18n-title="drawer.threads_title">
+          <label for="threads" data-i18n="drawer.threads">Threads</label>
           <input type="number" id="threads" value="5" min="1" max="50" step="1" />
         </div>
-        <label class="setting setting--check" title="Supprime le plafond de débit : la vitesse n'est plus bornée que par les threads et le temps de réponse du serveur (comportement Screaming Frog). Attention a ne pas saturer un serveur mutualise.">
+        <label class="setting setting--check" title="Supprime le plafond de débit : la vitesse n'est plus bornée que par les threads et le temps de réponse du serveur (comportement Screaming Frog). Attention à ne pas saturer un serveur mutualisé."
+               data-i18n-title="drawer.no_rate_limit_title">
           <input type="checkbox" id="no-rate-limit" />
-          <span>Débit illimité</span>
+          <span data-i18n="drawer.no_rate_limit">Débit illimité</span>
         </label>
-        <label class="setting setting--check" title="Délais aléatoires entre requêtes (comportement humain). Incompatible avec le débit illimité.">
+        <label class="setting setting--check" title="Délais aléatoires entre requêtes (comportement humain). Incompatible avec le débit illimité."
+               data-i18n-title="drawer.random_rps_title">
           <input type="checkbox" id="random-rps" />
-          <span>Débit aléatoire</span>
+          <span data-i18n="drawer.random_rps">Débit aléatoire</span>
         </label>
-        <label class="setting setting--check" title="Mesure chaque page via Chrome headless (bande passante RÉELLE : XHR, images lazy, invocations serverless). Nécessaire pour les SPA React/Vue, qui ne declenchent plus Chrome automatiquement — la mesure Chrome est serialisee (un seul navigateur), donc lente sur un gros crawl.">
+        <label class="setting setting--check" title="Mesure chaque page via Chrome headless (bande passante RÉELLE : XHR, images lazy, invocations serverless). Nécessaire pour les SPA React/Vue, qui ne déclenchent plus Chrome automatiquement — la mesure Chrome est sérialisée (un seul navigateur), donc lente sur un gros crawl."
+               data-i18n-title="drawer.force_chrome_title">
           <input type="checkbox" id="force-chrome" />
-          <span>Forcer Chrome</span>
+          <span data-i18n="drawer.force_chrome">Forcer Chrome</span>
         </label>
         <label class="setting setting--check">
           <input type="checkbox" id="random-ua" />
-          <span>UA aléatoire</span>
+          <span data-i18n="drawer.random_ua">UA aléatoire</span>
         </label>
         <div class="setting setting--dir">
-          <label for="save-dir">Dossier des projets</label>
+          <label for="save-dir" data-i18n="drawer.save_dir">Dossier des projets</label>
           <div class="setting-dir-row">
-            <input type="text" id="save-dir" class="dir-input" placeholder="(defaut : données de l'app)" spellcheck="false" />
-            <button type="button" id="btn-pick-folder" class="btn btn--sm" title="Choisir le dossier où enregistrer les projets">Choisir…</button>
-            <button type="button" id="btn-open-project" class="btn btn--sm" title="Ouvrir un projet enregistré (.json)">Ouvrir un projet</button>
+            <input type="text" id="save-dir" class="dir-input" placeholder="(défaut : données de l'app)" spellcheck="false"
+                   data-i18n-placeholder="drawer.save_dir_placeholder" />
+            <button type="button" id="btn-pick-folder" class="btn btn--sm" title="Choisir le dossier où enregistrer les projets"
+                    data-i18n="drawer.pick_folder" data-i18n-title="drawer.pick_folder_title">Choisir…</button>
+            <button type="button" id="btn-open-project" class="btn btn--sm" title="Ouvrir un projet enregistré (.json)"
+                    data-i18n="drawer.open_project" data-i18n-title="drawer.open_project_title">Ouvrir un projet</button>
           </div>
         </div>
       </div>
     </header>
 
     <!-- ----- 2) BARRE D'ONGLETS ----------------------------------------- -->
+    <!-- Le libellé est isolé dans .tab-label : main.js écrit le compteur (.tab-count). -->
     <nav class="tabsbar" id="tabsbar" role="tablist">
       <button type="button" class="tab is-active" data-tab="internal" role="tab">
-        Internal <span class="tab-count" data-count="internal">0</span>
+        <span class="tab-label" data-i18n="tabs.internal">Internal</span> <span class="tab-count" data-count="internal">0</span>
       </button>
       <button type="button" class="tab" data-tab="response" role="tab">
-        Response Codes <span class="tab-count" data-count="response">0</span>
+        <span class="tab-label" data-i18n="tabs.response">Response Codes</span> <span class="tab-count" data-count="response">0</span>
       </button>
       <button type="button" class="tab" data-tab="url" role="tab">
-        URL <span class="tab-count" data-count="url">0</span>
+        <span class="tab-label" data-i18n="tabs.url">URL</span> <span class="tab-count" data-count="url">0</span>
       </button>
       <button type="button" class="tab" data-tab="security" role="tab">
-        Sécurité <span class="tab-count" data-count="security">0</span>
+        <span class="tab-label" data-i18n="tabs.security">Sécurité</span> <span class="tab-count" data-count="security">0</span>
       </button>
       <button type="button" class="tab" data-tab="titles" role="tab">
-        Page Titles <span class="tab-count" data-count="titles">0</span>
+        <span class="tab-label" data-i18n="tabs.titles">Page Titles</span> <span class="tab-count" data-count="titles">0</span>
       </button>
       <button type="button" class="tab" data-tab="meta" role="tab">
-        Meta Description <span class="tab-count" data-count="meta">0</span>
+        <span class="tab-label" data-i18n="tabs.meta">Meta Description</span> <span class="tab-count" data-count="meta">0</span>
       </button>
       <button type="button" class="tab" data-tab="h1" role="tab">
-        H1 <span class="tab-count" data-count="h1">0</span>
+        <span class="tab-label" data-i18n="tabs.h1">H1</span> <span class="tab-count" data-count="h1">0</span>
       </button>
       <button type="button" class="tab" data-tab="content" role="tab">
-        Contenu <span class="tab-count" data-count="content">0</span>
+        <span class="tab-label" data-i18n="tabs.content">Contenu</span> <span class="tab-count" data-count="content">0</span>
       </button>
       <button type="button" class="tab" data-tab="images" role="tab">
-        Images <span class="tab-count" data-count="images">0</span>
+        <span class="tab-label" data-i18n="tabs.images">Images</span> <span class="tab-count" data-count="images">0</span>
       </button>
       <button type="button" class="tab" data-tab="canonical" role="tab">
-        Canonicals <span class="tab-count" data-count="canonical">0</span>
+        <span class="tab-label" data-i18n="tabs.canonical">Canonicals</span> <span class="tab-count" data-count="canonical">0</span>
       </button>
       <button type="button" class="tab" data-tab="directives" role="tab">
-        Directives <span class="tab-count" data-count="directives">0</span>
+        <span class="tab-label" data-i18n="tabs.directives">Directives</span> <span class="tab-count" data-count="directives">0</span>
       </button>
       <button type="button" class="tab" data-tab="hreflang" role="tab">
-        Hreflang <span class="tab-count" data-count="hreflang">0</span>
+        <span class="tab-label" data-i18n="tabs.hreflang">Hreflang</span> <span class="tab-count" data-count="hreflang">0</span>
       </button>
       <button type="button" class="tab" data-tab="pagination" role="tab">
-        Pagination <span class="tab-count" data-count="pagination">0</span>
+        <span class="tab-label" data-i18n="tabs.pagination">Pagination</span> <span class="tab-count" data-count="pagination">0</span>
       </button>
       <button type="button" class="tab" data-tab="schema" role="tab">
-        Structured Data <span class="tab-count" data-count="schema">0</span>
+        <span class="tab-label" data-i18n="tabs.schema">Structured Data</span> <span class="tab-count" data-count="schema">0</span>
       </button>
       <button type="button" class="tab" data-tab="links" role="tab">
-        Liens <span class="tab-count" data-count="links">0</span>
+        <span class="tab-label" data-i18n="tabs.links">Liens</span> <span class="tab-count" data-count="links">0</span>
       </button>
       <button type="button" class="tab" data-tab="issues" role="tab">
-        Problèmes <span class="tab-count" data-count="issues">0</span>
+        <span class="tab-label" data-i18n="tabs.issues">Problèmes</span> <span class="tab-count" data-count="issues">0</span>
       </button>
       <button type="button" class="tab" data-tab="sitemap" role="tab">
-        Sitemap <span class="tab-count" data-count="sitemap">0</span>
+        <span class="tab-label" data-i18n="tabs.sitemap">Sitemap</span> <span class="tab-count" data-count="sitemap">0</span>
       </button>
       <button type="button" class="tab" data-tab="bandwidth" role="tab">
-        Bande passante <span class="tab-count" data-count="bandwidth">0</span>
+        <span class="tab-label" data-i18n="tabs.bandwidth">Bande passante</span> <span class="tab-count" data-count="bandwidth">0</span>
       </button>
     </nav>
 
     <!-- ----- Barre d'outils de la grille (filtre + filtres sev + export) - -->
     <div class="gridtools">
       <input type="search" id="grid-search" class="grid-search"
-             placeholder="Filtrer par URL..." autocomplete="off" />
+             placeholder="Filtrer par URL..." autocomplete="off"
+             data-i18n-placeholder="tools.search_placeholder" />
 
       <!-- Filtres de sévérité : visibles seulement sur l'onglet Problèmes -->
       <div class="sev-filters" id="sev-filters" hidden>
-        <button type="button" class="sev-filter is-active" data-sev="all">Tous <span data-sevcount="all">0</span></button>
-        <button type="button" class="sev-filter" data-sev="critical">Critiques <span data-sevcount="critical">0</span></button>
-        <button type="button" class="sev-filter" data-sev="warning">Avert. <span data-sevcount="warning">0</span></button>
-        <button type="button" class="sev-filter" data-sev="opportunity">Opport. <span data-sevcount="opportunity">0</span></button>
+        <button type="button" class="sev-filter is-active" data-sev="all"><span class="sev-label" data-i18n="tools.sev_all">Tous</span> <span data-sevcount="all">0</span></button>
+        <button type="button" class="sev-filter" data-sev="critical"><span class="sev-label" data-i18n="tools.sev_critical">Critiques</span> <span data-sevcount="critical">0</span></button>
+        <button type="button" class="sev-filter" data-sev="warning"><span class="sev-label" data-i18n="tools.sev_warning">Avert.</span> <span data-sevcount="warning">0</span></button>
+        <button type="button" class="sev-filter" data-sev="opportunity"><span class="sev-label" data-i18n="tools.sev_opportunity">Opport.</span> <span data-sevcount="opportunity">0</span></button>
       </div>
 
       <span class="active-filter" id="active-filter" hidden>
-        Filtre : <strong id="active-filter-label"></strong>
-        <button type="button" id="active-filter-clear" title="Retirer le filtre">x</button>
+        <span class="i18n-flow" data-i18n-tpl="tools.active_filter">Filtre : <strong id="active-filter-label" data-i18n-slot="label"></strong></span>
+        <button type="button" id="active-filter-clear" title="Retirer le filtre" aria-label="Retirer le filtre" data-i18n-title="tools.active_filter_clear_title" data-i18n-aria-label="tools.active_filter_clear_title">x</button>
       </span>
 
       <!-- Sélection multiple de lignes (clic, Shift+clic, Ctrl+clic) -> copie des adresses -->
       <span class="multi-sel" id="multi-sel" hidden>
-        <strong id="multi-sel-count">0</strong> cellule(s) &middot; <span id="multi-sel-col"></span>
+        <span class="i18n-flow" data-i18n-tpl="tools.selection" data-i18n-count="n"><strong id="multi-sel-count" data-i18n-slot="n">0</strong> cellule(s) &middot; <span id="multi-sel-col" data-i18n-slot="col"></span></span>
         <button type="button" id="multi-sel-copy" title="Copier les valeurs sélectionnées, une par ligne (Ctrl+C ou clic droit)">Copier</button>
-        <button type="button" id="multi-sel-clear" class="multi-sel-x" title="Désélectionner (Échap)">x</button>
+        <button type="button" id="multi-sel-clear" class="multi-sel-x" title="Désélectionner (Échap)" aria-label="Désélectionner (Échap)" data-i18n-title="tools.selection_clear_title" data-i18n-aria-label="tools.selection_clear_title">x</button>
       </span>
 
       <!-- Selecteur de vue : visible seulement sur l'onglet Sitemap -->
       <span class="sitemap-views" id="sitemap-views" hidden>
-        <label for="sitemap-view">Vue</label>
+        <label for="sitemap-view" data-i18n="tools.sitemap_view">Vue</label>
         <select id="sitemap-view" class="mini-select">
-          <option value="all">Toutes les URLs du sitemap</option>
-          <option value="orphan">Orphelines (dans le sitemap, non crawlées)</option>
-          <option value="notin">Pages hors sitemap</option>
+          <option value="all" data-i18n="tools.sitemap_all">Toutes les URLs du sitemap</option>
+          <option value="orphan" data-i18n="tools.sitemap_orphan">Orphelines (dans le sitemap, non crawlées)</option>
+          <option value="notin" data-i18n="tools.sitemap_notin">Pages hors sitemap</option>
         </select>
       </span>
 
       <span class="gridtools-spacer"></span>
 
-      <!-- Menu Export en masse (toutes pages, hors filtre courant) -->
-      <div class="menu" id="menu-bulk">
-        <button type="button" class="btn btn--ghost btn--sm menu-btn">Export en masse &#9662;</button>
-        <div class="menu-list" id="menu-bulk-list">
-          <button type="button" class="menu-item" data-export="links">Tous les liens</button>
-          <button type="button" class="menu-item" data-export="images">Toutes les images</button>
-          <button type="button" class="menu-item" data-export="issues">Tous les problèmes</button>
+      <!-- Groupe de droite : passe EN BLOC à la ligne, calé à droite, quand la
+           barre est trop chargée (fenêtre étroite, libellés longs). -->
+      <div class="gridtools-right">
+        <!-- Menu Export en masse (toutes pages, hors filtre courant) -->
+        <div class="menu" id="menu-bulk">
+          <button type="button" class="btn btn--ghost btn--sm menu-btn"><span data-i18n="tools.bulk_export">Export en masse</span> &#9662;</button>
+          <div class="menu-list" id="menu-bulk-list">
+            <button type="button" class="menu-item" data-export="links" data-i18n="tools.bulk_links">Tous les liens</button>
+            <button type="button" class="menu-item" data-export="images" data-i18n="tools.bulk_images">Toutes les images</button>
+            <button type="button" class="menu-item" data-export="issues" data-i18n="tools.bulk_issues">Tous les problèmes</button>
+          </div>
         </div>
-      </div>
 
-      <!-- Menu Rapports de synthese -->
-      <div class="menu" id="menu-report">
-        <button type="button" class="btn btn--ghost btn--sm menu-btn">Rapports &#9662;</button>
-        <div class="menu-list" id="menu-report-list">
-          <button type="button" class="menu-item" data-report="redirects">Chaînes de redirection</button>
-          <button type="button" class="menu-item" data-report="canonicals">Canonicals</button>
-          <button type="button" class="menu-item" data-report="nonindex">Pages non-indexables</button>
-          <button type="button" class="menu-item" data-report="mixed">Contenu mixte</button>
+        <!-- Menu Rapports de synthese -->
+        <div class="menu" id="menu-report">
+          <button type="button" class="btn btn--ghost btn--sm menu-btn"><span data-i18n="tools.reports">Rapports</span> &#9662;</button>
+          <div class="menu-list" id="menu-report-list">
+            <button type="button" class="menu-item" data-report="redirects" data-i18n="tools.report_redirects">Chaînes de redirection</button>
+            <button type="button" class="menu-item" data-report="canonicals" data-i18n="tools.report_canonicals">Canonicals</button>
+            <button type="button" class="menu-item" data-report="nonindex" data-i18n="tools.report_nonindex">Pages non-indexables</button>
+            <button type="button" class="menu-item" data-report="mixed" data-i18n="tools.report_mixed">Contenu mixte</button>
+          </div>
         </div>
-      </div>
 
-      <button type="button" id="btn-export-csv" class="btn btn--ghost btn--sm">Export CSV</button>
+        <button type="button" id="btn-export-csv" class="btn btn--ghost btn--sm" data-i18n="tools.export_csv">Export CSV</button>
+      </div>
     </div>
 
     <!-- ----- 3) + 4) ESPACE DE TRAVAIL : grille + sidebar Overview ------- -->
@@ -234,7 +272,7 @@
 
       <!-- SIDEBAR DROITE : arborescence Overview avec compteurs -->
       <aside class="overview" id="overview">
-        <div class="overview-head">Overview</div>
+        <div class="overview-head" data-i18n="page.overview_head">Overview</div>
         <div class="overview-tree" id="overview-tree"></div>
       </aside>
     </div>
@@ -244,37 +282,43 @@
       <!-- Poignee de redimensionnement : glisser pour agrandir le panneau,
            double-clic pour revenir à la hauteur par defaut. -->
       <div class="detail-resize" id="detail-resize"
-           title="Glisser pour redimensionner — double-clic pour réinitialiser"></div>
+           title="Glisser pour redimensionner — double-clic pour réinitialiser"
+           data-i18n-title="dtabs.resize_title"></div>
       <div class="detail-head">
         <div class="detail-tabs" id="detail-tabs">
-          <button type="button" class="dtab is-active" data-dtab="inlinks">Inlinks <span id="dt-inlinks-count">0</span></button>
-          <button type="button" class="dtab" data-dtab="outlinks">Outlinks <span id="dt-outlinks-count">0</span></button>
+          <button type="button" class="dtab is-active" data-dtab="inlinks"><span class="dtab-label" data-i18n="dtabs.inlinks">Inlinks</span> <span id="dt-inlinks-count">0</span></button>
+          <button type="button" class="dtab" data-dtab="outlinks"><span class="dtab-label" data-i18n="dtabs.outlinks">Outlinks</span> <span id="dt-outlinks-count">0</span></button>
           <!-- La LISTE des images sans alt, pas seulement leur nombre : c'est elle qu'il faut pour corriger. -->
-          <button type="button" class="dtab" data-dtab="images">Images sans alt <span id="dt-images-count">0</span></button>
-          <button type="button" class="dtab" data-dtab="serp">SERP Snippet</button>
-          <button type="button" class="dtab" data-dtab="info">Infos / En-têtes</button>
+          <button type="button" class="dtab" data-dtab="images"><span class="dtab-label" data-i18n="dtabs.images">Images sans alt</span> <span id="dt-images-count">0</span></button>
+          <button type="button" class="dtab" data-dtab="serp" data-i18n="dtabs.serp">SERP Snippet</button>
+          <button type="button" class="dtab" data-dtab="info" data-i18n="dtabs.info">Infos / En-têtes</button>
           <!-- D) Sous-onglet dédié au contenu brut des données structurees (JSON-LD). -->
-          <button type="button" class="dtab" data-dtab="schema">Données structurees <span id="dt-schema-count">0</span></button>
-          <button type="button" class="dtab" data-dtab="source">Source</button>
+          <button type="button" class="dtab" data-dtab="schema"><span class="dtab-label" data-i18n="dtabs.schema">Données structurées</span> <span id="dt-schema-count">0</span></button>
+          <button type="button" class="dtab" data-dtab="source" data-i18n="dtabs.source">Source</button>
         </div>
-        <button type="button" class="detail-close" id="detail-close" title="Fermer">x</button>
+        <button type="button" class="detail-close" id="detail-close" title="Fermer" aria-label="Fermer" data-i18n-title="dtabs.close_title" data-i18n-aria-label="dtabs.close_title">x</button>
       </div>
       <div class="detail-body" id="detail-body"></div>
     </section>
 
     <!-- ----- 6) BARRE DE STATUT ----------------------------------------- -->
+    <!-- Chaque phrase est un gabarit à cases : les <strong>/<span> à id sont
+         écrits par main.js et seulement DÉPLACÉS par la traduction. -->
     <footer class="statusbar">
       <div class="statusbar-progress">
         <div class="statusbar-progress-fill" id="status-fill"></div>
       </div>
       <span class="status-item" id="status-state">En attente</span>
       <span class="status-item status-url" id="status-url" title=""></span>
-      <span class="status-item">Pages : <strong id="status-done">0</strong> / <span id="status-total">0</span></span>
-      <span class="status-item">File : <strong id="status-queued">0</strong></span>
-      <span class="status-item">Débit : <strong id="status-rate">0</strong> p/s</span>
-      <span class="status-item" id="status-workers-item" title="Workers réellement occupés / threads configurés. S'il reste bas, le goulot n'est pas le nombre de threads (plafond de débit, file vide, ou mesures Chrome serialisees).">Workers : <strong id="status-workers">0</strong>/<span id="status-threads">0</span></span>
-      <span class="status-item">Resp. moy. : <strong id="status-avgms">0</strong> ms/page</span>
-      <span class="status-item">Poids total : <strong id="status-bytes">0 o</strong></span>
+      <!-- Les compteurs restent groupés : faute de place, ils passent ensemble à la ligne. -->
+      <span class="status-stats">
+        <span class="status-item" data-i18n-tpl="statusbar.pages">Pages : <strong id="status-done" data-i18n-slot="done">0</strong> / <span id="status-total" data-i18n-slot="total">0</span></span>
+        <span class="status-item" data-i18n-tpl="statusbar.queue">File : <strong id="status-queued" data-i18n-slot="queued">0</strong></span>
+        <span class="status-item" data-i18n-tpl="statusbar.rate">Débit : <strong id="status-rate" data-i18n-slot="rate">0</strong> p/s</span>
+        <span class="status-item" id="status-workers-item" title="Workers réellement occupés / threads configurés. S'il reste bas, le goulot n'est pas le nombre de threads (plafond de débit, file vide, ou mesures Chrome sérialisées)." data-i18n-title="statusbar.workers_title" data-i18n-tpl="statusbar.workers">Workers : <strong id="status-workers" data-i18n-slot="active">0</strong>/<span id="status-threads" data-i18n-slot="threads">0</span></span>
+        <span class="status-item" data-i18n-tpl="statusbar.avg_response">Resp. moy. : <strong id="status-avgms" data-i18n-slot="avgms">0</strong> ms/page</span>
+        <span class="status-item" data-i18n-tpl="statusbar.total_size">Poids total : <strong id="status-bytes" data-i18n-slot="bytes">0 o</strong></span>
+      </span>
       <span class="status-sep"></span>
       <span class="status-item status-item--multi" id="status-multi" hidden></span>
     </footer>
@@ -283,14 +327,20 @@
 
   <!-- Menu contextuel de la grille (clic droit sur une cellule). -->
   <div class="ctx-menu" id="ctx-menu" hidden>
-    <button type="button" class="ctx-item" id="ctx-copy">Copier <span id="ctx-copy-count">0</span> valeur(s) &mdash; <span id="ctx-col-label"></span></button>
-    <button type="button" class="ctx-item" id="ctx-copy-col">Copier toute la colonne affichée</button>
-    <button type="button" class="ctx-item" id="ctx-open">Ouvrir l'adresse dans le navigateur</button>
+    <button type="button" class="ctx-item" id="ctx-copy" data-i18n-tpl="ctx.copy" data-i18n-count="n">Copier <span id="ctx-copy-count" data-i18n-slot="n">0</span> valeur(s) &mdash; <span id="ctx-col-label" data-i18n-slot="col"></span></button>
+    <button type="button" class="ctx-item" id="ctx-copy-col" data-i18n="ctx.copy_column">Copier toute la colonne affichée</button>
+    <button type="button" class="ctx-item" id="ctx-open" data-i18n="ctx.open">Ouvrir l'adresse dans le navigateur</button>
   </div>
 
   <!-- Message flottant bref (copie effectuée, etc.). -->
   <div class="toast" id="toast" hidden></div>
 
+  <!-- Ordre imposé : les langues, puis le moteur de traduction, puis la table
+       des textes du moteur Rust, puis l'interface. -->
+  <script src="locales/fr.js"></script>
+  <script src="locales/en.js"></script>
+  <script src="i18n.js"></script>
+  <script src="engine-texts.js"></script>
   <script src="main.js"></script>
 </body>
 </html>

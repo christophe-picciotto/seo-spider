@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="15" viewBox="0 0 40 30">
+  <clipPath id="t"><path d="M20 15h20v15zv15H0zH0V0zV0h20z"/></clipPath>
+  <path fill="#012169" d="M0 0h40v30H0z"/>
+  <path stroke="#fff" stroke-width="6" d="M0 0l40 30m0-30L0 30"/>
+  <path stroke="#c8102e" stroke-width="4" d="M0 0l40 30m0-30L0 30" clip-path="url(#t)"/>
+  <path stroke="#fff" stroke-width="10" d="M20 0v30M0 15h40"/>
+  <path stroke="#c8102e" stroke-width="6" d="M20 0v30M0 15h40"/>
+</svg>

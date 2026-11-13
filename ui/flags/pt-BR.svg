@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="15" viewBox="0 0 640 480">
+  <path fill="#009c3b" d="M0 0h640v480H0z"/>
+  <path fill="#ffdf00" d="M56 240L320 58l264 182-264 182z"/>
+  <circle cx="320" cy="240" r="120" fill="#002776"/>
+  <clipPath id="g"><circle cx="320" cy="240" r="120"/></clipPath>
+  <path fill="none" stroke="#fff" stroke-width="22" d="M190 212q130-78 260 56" clip-path="url(#g)"/>
+  <g fill="#fff"><circle cx="268" cy="266" r="6"/><circle cx="300" cy="250" r="5"/><circle cx="322" cy="272" r="7"/><circle cx="350" cy="262" r="5"/><circle cx="372" cy="283" r="6"/><circle cx="296" cy="292" r="6"/><circle cx="336" cy="300" r="5"/><circle cx="318" cy="322" r="6"/></g>
+</svg>

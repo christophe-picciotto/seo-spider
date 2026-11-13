@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="15" viewBox="0 0 640 480">
+  <path fill="#aa151b" d="M0 0h640v480H0z"/>
+  <path fill="#f1bf00" d="M0 120h640v240H0z"/>
+  <g>
+    <path fill="#c8b100" d="M128 170h18v14h-18zm156 0h18v14h-18zM124 318h26v12h-26zm156 0h26v12h-26z"/>
+    <path fill="#e8e8e8" stroke="#7c7c7c" stroke-width="2" d="M131 184h12v134h-12zm156 0h12v134h-12z"/>
+    <path fill="#aa151b" d="M124 236h26v12h-26zm156 0h26v12h-26z"/>
+    <path fill="#c8b100" stroke="#7c5a00" stroke-width="2" d="M170 186v-14l12-22 12 14 21-26 21 26 12-14 12 22v14z"/>
+    <path fill="#aa151b" d="M172 174h86v8h-86z"/>
+    <clipPath id="e"><path d="M168 190h94v66a47 47 0 0 1-94 0z"/></clipPath>
+    <g clip-path="url(#e)">
+      <path fill="#aa151b" d="M168 190h47v56h-47z"/>
+      <path fill="#c8b100" d="M182 204h19v28h-19z"/>
+      <path fill="#ededed" d="M215 190h47v56h-47z"/>
+      <path fill="#7a2f8b" d="M229 205h19v26h-19z"/>
+      <path fill="#f1bf00" d="M168 246h47v60h-47z"/>
+      <path fill="#aa151b" d="M176 246h7v60h-7zm14 0h7v60h-7zm14 0h7v60h-7z"/>
+      <path fill="#aa151b" d="M215 246h47v60h-47z"/>
+      <path fill="none" stroke="#c8b100" stroke-width="4" d="M223 254h31v30h-31zm0 0l31 30m0-30l-31 30"/>
+      <path fill="#2e7d32" d="M206 288h18v18h-18z"/>
+    </g>
+    <path fill="none" stroke="#7c5a00" stroke-width="3" d="M168 190h94v66a47 47 0 0 1-94 0z"/>
+    <ellipse cx="215" cy="246" rx="12" ry="15" fill="#005bbf" stroke="#aa151b" stroke-width="4"/>
+  </g>
+</svg>
