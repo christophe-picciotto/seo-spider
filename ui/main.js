@@ -654,6 +654,10 @@
 
     selectedUrl: null,                  // URL de la ligne sélectionnée (detail)
     detailTab: "inlinks",
+    // Listes du panneau de détail (liens entrants / sortants) écrites par TRANCHES (renderDetail) :
+    detailKey: null,                    // page + sous-onglet de la liste affichée
+    detailShown: 0,                     // lignes écrites de cette liste
+    detailTotal: 0,                     // lignes de cette liste (0 hors liste)
 
     // Inlinks : index inverse normUrl(cible) -> [{from, anchor, rel}]
     inlinksIndex: {},
@@ -2925,6 +2929,10 @@
     });
   }
 
+  // Listes du panneau de détail : lignes écrites à la fois, et distance du bas (px) à laquelle la tranche
+  // suivante s'ajoute.
+  var DETAIL_TRANCHE = 300, DETAIL_MARGE = 400;
+
   function openDetail(url) {
     var p = S.byUrl[normUrl(url)];
     if (!p) return;
@@ -2962,6 +2970,10 @@
     S.selectedUrl = null;
     var detail = $("detail");
     if (detail) detail.hidden = true;
+    // Le contenu du panneau fermé ne reste pas dans la page (il y restait, « Vider » compris).
+    var body = $("detail-body");
+    if (body) { body.innerHTML = ""; body.__html = ""; }
+    S.detailKey = null; S.detailShown = 0; S.detailTotal = 0;
     document.querySelectorAll("#grid-body tr.is-selected").forEach(function (tr) {
       tr.classList.remove("is-selected");
     });
@@ -2989,17 +3001,27 @@
     var body = $("detail-body");
     if (!body) return;
 
+    // Les listes de liens sont écrites par TRANCHES de DETAIL_TRANCHE lignes : la suite s'ajoute quand on
+    // arrive en bas du panneau (écouteur de défilement, initDetailTranches). Écrites d'un bloc, les 125 568
+    // liens entrants de la page d'accueil d'un gros crawl coûtaient 629 000 éléments, 1,9 Go et 6 secondes.
+    // Le compteur du sous-onglet donne toujours le nombre total.
+    var liste = S.detailTab === "inlinks" ? inl : (S.detailTab === "outlinks" ? outs : null);
+    var cle = normUrl(S.selectedUrl) + "|" + S.detailTab;
+    if (S.detailKey !== cle) { S.detailKey = cle; S.detailShown = DETAIL_TRANCHE; }
+    S.detailTotal = liste ? liste.length : 0;
+    var n = Math.min(S.detailShown, S.detailTotal);
+
     var html = "";
     if (S.detailTab === "inlinks") {
       html = renderLinkTable(
-        inl.map(function (x) { return { url: x.from, anchor: x.anchor, rel: x.rel }; }),
+        inl.slice(0, n).map(function (x) { return { url: x.from, anchor: x.anchor, rel: x.rel }; }),
         [I18N.t("detail.h_inlink_source"), I18N.t("detail.h_anchor"), "Rel"],
         ["url", "anchor", "rel"],
         I18N.t("detail.no_inlinks")
       );
     } else if (S.detailTab === "outlinks") {
       html = renderLinkTable(
-        outs.map(function (l) { return { url: l.target, anchor: l.anchor, rel: l.rel, internal: l.internal }; }),
+        outs.slice(0, n).map(function (l) { return { url: l.target, anchor: l.anchor, rel: l.rel, internal: l.internal }; }),
         [I18N.t("detail.h_destination"), I18N.t("detail.h_anchor"), I18N.t("detail.h_link_type"), "Rel"],
         ["url", "anchor", "type", "rel"],
         I18N.t("detail.no_outlinks")
@@ -5375,6 +5397,14 @@
       renderDetail();
     });
     $("detail-close").addEventListener("click", closeDetail);
+    // Listes du détail écrites par tranches : en arrivant près du bas du panneau, la tranche suivante s'ajoute.
+    $("detail-body").addEventListener("scroll", function () {
+      if (S.detailShown >= S.detailTotal) return;
+      if (this.scrollTop + this.clientHeight >= this.scrollHeight - DETAIL_MARGE) {
+        S.detailShown += DETAIL_TRANCHE;
+        renderDetail();
+      }
+    });
 
     // Recherche : filtre l'onglet actif (rendu immédiat).
     $("grid-search").addEventListener("input", function () {
