@@ -3274,6 +3274,7 @@
     S.multi.stopRequested = false;
     S.multi.running = true;
     S.multi.marqueSansEnregistrer = S.multi.promesseFermeture = false;   // les pages de la reprise seront enregistrées (fermeture)
+    promesseALEntree = marqueALEntree = false;                           // … même si la reprise tombe pendant une fermeture
     updateButtons();
     S.rateStartTs = Date.now();
     setStatusState(msg("status.resuming"));
@@ -3380,6 +3381,9 @@
         if (path) { S.lastSavePath = path; if (showPath && shown()) setStatusState(msg("status.saved", { path: path })); }
         owner.pagesEnregistrees = Math.max(owner.pagesEnregistrees || 0, total);
         owner.marqueSansEnregistrer = owner.promesseFermeture = false;
+        // Tout est sur le disque : un échec « sans copie » survenu plus tôt dans cette
+        // fermeture n'a plus rien perdu (une annulation ne dirait plus « sans enregistrer »).
+        if (closingAfterSave && !pagesNonEnregistrees()) echecSansCopie = false;
         fini();
       })
       .catch(function (err) {
@@ -3401,9 +3405,11 @@
         // affiché est celui-ci. Pendant une fermeture différée : elle est annulée —
         // sauf si elle suit une annulation, qui a promis que la suivante fermerait
         // (P-1 : l'échec du réenregistrement des pages en vol ne la retient plus).
-        if (closingAfterSave && !fermeturePromise()) {
-          echecPendantFermeture = true;
+        // « Rien gardé » se note dans tous les cas : si le moteur annule quand même
+        // cette fermeture (close_ready sans `unsaved`), l'encadré dira la vérité.
+        if (closingAfterSave) {
           if (!(err && err.kept)) echecSansCopie = true;
+          if (!fermeturePromise()) echecPendantFermeture = true;
         }
         signalerEchec(text);
         if (S.multi === owner) setStatusState(text);
@@ -3428,6 +3434,8 @@
   var savesEnCours = [];   // l'avancement { pct } de chaque enregistrement en cours
   var closingAfterSave = false, verificationDemandee = false, echecPendantFermeture = false;
   var echecSansCopie = false;      // un échec de cette fermeture n'a RIEN gardé sur le disque
+  var promesseALEntree = false;    // cette fermeture a commencé sous la promesse d'une annulation
+  var marqueALEntree = false;      // … et sous la marque « quitter sans enregistrer » (annoncée)
   var pauseParFermeture = false;   // la fermeture a mis en pause un crawl qui tournait
   var fermetureTexte = null;       // la ligne d'avancement de l'encadré de fermeture
   // À chaque page reçue (crawl:page) : compte, et au plus une fois par seconde
@@ -3482,6 +3490,8 @@
   // « Vous pouvez fermer de nouveau la fenêtre. ») : la fermeture suivante ferme du
   // premier coup — un échec d'enregistrement pendant elle ne la retient plus, ni ici ni
   // dans le moteur (close_ready `unsaved`). Tombe comme la marque : reprise, réussite.
+  // Seule exception (verifierFermeture) : des pages qui ne sont sur aucun disque et
+  // dont la perte n'a pas été annoncée — une annulation de plus le dit d'abord.
   function fermeturePromise() {
     return !!(S.multi && (S.multi.promesseFermeture || S.multi.marqueSansEnregistrer));
   }
@@ -3518,6 +3528,7 @@
     if (!closingAfterSave) return;
     var sansCopie = echecSansCopie;
     closingAfterSave = verificationDemandee = echecPendantFermeture = echecSansCopie = false;
+    promesseALEntree = marqueALEntree = false;
     fermetureTexte = null;
     remplirFermeture();
     // La fenêtre reste : son rendu reprend.
@@ -3549,11 +3560,23 @@
     verificationDemandee = false;
     // `unsaved` : cette fermeture tient la promesse de l'annulation précédente — le
     // moteur ne retient pas non plus la fenêtre pour un échec pendant elle (main.rs).
-    TAURI.core.invoke("close_ready", { unsaved: fermeturePromise() }).catch(function () {});
+    // La promesse est celle vue À L'ENTRÉE de la fermeture : un enregistrement qui
+    // réussit pendant elle lève la promesse du crawl, pas celle de cette fermeture
+    // (sinon un échec suivi d'une réussite la faisait annuler une fois de plus par le
+    // moteur, qui a compté l'échec). Une reprise du crawl, elle, la fait tomber.
+    // Elle ne ferme par-dessus un échec que ce qui a été ANNONCÉ : soit la marque
+    // « quitter sans enregistrer » était posée à l'entrée, soit plus rien n'est hors
+    // du disque. Sinon (pages jamais enregistrées et jamais annoncées perdues) le
+    // moteur annule une fois de plus, et l'encadré le dit (echecSansCopie).
+    TAURI.core.invoke("close_ready", {
+      unsaved: promesseALEntree && (marqueALEntree || !pagesNonEnregistrees())
+    }).catch(function () {});
   }
   function entrerEnFermeture() {
     closingAfterSave = true; verificationDemandee = false; echecPendantFermeture = false;
     echecSansCopie = false; pauseParFermeture = false; fermetureTexte = null;
+    promesseALEntree = fermeturePromise();                  // retenues pour toute cette fermeture
+    marqueALEntree = quitterSansEnregistrer();
     lecturePourFermeture = false; rendusSuspendus = true;   // plus de rendu : on lit, enregistre, ferme
     TAURI.core.invoke("close_ack").catch(function () {});
     if (quitterSansEnregistrer()) {
