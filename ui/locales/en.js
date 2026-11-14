@@ -279,6 +279,8 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "cachetip.role_served": "served the page",
   // Rôle d'une couche de cache en MISS (même place que cachetip.role_served).
   "cachetip.role_missing": "did not have the page",
+  // Rôle d'une couche de cache en EXPIRED (même place que cachetip.role_served, en fin de ligne « Cloudflare : EXPIRED — avait une copie périmée ») : la couche avait bien la page, mais une copie périmée, qu'elle est allée revalider auprès du serveur. À ne pas confondre avec cachetip.role_missing (MISS : pas de copie du tout). Minuscule initiale.
+  "cachetip.role_expired": "had a stale copy",
   // Rôle d'une couche de cache en REVALIDATED (même place que cachetip.role_served).
   "cachetip.role_revalidated": "checked with the server",
   // Rôle d'une couche de cache en BYPASS (même place que cachetip.role_served).
@@ -353,13 +355,13 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "cachetip.info_layers": "layers: {layers}",
   // Infobulle d'une adresse (URL) dans la grille et le panneau de détail, sous l'URL complète.
   "cell.url_open_hint": "Double-click: open in browser",
-  // Pastille de la colonne Indexable (onglet Internal) et valeur de son export CSV. COLONNE ÉTROITE : environ 48 px de texte à 1100 px, 70 px à 1400 px. Si le mot ne tient pas, ou si les deux valeurs (indexable / non indexable) commencent par les mêmes lettres, mettez une valeur COURTE : le « Oui » / « Non » de votre langue, comme cell.yes / cell.no. Le libellé complet va dans cell.indexable_full (infobulle de la pastille). L'anglais dit « Yes » / « No » (mesuré dans la vraie fenêtre : « Non-Indexable » y était coupé en « Non-Inde ») ; le français garde provisoirement le mot entier.
+  // Pastille de la colonne Indexable (onglet Internal). COLONNE ÉTROITE : environ 48 px de texte à 1100 px, 70 px à 1400 px. Valeur COURTE : le « Oui » de votre langue, comme cell.yes (le français écrit « Oui », l'anglais « Yes »). Le libellé complet va dans cell.indexable_full : infobulle de la pastille ET valeur de l'export CSV.
   "cell.indexable": "Yes",
-  // Infobulle de la pastille cell.indexable : libellé COMPLET, sans limite de place.
+  // Infobulle de la pastille cell.indexable et valeur de l'export CSV de la colonne Indexable : libellé COMPLET, sans limite de place.
   "cell.indexable_full": "Indexable",
-  // Pastille de la colonne Indexable : la page n'est pas indexable. COLONNE ÉTROITE : environ 48 px de texte à 1100 px, 70 px à 1400 px. Si le mot ne tient pas, ou si les deux valeurs (indexable / non indexable) commencent par les mêmes lettres, mettez une valeur COURTE : le « Oui » / « Non » de votre langue, comme cell.yes / cell.no. Le libellé complet va dans cell.non_indexable_full (infobulle de la pastille). L'anglais dit « Yes » / « No » (mesuré dans la vraie fenêtre : « Non-Indexable » y était coupé en « Non-Inde ») ; le français garde provisoirement le mot entier.
+  // Pastille de la colonne Indexable : la page n'est pas indexable. COLONNE ÉTROITE : environ 48 px de texte à 1100 px, 70 px à 1400 px. Valeur COURTE : le « Non » de votre langue, comme cell.no (le français écrit « Non », l'anglais « No »). Le libellé complet va dans cell.non_indexable_full : infobulle de la pastille ET valeur de l'export CSV.
   "cell.non_indexable": "No",
-  // Infobulle de la pastille cell.non_indexable : libellé COMPLET, sans limite de place.
+  // Infobulle de la pastille cell.non_indexable et valeur de l'export CSV de la colonne Indexable : libellé COMPLET, sans limite de place.
   "cell.non_indexable_full": "Non-Indexable",
   // Valeur « oui » avec majuscule : pastilles (colonne Dupliqué, Indexable de l'onglet Directives), panneau Infos, exports CSV. Court.
   "cell.yes": "Yes",
@@ -369,13 +371,13 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "cell.yes_lc": "yes",
   // Valeur « non » en minuscules (mêmes places que cell.yes_lc).
   "cell.no_lc": "no",
-  // Pastille de la colonne Near-dup (onglet Contenu) : la page a {n} pages quasi dupliquées.
+  // Pastille de la colonne Near-dup (onglet Contenu) : la page a {n} pages quasi dupliquées. {n} est écrit par l'application avec le séparateur de milliers de la langue (1 234).
   "cell.yes_count": "Yes ({n})",
   // Export CSV de la colonne Near-dup : {n} = nombre de pages similaires, {urls} = leurs adresses séparées par « | ».
   "cell.near_dup_csv": "{n}: {urls}",
-  // Pastille de l'onglet Images : {n} images sans attribut alt (n ≥ 1). « alt » = attribut HTML, ne pas traduire.
+  // Pastille de l'onglet Images : {n} images sans attribut alt (n ≥ 1). « alt » = attribut HTML, ne pas traduire. {n} est écrit par l'application avec le séparateur de milliers de la langue (1 234).
   "cell.n_missing_alt": "{n} missing alt",
-  // Pastille de la colonne Réciproque (onglet Hreflang) : {n} pages visées par un hreflang ne renvoient pas de lien retour.
+  // Pastille de la colonne Réciproque (onglet Hreflang) : {n} pages visées par un hreflang ne renvoient pas de lien retour. {n} est écrit par l'application avec le séparateur de milliers de la langue (1 234).
   "cell.recip_missing_count": "Missing ({n})",
   // Export CSV de la colonne Réciproque. {urls} = adresses séparées par « | ».
   "cell.recip_missing_list": "Missing: {urls}",
@@ -401,39 +403,39 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "col.address": "Address",
   // Infobulle de l'en-tête col.address, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.address n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
   "col.address_full": "Address",
-  // En-tête de colonne (onglets Internal et Response Codes) : code de réponse HTTP. COLONNE ÉTROITE : environ 43 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 65 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. Le libellé complet est dans col.status_code_full.
+  // En-tête de colonne (onglets Internal et Response Codes) : code de réponse HTTP. COLONNE ÉTROITE : environ 48 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 70 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. Le libellé complet est dans col.status_code_full.
   "col.status_code": "Status",
-  // Infobulle de l'en-tête col.status_code, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place. En français : le libellé affiché.
+  // Infobulle de l'en-tête col.status_code, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul (un seul nom pour le code HTTP dans toute l'interface : col.http_code, detail.k_http_code) ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
   "col.status_code_full": "Status Code",
-  // En-tête de colonne (onglet Internal) : verdict de cache HIT/MISS. COLONNE ÉTROITE : environ 43 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 65 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. L'infobulle et l'export CSV reprennent ce libellé.
+  // En-tête de colonne (onglet Internal) : verdict de cache HIT/MISS. COLONNE ÉTROITE : environ 48 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 70 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. L'infobulle et l'export CSV prennent le libellé complet (la clé du même nom terminée par _full).
   "col.cache": "Cache",
-  // Infobulle de l'en-tête col.cache, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.cache n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
-  "col.cache_full": "Cache",
-  // En-tête de colonne (onglet Internal) : qui a réellement servi la page (Cloudflare, origine…). COLONNE ÉTROITE : environ 43 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 65 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. Le libellé complet est dans col.served_by_full.
+  // Infobulle de l'en-tête col.cache, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul (HIT, MISS…) ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
+  "col.cache_full": "Cache Status",
+  // En-tête de colonne (onglet Internal) : qui a réellement servi la page (Cloudflare, origine…). COLONNE ÉTROITE : environ 48 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 70 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. Le libellé complet est dans col.served_by_full.
   "col.served_by": "Served",
   // Infobulle de l'en-tête col.served_by, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place. En français : le libellé affiché.
   "col.served_by_full": "Served By",
-  // En-tête de colonne (onglets Internal et Response Codes) : type de contenu (HTML, CSS, PDF…). COLONNE ÉTROITE : environ 43 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 65 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. L'infobulle et l'export CSV reprennent ce libellé.
+  // En-tête de colonne (onglets Internal et Response Codes) : type de contenu (HTML, CSS, PDF…). COLONNE ÉTROITE : environ 48 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 70 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. L'infobulle et l'export CSV prennent le libellé complet (la clé du même nom terminée par _full).
   "col.content_type": "Type",
-  // Infobulle de l'en-tête col.content_type, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.content_type n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
-  "col.content_type_full": "Type",
-  // En-tête de colonne (onglets Internal et Bande passante) : temps de réponse de la page, pastille colorée en ms ou s. COLONNE ÉTROITE : environ 43 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 65 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. Le libellé complet est dans col.speed_full.
+  // Infobulle de l'en-tête col.content_type, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul (HTML, CSS, PDF… ; « Type » seul ne dit pas de quoi) ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
+  "col.content_type_full": "Content Type",
+  // En-tête de colonne (onglets Internal et Bande passante) : temps de réponse de la page, pastille colorée en ms ou s. COLONNE ÉTROITE : environ 48 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 70 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. Le libellé complet est dans col.speed_full.
   "col.speed": "Speed",
-  // Infobulle de l'en-tête col.speed, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place. En français : le libellé affiché.
+  // Infobulle de l'en-tête col.speed, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul (même nom que detail.k_response_time) ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
   "col.speed_full": "Response Time",
-  // En-tête de colonne (onglets Internal et Contenu) : nombre de mots de la page. COLONNE ÉTROITE : environ 43 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 65 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. Le libellé complet est dans col.words_full.
+  // En-tête de colonne (onglets Internal et Contenu) : nombre de mots de la page. COLONNE ÉTROITE : environ 48 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 70 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. Le libellé complet est dans col.words_full.
   "col.words": "Words",
-  // Infobulle de l'en-tête col.words, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place. En français : le libellé affiché.
+  // Infobulle de l'en-tête col.words, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
   "col.words_full": "Word Count",
-  // En-tête de colonne (onglets Internal et Page Titles) : balise <title> de la page. En français aussi le mot anglais « Title » (vocabulaire Screaming Frog) ; à adapter si la langue a un terme SEO courant. COLONNE ÉTROITE : environ 43 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 65 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. L'infobulle et l'export CSV reprennent ce libellé.
+  // En-tête de colonne (onglets Internal et Page Titles) : balise <title> de la page. En français aussi le mot anglais « Title » (vocabulaire Screaming Frog) ; à adapter si la langue a un terme SEO courant. COLONNE ÉTROITE : environ 48 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 70 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. L'infobulle et l'export CSV prennent le libellé complet (la clé du même nom terminée par _full).
   "col.title": "Title",
   // Infobulle de l'en-tête col.title, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.title n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
   "col.title_full": "Title",
-  // En-tête de colonne (onglets Internal et Directives) : la page est-elle indexable. COLONNE ÉTROITE : environ 43 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 65 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. Le libellé complet est dans col.indexable_full.
+  // En-tête de colonne (onglets Internal et Directives) : la page est-elle indexable. COLONNE ÉTROITE : environ 48 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 70 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. Le libellé complet est dans col.indexable_full.
   "col.indexable": "Index.",
   // Infobulle de l'en-tête col.indexable, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place. En français : le libellé affiché.
   "col.indexable_full": "Indexable",
-  // En-tête de colonne (onglet Internal) : nombre de liens sortants. Terme Screaming Frog conservé en français. COLONNE ÉTROITE : environ 43 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 65 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. « Outlinks » occupe toute la place disponible : une traduction plus longue sera abrégée. L'infobulle et l'export CSV reprennent ce libellé.
+  // En-tête de colonne (onglet Internal) : nombre de liens sortants. Terme Screaming Frog conservé en français. COLONNE ÉTROITE : environ 48 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 70 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. « Outlinks » occupe toute la place disponible : une traduction plus longue sera abrégée. L'infobulle et l'export CSV prennent le libellé complet (la clé du même nom terminée par _full).
   "col.outlinks": "Outlinks",
   // Infobulle de l'en-tête col.outlinks, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.outlinks n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
   "col.outlinks_full": "Outlinks",
@@ -443,12 +445,16 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "col.redirect_to_full": "Redirect URL",
   // En-tête de colonne (onglets URL, Page Titles, Meta Description) : longueur en caractères. Place : environ 74 px de texte à 1100 px (10-11 lettres), 106 px à 1400 px. Rester court.
   "col.length": "Length",
-  // Infobulle de l'en-tête col.length, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.length n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
-  "col.length_full": "Length",
+  // Infobulle de l'en-tête col.length (onglet URL), et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
+  "col.url_length_full": "URL Length",
+  // Infobulle de l'en-tête col.length (onglet Page Titles), et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
+  "col.title_length_full": "Title Length",
+  // Infobulle de l'en-tête col.length (onglet Meta Description), et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
+  "col.meta_length_full": "Meta Description Length",
   // En-tête de colonne (onglet URL) : l'URL contient des caractères non ASCII (oui/—). Place : environ 74 px de texte à 1100 px (10-11 lettres), 106 px à 1400 px. Rester court.
   "col.non_ascii": "Non-ASCII",
-  // Infobulle de l'en-tête col.non_ascii, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.non_ascii n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
-  "col.non_ascii_full": "Non-ASCII",
+  // Infobulle de l'en-tête col.non_ascii, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
+  "col.non_ascii_full": "Non-ASCII Characters",
   // En-tête de colonne (onglet URL) : l'URL contient des « _ » (oui/—). Place : environ 74 px de texte à 1100 px (10-11 lettres), 106 px à 1400 px. Rester court.
   "col.underscores": "Underscores",
   // Infobulle de l'en-tête col.underscores, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.underscores n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
@@ -471,16 +477,26 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "col.mixed_content_full": "Mixed Content",
   // En-tête de colonne (onglet Sécurité) : en-têtes HTTP de sécurité absents. Place : environ 164 px de texte à 1100 px (environ 25 lettres).
   "col.missing_headers": "Missing Headers",
-  // Infobulle de l'en-tête col.missing_headers, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.missing_headers n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
-  "col.missing_headers_full": "Missing Headers",
+  // Infobulle de l'en-tête col.missing_headers, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
+  "col.missing_headers_full": "Missing Security Headers",
   // En-tête de colonne (onglets Page Titles, Meta Description, H1) : la valeur se retrouve à l'identique sur une autre page. Place : environ 119 px de texte à 1100 px (17-18 lettres).
   "col.duplicate": "Duplicate",
-  // Infobulle de l'en-tête col.duplicate, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.duplicate n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
-  "col.duplicate_full": "Duplicate",
+  // Infobulle de l'en-tête col.duplicate (onglet Page Titles), et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
+  "col.title_dup_full": "Duplicate Title",
+  // Infobulle de l'en-tête col.duplicate (onglet Meta Description), et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
+  "col.meta_dup_full": "Duplicate Meta Description",
+  // Infobulle de l'en-tête col.duplicate (onglet H1), et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
+  "col.h1_dup_full": "Duplicate H1",
   // En-tête de colonne (onglets Page Titles, Meta Description, H1, Images) : Manquant / Court / Long / OK. Place : environ 119 px de texte à 1100 px (17-18 lettres).
   "col.state": "Status",
-  // Infobulle de l'en-tête col.state, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.state n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
-  "col.state_full": "Status",
+  // Infobulle de l'en-tête col.state (onglet Page Titles : Manquant / Court / Long / OK), et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
+  "col.title_state_full": "Title Status",
+  // Infobulle de l'en-tête col.state (onglet Meta Description : Manquant / Court / Long / OK), et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
+  "col.meta_state_full": "Meta Description Status",
+  // Infobulle de l'en-tête col.state (onglet H1 : Manquant / Multiple / OK), et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
+  "col.h1_state_full": "H1 Status",
+  // Infobulle de l'en-tête col.state (onglet Images : OK / N sans alt), et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
+  "col.images_state_full": "Alt Text Status",
   // En-tête de colonne (onglet Meta Description) : contenu de la balise meta description. Place : environ 119 px de texte à 1100 px (17-18 lettres).
   "col.meta_description": "Meta Description",
   // Infobulle de l'en-tête col.meta_description, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.meta_description n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
@@ -491,28 +507,30 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "col.first_h1_full": "First H1",
   // En-tête de colonne (onglet H1) : nombre de balises H1 de la page. Place : environ 119 px de texte à 1100 px (17-18 lettres).
   "col.count": "Count",
-  // Infobulle de l'en-tête col.count, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.count n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
-  "col.count_full": "Count",
+  // Infobulle de l'en-tête col.count, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul (onglet H1) ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
+  "col.count_full": "H1 Count",
   // En-tête de colonne (onglet Contenu) : pages quasi dupliquées. Abréviation anglaise conservée en français. Place : environ 255 px de texte à 1100 px.
   "col.near_dup": "Near-dup",
-  // Infobulle de l'en-tête col.near_dup, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.near_dup n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  // Infobulle de l'en-tête col.near_dup, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul (même nom que overview.near_dup et detail.k_near_dup) ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
   "col.near_dup_full": "Near Duplicates",
-  // En-tête de colonne (onglets Images et Bande passante) : nombre d'images. COLONNE ÉTROITE : environ 43 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 65 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. L'infobulle et l'export CSV reprennent ce libellé.
+  // En-tête de colonne (onglets Images et Bande passante) : nombre d'images. COLONNE ÉTROITE : environ 48 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 70 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. L'infobulle et l'export CSV prennent le libellé complet (la clé du même nom terminée par _full).
   "col.images": "Images",
-  // Infobulle de l'en-tête col.images, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.images n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
-  "col.images_full": "Images",
+  // Infobulle de l'en-tête col.images (onglet Images), et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
+  "col.image_count_full": "Image Count",
+  // Infobulle de l'en-tête col.images (onglet Bande passante : la cellule montre « nombre / poids », le CSV ne contient que le poids, en octets), et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
+  "col.images_weight_full": "Image Size",
   // En-tête de colonne (onglet Images) : nombre d'images sans attribut alt (« alt » = attribut HTML). Place : environ 164 px de texte à 1100 px (environ 25 lettres).
   "col.missing_alt": "Missing Alt Text",
-  // Infobulle de l'en-tête col.missing_alt, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.missing_alt n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
-  "col.missing_alt_full": "Missing Alt Text",
+  // Infobulle de l'en-tête col.missing_alt, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul (même nom que dtabs.images) ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
+  "col.missing_alt_full": "Images Missing Alt Text",
   // En-tête de colonne (onglet Canonicals) : URL de la balise canonical. Place : environ 255 px de texte à 1100 px.
   "col.canonical": "Canonical",
   // Infobulle de l'en-tête col.canonical, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.canonical n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
   "col.canonical_full": "Canonical",
   // En-tête de colonne (onglet Canonicals) : Self / Autre / Manquant. Place : environ 255 px de texte à 1100 px.
   "col.canonical_type": "Type",
-  // Infobulle de l'en-tête col.canonical_type, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.canonical_type n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
-  "col.canonical_type_full": "Type",
+  // Infobulle de l'en-tête col.canonical_type, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul (Self / Autre / Manquant) ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
+  "col.canonical_type_full": "Canonical Type",
   // En-tête de colonne (onglet Directives) : contenu de la balise meta robots. Place : environ 74 px de texte à 1100 px (10-11 lettres), 106 px à 1400 px. Rester court.
   "col.meta_robots": "Meta Robots",
   // Infobulle de l'en-tête col.meta_robots, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.meta_robots n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
@@ -527,20 +545,20 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "col.hreflang_full": "Hreflang (lang -> href)",
   // En-tête de colonne (onglet Hreflang) : les pages visées renvoient-elles un hreflang vers celle-ci (OK / Manquant). Place : environ 255 px de texte à 1100 px.
   "col.reciprocal": "Return Links",
-  // Infobulle de l'en-tête col.reciprocal, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.reciprocal n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
-  "col.reciprocal_full": "Return Links",
+  // Infobulle de l'en-tête col.reciprocal, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul (même nom que detail.k_hreflang_recip) ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
+  "col.reciprocal_full": "Hreflang Return Links",
   // En-tête de colonne (onglet Structured Data) : types schema.org détectés. Place : environ 164 px de texte à 1100 px (environ 25 lettres).
   "col.types": "Types",
-  // Infobulle de l'en-tête col.types, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.types n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
-  "col.types_full": "Types",
+  // Infobulle de l'en-tête col.types, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
+  "col.types_full": "Structured Data Types",
   // En-tête de colonne (onglet Structured Data) : données structurées valides (oui/non). Place : environ 164 px de texte à 1100 px (environ 25 lettres).
   "col.valid": "Valid",
-  // Infobulle de l'en-tête col.valid, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.valid n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
-  "col.valid_full": "Valid",
+  // Infobulle de l'en-tête col.valid, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul (même nom que detail.k_sd_valid) ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
+  "col.valid_full": "Valid Structured Data",
   // En-tête de colonne (onglet Structured Data) : nombre d'erreurs de données structurées. Place : environ 164 px de texte à 1100 px (environ 25 lettres).
   "col.errors": "Errors",
-  // Infobulle de l'en-tête col.errors, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.errors n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
-  "col.errors_full": "Errors",
+  // Infobulle de l'en-tête col.errors, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul (même nom que detail.k_sd_errors) ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
+  "col.errors_full": "Structured Data Errors",
   // En-tête de la 1re colonne de l'onglet Liens : page qui contient le lien. Place : environ 289 px de texte à 1100 px (1re colonne).
   "col.source": "Source",
   // Infobulle de l'en-tête col.source, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.source n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
@@ -551,12 +569,12 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "col.destination_full": "Destination",
   // En-tête de colonne (onglet Liens) : texte d'ancre du lien. Place : environ 119 px de texte à 1100 px (17-18 lettres).
   "col.anchor": "Anchor Text",
-  // Infobulle de l'en-tête col.anchor, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.anchor n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  // Infobulle de l'en-tête col.anchor, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
   "col.anchor_full": "Anchor Text",
   // En-tête de colonne (onglet Liens) : Interne / Externe. Place : environ 119 px de texte à 1100 px (17-18 lettres).
   "col.link_type": "Type",
-  // Infobulle de l'en-tête col.link_type, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.link_type n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
-  "col.link_type_full": "Type",
+  // Infobulle de l'en-tête col.link_type, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul (Interne / Externe) ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
+  "col.link_type_full": "Link Type",
   // En-tête de la 1re colonne de l'onglet Problèmes : Critique / Avertissement / Opportunité / Info. Place : environ 289 px de texte à 1100 px (1re colonne).
   "col.severity": "Severity",
   // Infobulle de l'en-tête col.severity, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.severity n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
@@ -571,36 +589,40 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "col.message_full": "Message",
   // En-tête de colonne (onglet Sitemap) : Crawlée / Orpheline / Hors sitemap. Place : environ 255 px de texte à 1100 px.
   "col.sitemap_state": "Status",
-  // Infobulle de l'en-tête col.sitemap_state, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.sitemap_state n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
-  "col.sitemap_state_full": "Status",
-  // En-tête de colonne (onglet Sitemap) : code de réponse HTTP. Place : environ 255 px de texte à 1100 px.
-  "col.http_code": "HTTP Code",
-  // Infobulle de l'en-tête col.http_code, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.http_code n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
-  "col.http_code_full": "HTTP Code",
-  // En-tête de colonne (onglet Bande passante) : technologies détectées (WordPress, Next.js…). Abréviation. COLONNE ÉTROITE : environ 43 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 65 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. L'infobulle et l'export CSV reprennent ce libellé.
+  // Infobulle de l'en-tête col.sitemap_state, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul (Crawlée / Orpheline / Hors sitemap) ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
+  "col.sitemap_state_full": "Sitemap Status",
+  // En-tête de colonne (onglet Sitemap) : code de réponse HTTP. Place : environ 255 px de texte à 1100 px. Même nom que col.status_code_full (un seul nom pour le code HTTP).
+  "col.http_code": "Status Code",
+  // Infobulle de l'en-tête col.http_code, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul (même nom que col.status_code_full) ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
+  "col.http_code_full": "Status Code",
+  // En-tête de colonne (onglet Bande passante) : technologies détectées (WordPress, Next.js…). Abréviation. COLONNE ÉTROITE : environ 48 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 70 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. L'infobulle et l'export CSV prennent le libellé complet (la clé du même nom terminée par _full).
   "col.tech": "Tech",
-  // Infobulle de l'en-tête col.tech, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.tech n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
+  // Infobulle de l'en-tête col.tech, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul (même nom que detail.k_techs) ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
   "col.tech_full": "Technologies",
-  // En-tête de colonne (onglet Bande passante) : poids total transféré par la page. COLONNE ÉTROITE : environ 43 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 65 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. Le libellé complet est dans col.total_size_full.
+  // En-tête de colonne (onglet Bande passante) : poids total transféré par la page. COLONNE ÉTROITE : environ 48 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 70 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. Le libellé complet est dans col.total_size_full.
   "col.total_size": "Size",
   // Infobulle de l'en-tête col.total_size, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place. En français : le libellé affiché.
   "col.total_size_full": "Total Size",
-  // En-tête de colonne (onglet Bande passante) : nombre de requêtes HTTP de la page. COLONNE ÉTROITE : environ 43 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 65 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. Le libellé complet est dans col.requests_full.
+  // En-tête de colonne (onglet Bande passante) : nombre de requêtes HTTP de la page. COLONNE ÉTROITE : environ 48 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 70 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. Le libellé complet est dans col.requests_full.
   "col.requests": "Req.",
   // Infobulle de l'en-tête col.requests, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place. En français : le libellé affiché.
   "col.requests_full": "Requests",
-  // En-tête de colonne (onglet Bande passante) : parmi ces requêtes, combien sont dynamiques (non mises en cache). COLONNE ÉTROITE : environ 43 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 65 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. Le libellé complet est dans col.dynamic_full.
+  // En-tête de colonne (onglet Bande passante) : parmi ces requêtes, combien sont dynamiques (non mises en cache). COLONNE ÉTROITE : environ 48 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 70 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. Le libellé complet est dans col.dynamic_full.
   "col.dynamic": "Dyn.",
-  // Infobulle de l'en-tête col.dynamic, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place. En français : le libellé affiché.
+  // Infobulle de l'en-tête col.dynamic, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
   "col.dynamic_full": "Dynamic Requests",
-  // En-tête de colonne (onglet Bande passante) : nombre de réponses en MISS (MISS = terme technique, non traduit). COLONNE ÉTROITE : environ 43 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 65 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. Le libellé complet est dans col.cache_miss_full.
+  // En-tête de colonne (onglet Bande passante) : nombre de réponses en MISS (MISS = terme technique, non traduit). COLONNE ÉTROITE : environ 48 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 70 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. Le libellé complet est dans col.cache_miss_full.
   "col.cache_miss": "MISS",
-  // Infobulle de l'en-tête col.cache_miss, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place. En français : le libellé affiché.
-  "col.cache_miss_full": "Cache MISS",
-  // En-tête de colonne (onglet Bande passante) : méthode de mesure, HTTP ou Chrome. COLONNE ÉTROITE : environ 43 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 65 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. L'infobulle et l'export CSV reprennent ce libellé.
+  // Infobulle de l'en-tête col.cache_miss, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET qui dit ce que contient la colonne quand on lit le fichier CSV seul (MISS = terme technique, non traduit) ; sans limite de place et SANS abréviation. Un seul nom par notion : reprenez le nom déjà employé ailleurs dans l'interface pour la même notion.
+  "col.cache_miss_full": "Cache MISS Requests",
+  // En-tête de colonne (onglet Bande passante) : méthode de mesure, HTTP ou Chrome. COLONNE ÉTROITE : environ 48 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 70 px à 1400 px. Libellé COURT obligatoire, abréviation d'usage admise. L'infobulle et l'export CSV prennent le libellé complet (la clé du même nom terminée par _full).
   "col.probe": "Probe",
   // Infobulle de l'en-tête col.probe, et en-tête de l'export CSV / de la barre de sélection : libellé COMPLET, sans limite de place et SANS abréviation. Si l'en-tête col.probe n'est pas abrégé dans votre langue, recopiez-le tel quel. En français : le libellé affiché.
   "col.probe_full": "Probe",
+  // En-tête de la dernière colonne de l'onglet Bande passante, au-dessus d'une barre : poids de la page rapporté à celui de la page la plus lourde du crawl. COLONNE ÉTROITE : environ 48 px de texte à 1100 px (6-7 lettres latines ou cyrilliques, 3 caractères en japonais ou en chinois ; au-delà, « … » : abrégez, le libellé complet est en infobulle), 70 px à 1400 px. Le signe pour-cent suffit ; le libellé complet est dans col.weight_share_full.
+  "col.weight_share": "%",
+  // Infobulle de l'en-tête col.weight_share, et en-tête de l'export CSV de l'onglet Bande passante : libellé COMPLET. La colonne donne le poids de la page en pourcentage de celui de la page la plus lourde du crawl (100 = la plus lourde) ; même notion que col.total_size_full (« Poids total »).
+  "col.weight_share_full": "Relative Size (%)",
   // État d'un title (pastille, onglet Page Titles) : la page n'a pas de <title>.
   "state.title_missing": "Missing",
   // État d'un title : moins de 30 caractères.
@@ -633,7 +655,7 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "severity.opportunity": "Opportunity",
   // Sévérité d'un problème SEO : simple information.
   "severity.info": "Info",
-  // Bandeau au-dessus de la grille, onglet Contenu. {max} = nombre de pages (2000). « near-duplicates » = terme SEO (pages quasi dupliquées), à garder ou traduire selon l'usage.
+  // Bandeau au-dessus de la grille, onglet Contenu. {max} = nombre de pages (2 000, écrit par l'application avec le séparateur de milliers de la langue). « near-duplicates » = terme SEO (pages quasi dupliquées), à garder ou traduire selon l'usage.
   "grid.near_dup_disabled": "Near-duplicate detection disabled: more than {max} pages (the O(n^2) computation would be too costly).",
   // Message de grille vide, onglet Sitemap, après un crawl.
   "grid.no_sitemap": "No sitemap found for this site.",
@@ -729,6 +751,8 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "overview.sitemap_orphans": "Orphan URLs",
   // Ligne du groupe Sitemap : pages crawlées absentes du sitemap.
   "overview.sitemap_not_in": "Not in Sitemap",
+  // Texte de la pastille « Filtre : … » de la barre d'outils quand on a cliqué une ligne du panneau de synthèse : {group} = titre du groupe (Titres, Meta Description, H1, Canonicals…), {row} = la ligne cliquée (Manquant, Dupliqué, > 60 car.…). Sans le groupe, « Filtre : Manquant » ne disait pas de quoi. Le chevron « › » sépare les deux ; ordre et signe de votre langue. Court : la pastille partage la barre d'outils.
+  "overview.filter_label": "{group} › {row}",
   // En-tête de colonne du sous-onglet Inlinks : page qui contient un lien vers la page sélectionnée.
   "detail.h_inlink_source": "Source (linking here)",
   // En-tête de colonne des sous-onglets Inlinks et Outlinks : texte d'ancre.
@@ -745,11 +769,11 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "detail.h_image_src": "Image (src)",
   // En-tête de colonne du sous-onglet Images sans alt : nom du fichier de l'image.
   "detail.h_file": "File",
-  // Sous-onglet Images sans alt : le crawl enregistré compte {n} images sans alt mais ne contient pas leur liste (ancien format).
+  // Sous-onglet Images sans alt : le crawl enregistré compte {n} images sans alt mais ne contient pas leur liste (ancien format). {n} est écrit par l'application avec le séparateur de milliers de la langue (1 234).
   "detail.alt_counted_no_urls": {"one":"{n} image without alt counted, but no URL was recorded: this crawl predates this version, run it again.","other":"{n} images without alt counted, but no URLs were recorded: this crawl predates this version, run it again."},
   // Sous-onglet Images sans alt vide.
   "detail.alt_all_ok": "Every image on this page has an alt attribute.",
-  // Sous la liste des images sans alt. {missing} = nombre d'images sans alt (toujours ≥ 2) ; {n} = nombre d'URL distinctes (l'accord suit {n}).
+  // Sous la liste des images sans alt. {missing} = nombre d'images sans alt (toujours ≥ 2) ; {n} = nombre d'URL distinctes (l'accord suit {n}). {missing} et {n} sont écrits par l'application avec le séparateur de milliers de la langue (1 234).
   "detail.alt_more_than_urls": {"one":"{missing} without alt in total, {n} distinct URL: the same image repeated only counts as one row.","other":"{missing} without alt in total, {n} distinct URLs: the same image repeated only counts as one row."},
   // Aperçu SERP (sous-onglet SERP Snippet) quand la page n'a pas de title.
   "detail.serp_no_title": "(missing title)",
@@ -759,15 +783,15 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "detail.serp_note": "Indicative preview of how the page may look in Google results.",
   // Panneau Infos, ligne « Contenu mixte » : aucune ressource mixte (« aucun contenu mixte », masculin en français).
   "detail.no_mixed_content": "None",
-  // Panneau Infos, ligne « Contenu mixte ». {n} = nombre de ressources http:// chargées par la page ; {list} = jusqu'à 5 de leurs adresses, séparées par « | ».
+  // Panneau Infos, ligne « Contenu mixte ». {n} = nombre de ressources http:// chargées par la page ; {list} = jusqu'à 5 de leurs adresses, séparées par « | ». {n} est écrit par l'application avec le séparateur de milliers de la langue (1 234).
   "detail.mixed_resources": {"one":"{n} resource: {list}","other":"{n} resources: {list}"},
   // Panneau Infos, ligne « En-têtes manquants » : aucun en-tête manquant (masculin en français).
   "detail.no_missing_headers": "None",
-  // Panneau Infos, ligne « Erreurs données structurées » : aucune erreur (féminin en français).
+  // Panneau Infos, ligne « Erreurs de données structurées » (detail.k_sd_errors) : aucune erreur (féminin en français).
   "detail.no_sd_errors": "None",
   // Panneau Infos, ligne « Near-duplicates » : aucune page quasi dupliquée (féminin en français).
   "detail.no_near_dup": "None",
-  // Panneau Infos, ligne « Near-duplicates ». {n} = nombre de pages quasi dupliquées ; {urls} = liens vers ces pages, séparés par « | ».
+  // Panneau Infos, ligne « Near-duplicates ». {n} = nombre de pages quasi dupliquées ; {urls} = liens vers ces pages, séparés par « | ». {n} est écrit par l'application avec le séparateur de milliers de la langue (1 234).
   "detail.near_dup_pages": {"one":"{n} page: {urls}","other":"{n} pages: {urls}"},
   // Panneau Infos, ligne « Hreflang réciproque » : une page visée par un hreflang ne renvoie pas de hreflang vers celle-ci.
   "detail.hreflang_missing_label": "Missing return link",
@@ -777,8 +801,8 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "detail.hreflang_ok": "OK (reciprocal)",
   // Libellé de ligne du sous-onglet Infos / En-têtes du panneau de détail (colonne de gauche).
   "detail.k_address": "Address",
-  // Libellé de ligne du panneau Infos.
-  "detail.k_http_code": "HTTP Code",
+  // Libellé de ligne du panneau Infos. Même nom que col.status_code_full (un seul nom pour le code HTTP).
+  "detail.k_http_code": "Status Code",
   // Libellé de ligne du panneau Infos : verdict de cache détaillé.
   "detail.k_cache": "Cache",
   // Libellé de ligne du panneau Infos : méthode de mesure (HTTP ou Chrome).
@@ -789,8 +813,8 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "detail.k_requests": "Requests",
   // Valeur de la ligne « Requêtes » : {total} = requêtes, {dyn} = dont requêtes dynamiques. ATTENTION : {dyn} peut valoir 0, 1 ou plus et la phrase n'a qu'UNE forme : employez une tournure INVARIABLE (abréviation comme le français « dyn. », ou « libellé : nombre »), jamais un adjectif qui s'accorde en nombre (« 1 dinâmicos » est faux).
   "detail.requests_value": "{total} ({dyn} dynamic)",
-  // Libellé de ligne du panneau Infos : cible de la redirection.
-  "detail.k_redirect_to": "Redirects To",
+  // Libellé de ligne du panneau Infos : cible de la redirection. Même nom que col.redirect_to (un seul nom pour la cible d'une redirection).
+  "detail.k_redirect_to": "Redirect URL",
   // Libellé de ligne du panneau Infos.
   "detail.k_redirect_chain": "Redirect Chain",
   // Libellé de ligne du panneau Infos.
@@ -813,7 +837,7 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "detail.k_text_ratio": "Text to Code Ratio",
   // Libellé de ligne du panneau Infos ; la valeur est « N / M ».
   "detail.k_links_int_ext": "Internal / External Links",
-  // Libellé de ligne du panneau Infos : technologies détectées.
+  // Libellé de ligne du panneau Infos : technologies détectées. Même nom que col.tech_full (un seul nom par notion).
   "detail.k_techs": "Technologies",
   // Libellé de ligne du panneau Infos (Oui/Non/—).
   "detail.k_sd_valid": "Valid Structured Data",
@@ -841,9 +865,9 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "detail.sd_none": "No structured data (JSON-LD) on this page.",
   // Type affiché pour un bloc JSON-LD illisible.
   "detail.sd_invalid_json": "(invalid JSON)",
-  // En-tête d'un bloc JSON-LD (numéro {n}) dans le sous-onglet Données structurées.
+  // En-tête d'un bloc JSON-LD (numéro {n}) dans le sous-onglet Données structurées. {n} est écrit par l'application avec le séparateur de milliers de la langue (1 234).
   "detail.sd_block": "Block {n}",
-  // Même en-tête suivi du type du bloc : {n} = numéro du bloc JSON-LD (1, 2…) ; {type} = type schema.org du bloc, ou « (JSON invalide) ».
+  // Même en-tête suivi du type du bloc : {n} = numéro du bloc JSON-LD (1, 2…) ; {type} = type schema.org du bloc, ou « (JSON invalide) ». {n} est écrit par l'application avec le séparateur de milliers de la langue (1 234).
   "detail.sd_block_typed": "Block {n} — {type}",
   // Barre d'état (en bas à gauche) : aucun crawl en cours.
   "status.idle": "Idle",
@@ -863,23 +887,21 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "status.saved": "Saved: {path}",
   // Barre d'état en fin de série multi-sites. {sites} = « N site(s) » (status.n_sites) et {pages} = « N page(s) » (status.n_pages), déjà accordés.
   "status.done_sites": "Done — {sites}, {pages}.",
-  // Barre d'état en fin de crawl. {runs} = « N run(s) » (status.n_runs) et {pages} = « N page(s) » (status.n_pages), déjà accordés.
-  "status.done_runs": "Done — {runs}, {pages}.",
-  // Groupe nominal inséré dans status.done_sites : {n} = nombre de sites crawlés.
+  // Barre d'état à la fin d'un crawl unique (un seul site). {pages} = « N page(s) » (status.n_pages), déjà accordé. Remplace l'ancien « Terminé — 1 run(s), N page(s). » : la répétition des crawls n'existe plus.
+  "status.done": "Done — {pages}.",
+  // Groupe nominal inséré dans status.done_sites : {n} = nombre de sites crawlés (avec le séparateur de milliers de la langue).
   "status.n_sites": {"one":"{n} site","other":"{n} sites"},
-  // Groupe nominal inséré dans status.done_runs : {n} = nombre de passages de crawl (« run », terme conservé en français).
-  "status.n_runs": {"one":"{n} run","other":"{n} runs"},
-  // Groupe nominal inséré dans status.done_sites et status.done_runs : {n} = nombre de pages.
+  // Groupe nominal inséré dans status.done_sites et status.done : {n} = nombre de pages (avec le séparateur de milliers de la langue).
   "status.n_pages": {"one":"{n} page","other":"{n} pages"},
-  // Barre d'état : un crawl enregistré est rouvert pour consultation (sans recrawler). {url} = adresse du site ; {n} = nombre de pages enregistrées.
+  // Barre d'état : un crawl enregistré est rouvert pour consultation (sans recrawler). {url} = adresse du site ; {n} = nombre de pages enregistrées (séparateur de milliers de la langue).
   "status.viewing": {"one":"Viewing: {url} — {n} page","other":"Viewing: {url} — {n} pages"},
-  // Même chose avec la date d'enregistrement : {url} = adresse du site ; {n} = nombre de pages enregistrées ; {date} = date ISO AAAA-MM-JJ (non traduite).
+  // Même chose avec la date d'enregistrement : {url} = adresse du site ; {n} = nombre de pages enregistrées (séparateur de milliers de la langue) ; {date} = date écrite par l'application au format de la langue (13/11/2026 en français et en anglais britannique, 13.11.2026 en allemand, 2026/11/13 en japonais) : ne pas la mettre en forme vous-même.
   "status.viewing_dated": {"one":"Viewing: {url} — {n} page (saved on {date})","other":"Viewing: {url} — {n} pages (saved on {date})"},
   // Barre d'état : la liste d'URL importée a été retirée.
   "status.list_removed": "List removed.",
   // Barre d'état après l'import d'un fichier sans URL valide.
   "status.import_empty": "No usable URL in this file.",
-  // Barre d'état après l'import d'une liste d'URL : {n} = nombre d'URL importées. Le bouton de lancement s'appelle « Démarrer » (btn.start) ; le français dit « Crawler » (ancien nom, conservé tel quel) : écrire le libellé du bouton de lancement de votre langue.
+  // Barre d'état après l'import d'une liste d'URL : {n} = nombre d'URL importées (séparateur de milliers de la langue). Le bouton de lancement est btn.start (« Démarrer » / « Start ») : écrivez le libellé de ce bouton dans votre langue.
   "status.imported": {"one":"{n} URL imported — click Start to run the series.","other":"{n} URLs imported — click Start to run the series."},
   // Barre d'état. {error} = message du système ou « erreur inconnue » (status.unknown_error).
   "status.import_failed": "Import failed: {error}",
@@ -891,8 +913,6 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "status.bad_project": "Invalid or empty project file.",
   // Barre d'état pendant une série multi-sites. {i}/{total} = rang du site ; {host} = domaine ; {bytes} = poids cumulé formaté ; {pages} = pages cumulées (l'accord suit {pages} ; le français écrit toujours « pages »).
   "status.multi_site": {"one":"Site {i}/{total} · {host} — total {bytes} ({pages} page)","other":"Site {i}/{total} · {host} — total {bytes} ({pages} pages)"},
-  // Barre d'état pendant des passages répétés. {i}/{total} = rang du passage (« run ») ; {bytes} = poids cumulé ; {pages} = pages cumulées (l'accord suit {pages}).
-  "status.multi_run": {"one":"Run {i}/{total} — total {bytes} ({pages} page)","other":"Run {i}/{total} — total {bytes} ({pages} pages)"},
   // Bouton principal de la barre du haut : lance un crawl. Court.
   "btn.start": "Start",
   // Même bouton quand un crawl est en pause. Court.
@@ -917,15 +937,15 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "sel.copy_failed": "Failed",
   // Infobulle du bouton Copier.
   "sel.copy_title": "Copy the selected values, one per line (Ctrl+C or right-click)",
-  // Message bref (2 s) en bas de la fenêtre après une copie : {n} = nombre de valeurs copiées ; {col} = nom de la colonne copiée.
+  // Message bref (2 s) en bas de la fenêtre après une copie : {n} = nombre de valeurs copiées (séparateur de milliers de la langue) ; {col} = nom de la colonne copiée.
   "toast.copied": {"one":"{n} value copied — {col} column","other":"{n} values copied — {col} column"},
   // Message bref (2 s) quand le presse-papiers a refusé la copie.
   "toast.copy_failed": "Copy failed",
   // Titre du dialogue affiché quand on lance un crawl sur un site déjà enregistré.
   "dialog.saved_title": "Crawl already saved",
-  // Texte du même dialogue : {url} = adresse du site (en gras) ; {n} = nombre de pages enregistrées. Le français tutoie (« veux-tu ») : registre familier voulu par l'auteur, à garder si la langue le permet.
+  // Texte du même dialogue : {url} = adresse du site (en gras) ; {n} = nombre de pages enregistrées (séparateur de milliers de la langue). Le français tutoie (« veux-tu ») : registre familier voulu par l'auteur, à garder si la langue le permet.
   "dialog.saved_text": {"one":"The site {url} has already been crawled ({n} page saved). What would you like to do?","other":"The site {url} has already been crawled ({n} pages saved). What would you like to do?"},
-  // Même texte avec la date du crawl : {url} = adresse du site (en gras) ; {n} = nombre de pages enregistrées ; {date} = date ISO AAAA-MM-JJ (non traduite).
+  // Même texte avec la date du crawl : {url} = adresse du site (en gras) ; {n} = nombre de pages enregistrées (séparateur de milliers de la langue) ; {date} = date écrite par l'application au format de la langue (13/11/2026 en français et en anglais britannique, 13.11.2026 en allemand, 2026/11/13 en japonais) : ne pas la mettre en forme vous-même.
   "dialog.saved_text_dated": {"one":"The site {url} was already crawled on {date} ({n} page saved). What would you like to do?","other":"The site {url} was already crawled on {date} ({n} pages saved). What would you like to do?"},
   // Bouton du dialogue « Crawl déjà enregistré ».
   "dialog.cancel": "Cancel",
@@ -935,9 +955,9 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "dialog.new_crawl": "New crawl",
   // Alerte quand la page est ouverte hors de l'application (Tauri = nom propre).
   "dialog.no_tauri": "Tauri interface unavailable. Launch the app through Tauri.",
-  // Entrée de la liste d'autocomplétion du champ d'adresse (barre du haut) pour une SÉRIE de sites crawlée depuis une liste importée : {n} = nombre de sites de la série ; {host} = domaine du premier site. Choisir l'entrée recopie ce texte dans le champ (ce n'est pas une adresse). Le français écrit toujours « sites », même pour 1 (texte d'origine).
+  // Entrée de la liste d'autocomplétion du champ d'adresse (barre du haut) pour une SÉRIE de sites crawlée depuis une liste importée : {n} = nombre de sites de la série ; {host} = domaine du premier site. Choisir l'entrée recopie ce texte dans le champ (ce n'est pas une adresse). Le français écrit toujours « sites », même pour 1 (texte d'origine). {n} est écrit par l'application avec le séparateur de milliers de la langue (1 234).
   "history.site_list": {"one":"{n} site ({host}…)","other":"{n} sites ({host}…)"},
-  // Pastille à côté du bouton « Importer une liste » : {n} = nombre de sites de la liste importée.
+  // Pastille à côté du bouton « Importer une liste » : {n} = nombre de sites de la liste importée (séparateur de milliers de la langue).
   "import.badge": {"one":"{n} site","other":"{n} sites"},
   // Infobulle de la croix de la pastille de liste importée.
   "import.remove_title": "Remove the list",
@@ -971,8 +991,14 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "export.h_target": "target",
   // En-tête de colonne du CSV « Tous les liens » : texte d'ancre (mot anglais dans le fichier français).
   "export.h_anchor": "anchor",
-  // En-tête de colonne du CSV « Tous les liens » : Interne / Externe.
-  "export.h_internal": "internal",
+  // En-tête de la dernière colonne du CSV « Tous les liens » (minuscules) : elle contient Interne / Externe (cell.internal / cell.external). Même nom que col.link_type_full.
+  "export.h_link_type": "link type",
+  // En-tête de l'export CSV d'un onglet, pour une colonne qui contient des nombres BRUTS en millisecondes : {label} = libellé complet de la colonne (col.…_full), suivi de l'unité entre parenthèses, ex. « Temps de réponse (ms) » (onglets Internal et Bande passante). Dans le CSV seulement (l'infobulle de l'en-tête garde le libellé seul). Ordre et ponctuation de votre langue ; unité en toutes lettres ou en symbole d'usage.
+  "export.unit_ms": "{label} (ms)",
+  // En-tête de l'export CSV d'un onglet, pour une colonne qui contient des nombres BRUTS en octets : {label} = libellé complet de la colonne (col.…_full), suivi de l'unité entre parenthèses, ex. « Poids total (octets) », « Poids des images (octets) » (onglet Bande passante) ; même mot que export.h_bytes. Dans le CSV seulement (l'infobulle de l'en-tête garde le libellé seul). Ordre et ponctuation de votre langue ; unité en toutes lettres ou en symbole d'usage.
+  "export.unit_bytes": "{label} (bytes)",
+  // En-tête de l'export CSV d'un onglet, pour une colonne qui contient des nombres BRUTS en caractères : {label} = libellé complet de la colonne (col.…_full), suivi de l'unité entre parenthèses, ex. « Longueur du title (caractères) » (onglets URL, Page Titles, Meta Description). Dans le CSV seulement (l'infobulle de l'en-tête garde le libellé seul). Ordre et ponctuation de votre langue ; unité en toutes lettres ou en symbole d'usage.
+  "export.unit_chars": "{label} (characters)",
   // En-tête de colonne du CSV « Toutes les images » : page qui contient l'image.
   "export.h_page": "page",
   // En-tête de colonne du CSV « Toutes les images » : type de ressource donné par le moteur (mot anglais dans le fichier français).
@@ -1003,16 +1029,18 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "report.h_destination": "destination",
   // En-tête de colonne du rapport « Canonicals ».
   "report.h_canonical": "canonical",
-  // En-tête de colonne du rapport « Canonicals » : Self / Autre / Manquant.
-  "report.h_type": "type",
+  // En-tête de colonne du rapport « Canonicals » (minuscules) : Self / Autre / Manquant. Même nom que col.canonical_type_full.
+  "report.h_type": "canonical type",
   // En-tête de colonne du rapport « Pages non-indexables ».
   "report.h_reason": "reason",
   // En-tête de colonne du rapport « Contenu mixte » : ressources chargées en http://.
   "report.h_http_resources": "http resources",
   // Raison de non-indexabilité (rapport Pages non-indexables), minuscules ; plusieurs raisons sont séparées par « ; ».
   "report.reason_canonicalised": "canonicalised",
-  // Raison de non-indexabilité. {code} = code HTTP hors 2xx (féminin en français : « page bloquée »).
-  "report.reason_blocked": "blocked (HTTP {code})",
+  // Raison de non-indexabilité (rapport Pages non-indexables), en minuscules : la page a répondu avec un code HTTP hors 2xx ({code} = 301, 404, 500…). Neutre : une redirection ou une page absente n'est pas « bloquée ». Même nom que col.status_code_full (« Code HTTP » / « Status Code »). Plusieurs raisons sont séparées par « ; ».
+  "report.reason_status_code": "status code {code}",
+  // Raison de non-indexabilité (rapport Pages non-indexables), en minuscules : la page n'a pas répondu du tout (code 0 : bloquée par robots.txt, erreur réseau, délai dépassé).
+  "report.reason_no_response": "no HTTP response",
   // Raison de non-indexabilité : page non HTML ou en erreur.
   "report.reason_not_html": "non-HTML / error",
   // Raison de non-indexabilité quand aucune autre n'est connue.
@@ -1133,4 +1161,32 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "engine.dialog_url_list": "URL list",
   // Même dialogue d'import : filtre qui affiche tous les fichiers (*). Libellé habituel du système dans votre langue.
   "engine.dialog_all_files": "All files",
+  // Barre d'état (en bas, à gauche), pendant l'ouverture d'un crawl enregistré : quelques secondes pour un très gros crawl. Dit combien de pages du fichier ont déjà été lues ; le nombre grandit en continu, puis le texte est remplacé par « Consultation : … » quand tout est lu. {n} = ce nombre, déjà mis en forme (séparateur de milliers) ; formes plurielles selon ce nombre. « page lue » : page du fichier chargée dans la fenêtre, pas une page du site visitée à nouveau.
+  "engine.opening_saved": {"one":"Opening the saved crawl… {n} page read","other":"Opening the saved crawl… {n} pages read"},
+  // Barre d'état (en bas, à gauche), à la fin d'un crawl volumineux, pendant que le fichier du crawl s'écrit sur le disque (quelques secondes ; quelques dizaines de secondes pour un très gros crawl). {pct} = pourcentage déjà écrit, de 0 à 99 (nombre entier) ; remplacé à la fin par « Enregistré : <chemin du fichier> ». Pour « % », suivez la typographie de votre langue (le français écrit « 42 % », comme la clé unit.percent).
+  "engine.saving": "Saving the crawl… {pct}%",
+  // Encadré rouge en bas à droite, qui reste affiché jusqu'au clic (avec les autres échecs d'enregistrement de la séance, un par ligne) ; aussi dans la barre d'état (en bas, à gauche) si le crawl affiché est celui-là. Le fichier du crawl n'a pas pu être écrit sur le disque (disque plein, dossier interdit en écriture…). {error} = la raison, telle que la donne le système (souvent déjà dans la langue de Windows), jamais traduite. L'ancien fichier du même site, s'il existait, reste intact.
+  "engine.save_failed": "Could not save the crawl: {error}",
+  // Encadré rouge en bas à droite, qui reste affiché jusqu'au clic (avec les autres échecs d'enregistrement de la séance, un par ligne) ; aussi dans la barre d'état (en bas, à gauche) si le crawl affiché est celui-là. Le crawl est entièrement écrit, mais n'a pas pu REMPLACER le fichier précédent du même site (souvent : un antivirus, un outil de synchronisation ou un autre programme tient ce fichier ouvert). Il est gardé dans un autre fichier, à côté, que « Ouvrir un projet » sait ouvrir. {error} = la raison donnée par le système, jamais traduite ; {path} = le chemin complet de ce fichier (par exemple C:\…\crawls\https___site.fr_.20261114T021507Z.json), jamais traduit.
+  "engine.save_kept": "Could not replace the previous file: {error} — the crawl was kept in {path}",
+  // Première ligne de l'encadré de fermeture (en bas à droite, gris, il disparaît seul à la fin) : l'utilisateur a demandé à fermer la fenêtre pendant un crawl ou pendant que le crawl s'enregistrait. Un crawl en cours est mis en pause, puis enregistré ; la fenêtre attend la fin de l'enregistrement (de quelques secondes à quelques minutes pour un très gros crawl), puis se ferme toute seule. {pct} = pourcentage déjà enregistré, entier de 0 à 99. La seconde ligne de l'encadré est engine.closing_warning. Pour « % », suivez la typographie de votre langue (comme engine.saving).
+  "engine.closing_after_save": "Saving the crawl before closing… {pct}%",
+  // Seconde ligne de l'encadré de fermeture, en gras, sous engine.closing_reading, engine.closing_after_save ou engine.closing_waiting : une seconde demande de fermeture ferme TOUT DE SUITE, et le crawl n'est alors pas enregistré. C'est ce qui évite de perdre le crawl en recliquant sur une fenêtre qui paraît ne rien faire : à rendre clairement.
+  "engine.closing_warning": "Closing the window again quits without saving the crawl.",
+  // Infobulle du bouton « Ouvrir un projet » (volet des réglages, à côté de « Dossier des projets »), quand il est grisé parce qu'un crawl tourne : ouvrir un projet remplacerait le crawl en cours, qui serait perdu. En pause, le bouton redevient actif (le crawl a été enregistré à la pause).
+  "engine.open_project_busy": "Not available while a crawl is running: pause it (it is then saved) or wait until it finishes.",
+  // Ajouté au TITRE de la fenêtre (la barre de titre de Windows, après « SEO Spider — »), dès que l'utilisateur demande à fermer la fenêtre. C'est le premier signe, immédiat, avant même que la fenêtre ait lu les pages déjà reçues (après un crawl très rapide, cela peut durer longtemps) ; l'encadré de fermeture (engine.closing_reading, engine.closing_waiting, engine.closing_after_save) prend ensuite le relais. Le titre redevient normal si la fermeture est annulée. Commence par une minuscule (il suit un tiret) ; la fin prévient qu'une seconde demande de fermeture quitte SANS enregistrer : à garder, et à dire sans équivoque — pas de verbe « annuler » qui pourrait se lire « annule la fermeture » (c'est le mot du bouton Annuler de Windows) : dire que fermer de nouveau n'enregistre pas. Viser 50 signes au plus : avec « SEO Spider — » le titre fait déjà 61 à 65 signes en anglais et en français, et la barre de titre d'une fenêtre étroite en tient environ 75 ; Windows coupe un titre trop long par la fin.
+  "engine.closing_title": "saving before closing… closing again won't save",
+  // Première ligne de l'encadré de fermeture (en bas à droite, gris), dès que l'utilisateur a demandé à fermer la fenêtre : celle-ci lit d'abord les pages du crawl qu'elle a déjà reçues mais pas encore traitées (après un crawl très rapide, il peut y en avoir des milliers), puis les enregistre (« Enregistrement du crawl avant fermeture… N % »). {n} = nombre de pages qu'il lui reste à lire, déjà mis en forme ; formes plurielles selon ce nombre. La seconde ligne de l'encadré est engine.closing_warning.
+  "engine.closing_reading": {"one":"Closing: reading the pages already received… {n} page left","other":"Closing: reading the pages already received… {n} pages left"},
+  // Première ligne de l'encadré de fermeture (en bas à droite, gris), pendant la fermeture de la fenêtre : la fermeture a mis en pause un crawl qui tournait, et celui-ci termine les quelques pages qu'il était en train de lire (quelques secondes) avant qu'elles soient enregistrées avec le reste ; ensuite vient « Enregistrement du crawl avant fermeture… N % ». La seconde ligne de l'encadré est engine.closing_warning.
+  "engine.closing_waiting": "Closing: the crawl is finishing its current pages…",
+  // Ligne de l'encadré rouge des échecs d'enregistrement (en bas à droite, gardé jusqu'au clic), juste sous le message de l'échec : l'utilisateur avait demandé à fermer la fenêtre, mais l'enregistrement a échoué sans rien garder sur le disque (disque plein, dossier interdit en écriture…) ; la fenêtre reste ouverte pour qu'il lise ce qui s'est passé (il peut, par exemple, choisir un autre « Dossier des projets » puis mettre le crawl en pause, ce qui l'enregistre). La fin dit comment quitter quand même : la fermeture suivante ferme la fenêtre sans réessayer, et le crawl est alors perdu. « SANS » est en capitales : c'est l'information importante, à rendre aussi visible dans votre langue.
+  "engine.closing_cancelled": "Closing cancelled: the crawl could not be saved. Closing the window again will close it WITHOUT saving the crawl.",
+  // Ligne de l'encadré rouge des échecs d'enregistrement, juste sous le message engine.save_kept (qui donne le chemin du fichier) : l'utilisateur avait demandé à fermer la fenêtre ; le crawl n'a pas pu remplacer le fichier précédent du site, mais il est entièrement enregistré dans un autre fichier, à côté (« Ouvrir un projet » sait l'ouvrir). La fenêtre reste ouverte pour qu'il le lise ; la fermeture suivante la ferme, sans rien réenregistrer.
+  "engine.closing_cancelled_kept": "Closing cancelled: the crawl was kept in the file shown above. You can close the window again.",
+  // Ligne de l'encadré rouge, sous engine.closing_cancelled ou engine.closing_cancelled_kept, quand c'est la fermeture qui avait mis en pause un crawl en cours : il reste en pause (rien n'est perdu ni relancé sans qu'on le demande). {resume} = le libellé du bouton qui relance le crawl (clé btn.resume, « Reprendre »), inséré tel quel dans la langue de l'interface ; mettez-le entre les guillemets de votre langue.
+  "engine.closing_paused": "The crawl is paused: “{resume}” to continue it.",
+  // Infobulle de l'encadré rouge (en bas à droite) qui liste les enregistrements de crawl impossibles (textes engine.save_failed et engine.save_kept, un par ligne) : il reste affiché jusqu'à ce qu'on clique dessus, pour qu'on ait le temps de lire un chemin de fichier.
+  "engine.save_failures_close": "Click to dismiss this message",
 };

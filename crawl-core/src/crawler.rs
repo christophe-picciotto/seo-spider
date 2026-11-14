@@ -87,17 +87,17 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// s'arrete jamais de lui-même, l'app finit tuee par l'OOM killer, et le crawl
 /// est INTÉGRALEMENT perdu puisque la sauvegarde n'a lieu qu'à la fin.
 ///
-/// Le risque mémoire est réel car chaque page est stockee DEUX fois
-/// intégralement (côté Rust dans `summary.pages`, jamais purge, et côté JS dans
-/// `S.pages`), un `PageReport` portant ses outlinks, ses H2, ses images et le
-/// JSON-LD brut.
+/// Le risque mémoire est réel car chaque page est gardée intégralement côté JS
+/// (`S.pages`), un `PageReport` portant ses outlinks, ses H2, ses images et le
+/// JSON-LD brut. (Jusqu'au 14/11/2026 elle l'était aussi côté Rust, dans
+/// `summary.pages`, pour être renvoyée en bloc dans `crawl:done` : ce n'est plus
+/// le cas, cf. `CrawlSummary::tally`.)
 ///
 /// **Valeur calibree sur des crawls RÉELS** (et non sur une estimation) :
 /// 11,5 a 15,0 Ko par page en JSON serialise, mesures sur trois projets
 /// enregistres dont un de 4 035 pages (59 Mo). A 200 000 pages : ~3 Go de JSON,
-/// soit de l'ordre de 6 a 8 Go en mémoire une fois compte le double stockage et
-/// l'overhead des objets. Aucun crawl legitime n'approche ce volume ; un piege
-/// a crawler, si.
+/// soit plusieurs Go en mémoire dans la fenêtre une fois compte l'overhead des
+/// objets. Aucun crawl legitime n'approche ce volume ; un piege a crawler, si.
 ///
 /// Le vrai correctif reste a faire : sauvegarde incrementale (pour qu'un
 /// plantage ne coute plus le crawl entier) puis stockage disque facon
@@ -456,7 +456,9 @@ async fn build_http_report(
 ///
 /// `on_progress` est appele après chaque page traitée, `on_page` avec le
 /// `PageReport` complet de chaque page. Les deux closures sont `Send + Sync +
-/// 'static`. Retourne le `CrawlSummary` agrégé.
+/// 'static`. Retourne le `CrawlSummary` agrégé : totaux et technos, SANS les
+/// pages — chacune n'a été remise qu'une fois, à `on_page` (cf.
+/// `CrawlSummary::tally`).
 pub async fn run<P, G>(
     config: CrawlConfig,
     on_progress: P,
@@ -644,6 +646,9 @@ where
         // sitemap deplace au DÉBUT du crawl (src-tauri/commands.rs + event crawl:sitemap)
     }
 
+    // Clone LÉGER : le résumé ne porte que des totaux et les technos, jamais les
+    // pages (cf. `CrawlSummary::tally`). Il clonait autrefois toutes les pages
+    // du crawl, juste avant de les renvoyer en bloc dans `crawl:done`.
     let summary = state.summary.lock().await.clone();
     Ok(summary)
 }
@@ -743,6 +748,49 @@ async fn worker_loop<P, G>(
     }
 }
 
+/// Emet UNE page terminée : totaux du résumé, page remise à l'interface,
+/// progression.
+///
+/// La page n'est NI copiée NI gardée par le moteur : seuls ses totaux entrent
+/// dans le résumé (`CrawlSummary::tally`), puis elle part telle quelle à
+/// `on_page`, qui la remet à l'interface (`crawl:page`) — c'est l'interface qui
+/// garde les pages. Jusqu'au 14/11/2026, le moteur en gardait une copie
+/// intégrale dans `summary.pages` pendant et après le crawl, la clonait en fin
+/// de crawl et la renvoyait en bloc dans `crawl:done`, que l'interface ignorait :
+/// 722 Mo gardés, 536 Mo de clone et un script de 812 Mo pour un crawl de 415 Mo
+/// (cf. `tests/memoire_fin_de_crawl.rs`).
+async fn emit_report<P, G>(
+    state: &Arc<SharedState>,
+    on_page: &G,
+    on_progress: &P,
+    report: PageReport,
+    url: &str,
+) where
+    P: Fn(CrawlProgress) + Send + Sync + 'static,
+    G: Fn(PageReport) + Send + Sync + 'static,
+{
+    let (total_bytes, queued) = {
+        let mut summary = state.summary.lock().await;
+        summary.tally(&report);
+        let tb = summary.total_bytes;
+        drop(summary);
+        let queued = state.queue.lock().await.len();
+        (tb, queued)
+    };
+    on_page(report);
+    let done = state.done.fetch_add(1, Ordering::SeqCst) + 1;
+    on_progress(CrawlProgress {
+        done,
+        queued,
+        current_url: url.to_string(),
+        total_bytes_so_far: total_bytes,
+        // Le worker courant est encore compte actif (il ne se decremente
+        // qu'au retour de `process_one_page`), ce qui est bien ce qu'on veut
+        // afficher : le nombre de workers en train de travailler.
+        active_workers: state.active.load(Ordering::SeqCst),
+    });
+}
+
 /// Traite UNE page : robots, rate-limit/délai, sonde HTTP, decision Chrome vs
 /// HTTP, enrichissement SEO/sécurité/issues, emission des callbacks, et
 /// reinjection des liens internes dans la file partagee.
@@ -766,43 +814,6 @@ async fn process_one_page<P, G>(
     P: Fn(CrawlProgress) + Send + Sync + 'static,
     G: Fn(PageReport) + Send + Sync + 'static,
 {
-    // Helper local : emet un rapport + met à jour le summary + emet la progression.
-    async fn emit_report<P, G>(
-        state: &Arc<SharedState>,
-        on_page: &G,
-        on_progress: &P,
-        report: PageReport,
-        url: &str,
-    ) where
-        P: Fn(CrawlProgress) + Send + Sync + 'static,
-        G: Fn(PageReport) + Send + Sync + 'static,
-    {
-        // UN SEUL clone : celui du callback frontend. `merge_into_summary` prend
-        // desormais le rapport PAR VALEUR et le `push` sans le recloner (chaque
-        // PageReport porte outlinks + JSON-LD brut + assets : le second clone
-        // coutait cher et grossissait avec la page).
-        on_page(report.clone());
-        let (total_bytes, queued) = {
-            let mut summary = state.summary.lock().await;
-            merge_into_summary(&mut summary, report);
-            let tb = summary.total_bytes;
-            drop(summary);
-            let queued = state.queue.lock().await.len();
-            (tb, queued)
-        };
-        let done = state.done.fetch_add(1, Ordering::SeqCst) + 1;
-        on_progress(CrawlProgress {
-            done,
-            queued,
-            current_url: url.to_string(),
-            total_bytes_so_far: total_bytes,
-            // Le worker courant est encore compte actif (il ne se decremente
-            // qu'au retour de `process_one_page`), ce qui est bien ce qu'on veut
-            // afficher : le nombre de workers en train de travailler.
-            active_workers: state.active.load(Ordering::SeqCst),
-        });
-    }
-
     // Déjà vu ? On marque AVANT TOUT traitement, contrôle robots inclus.
     //
     // Cette garde etait AUTREFOIS placee après le contrôle robots : une URL
@@ -1124,24 +1135,6 @@ async fn process_one_page<P, G>(
     emit_report(state, on_page, on_progress, report, &url).await;
 }
 
-/// Cumulé un `PageReport` dans le resume (pages, totaux, technos).
-///
-/// Prend le rapport PAR VALEUR : les agrégats sont lus d'abord, puis le rapport
-/// est deplace dans `summary.pages` sans clone supplémentaire.
-fn merge_into_summary(summary: &mut CrawlSummary, report: PageReport) {
-    summary.total_bytes = summary.total_bytes.saturating_add(report.total_bytes);
-    summary.total_requests = summary.total_requests.saturating_add(report.request_count);
-    summary.total_dynamic_requests = summary
-        .total_dynamic_requests
-        .saturating_add(report.dynamic_requests);
-    for t in &report.tech {
-        if !summary.tech_detected.iter().any(|x| x == t) {
-            summary.tech_detected.push(t.clone());
-        }
-    }
-    summary.pages.push(report);
-}
-
 /// Dédupliqué un `Vec<String>` en conservant l'ordre de première apparition.
 fn dedup_keep_order(items: Vec<String>) -> Vec<String> {
     let mut seen: HashSet<String> = HashSet::new();
@@ -1204,5 +1197,108 @@ mod tests {
         // Un meta-framework accompagne de React déclenché quand même Chrome.
         assert!(needs_chrome(&["React".to_string(), "Next.js".to_string()]));
         assert!(!needs_chrome(&[]));
+    }
+
+    // --- Point 8 (14/11/2026) : le moteur ne garde plus les pages ------------
+
+    /// `emit_report` remet chaque page UNE fois à l'interface et n'en garde que
+    /// les totaux : le résumé n'a plus de pages, et ses totaux sont exacts.
+    #[tokio::test]
+    async fn emit_report_remet_la_page_sans_la_garder() {
+        let state = Arc::new(SharedState::new("https://site.fr/"));
+        let recues = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let progres = Arc::new(std::sync::Mutex::new(Vec::<(usize, u64)>::new()));
+        let r = Arc::clone(&recues);
+        let on_page = move |p: PageReport| r.lock().unwrap().push(p.url);
+        let g = Arc::clone(&progres);
+        let on_progress = move |p: CrawlProgress| g.lock().unwrap().push((p.done, p.total_bytes_so_far));
+        for i in 0..3u64 {
+            let url = format!("https://site.fr/{i}/");
+            let report = PageReport {
+                url: url.clone(),
+                total_bytes: 100 * (i + 1),
+                request_count: 2,
+                dynamic_requests: 1,
+                tech: vec!["WordPress".to_string(), if i == 2 { "Cloudflare" } else { "WordPress" }.to_string()],
+                ..Default::default()
+            };
+            emit_report(&state, &on_page, &on_progress, report, &url).await;
+        }
+        let s = state.summary.lock().await;
+        assert!(s.pages.is_empty(), "le moteur garde des pages : {}", s.pages.len());
+        assert_eq!(s.total_bytes, 600);
+        assert_eq!(s.total_requests, 6);
+        assert_eq!(s.total_dynamic_requests, 3);
+        assert_eq!(s.tech_detected, vec!["WordPress", "Cloudflare"]);
+        assert_eq!(*recues.lock().unwrap(), vec!["https://site.fr/0/", "https://site.fr/1/", "https://site.fr/2/"]);
+        // Progression inchangée : page par page, totaux cumulés page comprise.
+        assert_eq!(*progres.lock().unwrap(), vec![(1, 100), (2, 300), (3, 600)]);
+        assert_eq!(state.done_count(), 3);
+    }
+
+    /// Bout en bout, sur un petit site servi en local : `run` remet les trois
+    /// pages à `on_page` et rend un résumé SANS pages (celui de `crawl:done`),
+    /// dont la sérialisation ne grossit plus avec le crawl.
+    #[tokio::test]
+    async fn run_rend_un_resume_sans_pages() {
+        use std::io::{BufRead, BufReader, Write};
+        let ecoute = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = ecoute.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for flux in ecoute.incoming().take(16) {
+                let Ok(mut flux) = flux else { continue };
+                let mut chemin = String::new();
+                let mut lecteur = BufReader::new(flux.try_clone().unwrap());
+                let mut ligne = String::new();
+                while lecteur.read_line(&mut ligne).map(|n| n > 0).unwrap_or(false) {
+                    if chemin.is_empty() {
+                        chemin = ligne.split_whitespace().nth(1).unwrap_or("").to_string();
+                    }
+                    if ligne == "\r\n" {
+                        break;
+                    }
+                    ligne.clear();
+                }
+                let corps = match chemin.as_str() {
+                    "/" => r#"<html><head><title>Accueil du site de test local</title></head><body><h1>Accueil</h1><a href="/a/">A</a> <a href="/b/">B</a></body></html>"#,
+                    "/a/" | "/b/" => r#"<html><head><title>Une page du site de test local</title></head><body><h1>Page</h1></body></html>"#,
+                    _ => "",
+                };
+                let statut = if corps.is_empty() { "404 Not Found" } else { "200 OK" };
+                let _ = write!(
+                    flux,
+                    "HTTP/1.1 {statut}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{corps}",
+                    corps.len()
+                );
+            }
+        });
+        let config = CrawlConfig {
+            seed_url: format!("http://127.0.0.1:{port}/"),
+            max_pages: 10,
+            max_depth: 3,
+            same_domain_only: true,
+            requests_per_second: 100,
+            force_chrome: false,
+            random_user_agent: false,
+            random_delay: false,
+            unlimited: false,
+            respect_robots: true,
+            threads: 2,
+            no_rate_limit: true,
+        };
+        let recues = Arc::new(std::sync::Mutex::new(Vec::<PageReport>::new()));
+        let r = Arc::clone(&recues);
+        let summary = run(config, |_| {}, move |p| r.lock().unwrap().push(p)).await.unwrap();
+
+        let mut urls: Vec<String> = recues.lock().unwrap().iter().map(|p| p.url.clone()).collect();
+        urls.sort();
+        assert_eq!(urls, vec![format!("http://127.0.0.1:{port}/"), format!("http://127.0.0.1:{port}/a/"), format!("http://127.0.0.1:{port}/b/")]);
+        assert!(recues.lock().unwrap().iter().all(|p| p.status == 200 && p.seo.is_some()));
+        assert!(summary.pages.is_empty(), "crawl:done porterait {} pages", summary.pages.len());
+        let octets_pages: u64 = recues.lock().unwrap().iter().map(|p| p.total_bytes).sum();
+        assert_eq!(summary.total_bytes, octets_pages);
+        let json = serde_json::to_string(&summary).unwrap();
+        assert!(json.len() < 300, "crawl:done = {} octets : {json}", json.len());
+        assert!(json.contains("\"pages\":[]"), "{json}");
     }
 }

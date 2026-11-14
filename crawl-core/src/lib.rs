@@ -13,5 +13,6 @@ pub mod security;
 pub mod urlcheck;
 pub mod sitemap;
 pub mod cachestat;
+pub mod savedcrawl;
 
 pub use report::*;

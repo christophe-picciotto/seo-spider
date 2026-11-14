@@ -658,7 +658,10 @@ body.is-resizing-detail { user-select: none; cursor: ns-resize; }
 .kv { padding: 10px 14px; }
 .kv-row { display: flex; gap: 10px; padding: 3px 0; border-bottom: 1px solid var(--border-soft); }
 .kv-key { flex: 0 0 170px; color: var(--text-muted); font-size: 12px; }
-.kv-val { flex: 1 1 auto; font-size: 12px; font-family: var(--font-mono); word-break: break-all; }
+/* La valeur passe à la ligne AUX ESPACES ; un mot trop long pour la ligne (une
+   longue adresse, une empreinte) n'est coupé qu'en dernier recours. Avec
+   `word-break: break-all`, une ligne coupait n'importe où (« Cloudflare: H / IT »). */
+.kv-val { flex: 1 1 auto; font-size: 12px; font-family: var(--font-mono); overflow-wrap: anywhere; }
 
 /* Vue "SERP Snippet" : apercu Google */
 .serp { padding: 16px 18px; max-width: 640px; }
@@ -888,8 +891,8 @@ body.is-resizing-detail { user-select: none; cursor: ns-resize; }
 #grid-head[data-tab="bandwidth"]  { --grid-accent:#ea580c; }
 
 
-/* Vague 4+ : largeurs figees (anti-saut des colonnes pendant le crawl) */
-.grid th:first-child, .grid td:first-child { width: 36%; }
+/* Vague 4+ : largeurs figees (anti-saut des colonnes pendant le crawl). La
+   première colonne prend 30 % (voir « En-têtes de colonnes », plus bas). */
 .grid th.num, .grid td.num { width: 80px; }
 
 /* #E : champ "Dossier des projets" pousse à droite dans la barre de réglages. */
@@ -963,6 +966,14 @@ body.is-resizing-detail { user-select: none; cursor: ns-resize; }
 .net-info { flex: 1000 1 31px; max-width: max-content; min-width: 0; overflow: hidden; }
 .net-dot { flex: 0 0 auto; }
 #net-info-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* Avec une liste importée, le champ d'adresse ne sert plus (la liste prime sur
+   lui) : il descend à 120 px au lieu de 200, et le bloc IP, servi en premier,
+   garde son adresse entière à 1100 px, la largeur d'ouverture de la fenêtre
+   (sans liste, rien ne change). */
+.topbar-main:has(#import-badge:not([hidden])) .url-input { flex-basis: 120px; min-width: 120px; }
+/* Une adresse plus longue que le champ finit par « … » (champ non sélectionné)
+   au lieu d'être coupée net (« https://a.exa » avec une liste importée). */
+.url-input { text-overflow: ellipsis; }
 /* « Réglages » et le sélecteur de langue passent ENSEMBLE à la ligne. Même écart
    que la barre (8 px) : sur une seule ligne, rien ne bouge. */
 .topbar-group { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
@@ -994,42 +1005,88 @@ body.is-resizing-detail { user-select: none; cursor: ns-resize; }
   flex: 0 1 auto; min-width: 0; margin-left: auto;
 }
 
-/* En-têtes de colonnes (écrits par main.js) : hors français, un libellé trop
-   long pour sa colonne finit par « … » au lieu d'être coupé net. En français,
-   l'affichage d'aujourd'hui est gardé tel quel (règle du chantier). */
-.grid thead th:not(:lang(fr)) { overflow: hidden; text-overflow: ellipsis; padding-left: 7px; }
-/* … et la flèche de tri, qui suivait le texte, serait alors rognée avec lui. Hors
-   français, elle se loge dans la marge droite qui existe déjà (8 px), sans son
-   espace de tête, contre le bord de la cellule (le <th> est en position:
-   relative) : le libellé garde toute sa place, trié ou non, aucune lettre ne
-   passe sous la flèche et la flèche n'a pas besoin de fond. Le pixel repris à
-   gauche (7 px au lieu de 8) fait tenir « Outlinks » (44 px) dans une colonne
-   étroite. Le français garde sa flèche après le texte. */
-.grid thead th:not(:lang(fr)).sort-asc::after { content: "\25B2"; }
-.grid thead th:not(:lang(fr)).sort-desc::after { content: "\25BC"; }
-.grid thead th:not(:lang(fr)).sort-asc::after,
-.grid thead th:not(:lang(fr)).sort-desc::after { position: absolute; right: 0; top: 50%; transform: translateY(-50%); }
-/* Colonnes étroites (Status, Speed, Outlinks…) : hors français, les libellés sont
-   plus longs et Windows les dessine un peu plus larges que le banc d'essai
-   (« Outlinks » : 45,2 px dans la vraie fenêtre). La première colonne (l'adresse)
-   y cède 6 % de la largeur, partagés entre les autres : 30 % au lieu de 36 %, soit
+/* En-têtes de colonnes (écrits par main.js), DANS TOUTES LES LANGUES, français
+   compris : un libellé trop long pour sa colonne finit par « … » au lieu d'être
+   coupé net ; le libellé complet est dans l'infobulle de l'en-tête. */
+.grid thead th { overflow: hidden; text-overflow: ellipsis; padding-left: 7px; }
+/* … et la flèche de tri, qui suivait le texte, serait alors rognée avec lui. Elle
+   se loge dans la marge droite qui existe déjà (8 px), sans son espace de tête,
+   contre le bord de la cellule (le <th> est en position: relative) : le libellé
+   garde toute sa place, trié ou non, aucune lettre ne passe sous la flèche et la
+   flèche n'a pas besoin de fond. Le pixel repris à gauche (7 px au lieu de 8) fait
+   tenir « Outlinks » (44 px) dans une colonne étroite. */
+.grid thead th.sort-asc::after { content: "\25B2"; }
+.grid thead th.sort-desc::after { content: "\25BC"; }
+.grid thead th.sort-asc::after,
+.grid thead th.sort-desc::after { position: absolute; right: 0; top: 50%; transform: translateY(-50%); }
+/* Colonnes étroites (Code, Vitesse, Outlinks…) : la première colonne (l'adresse)
+   cède 6 % de la largeur, partagés entre les autres : 30 % au lieu de 36 %, soit
    au moins 64 px par colonne étroite à 1100 px avec la barre de défilement. Une
-   largeur réglée à la souris (style posé par main.js) prime toujours. Le français
-   garde ses 36 %. */
-.grid th:first-child:not(:lang(fr)),
-.grid td:first-child:not(:lang(fr)) { width: 30%; }
+   largeur réglée à la souris (style posé par main.js) prime toujours. */
+.grid th:first-child,
+.grid td:first-child { width: 30%; }
+
+/* Pastilles des colonnes étroites (code HTTP, vitesse, cache, état) : dans une
+   colonne plus étroite qu'elle, la pastille rétrécit avec sa cellule et finit
+   par « … » au lieu d'être rognée net (valeur complète dans l'infobulle de la
+   cellule) ; sa largeur minimale ne dépasse jamais la place. Avec un overflow
+   autre que visible, la ligne de base d'un inline-block devient son bord
+   inférieur : vertical-align: top la garde exactement où elle était (mesuré :
+   3 px sous le haut de la cellule, comme avant). Grille seulement : les mêmes
+   pastilles ailleurs (panneau de détail) ne changent pas. */
+.grid tbody td .http-code,
+.grid tbody td .speed-pill,
+.grid tbody td .cache-pill,
+.grid tbody td .state-pill {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: top;
+}
+.grid tbody td .http-code  { min-width: min(30px, 100%); }
+.grid tbody td .speed-pill { min-width: min(42px, 100%); }
+.grid tbody td .cache-pill { min-width: min(46px, 100%); }
+/* Barre de poids (Bande passante) : 90 px, moins si la colonne est plus étroite. */
+.grid tbody td .wbar { width: 100%; max-width: 90px; }
+
+/* Onglet Problèmes : la première colonne est la sévérité, pas l'adresse. La
+   sévérité (une pastille) et la catégorie (un ou deux mots) ont une largeur
+   fixe qui les contient dans les douze langues (125 px au plus au banc,
+   « Предупреждение », « ディスクリプション » : 135 px, la marge couvre le rendu
+   un peu plus large de la vraie fenêtre, +2,7 % mesurés sur « Outlinks ») ; l'adresse prend
+   25 % ; le message, ce qu'on lit, prend le reste : à 1100 px, le message
+   « en-tête de sécurité manquant » tient en entier, nom de l'en-tête compris,
+   dans les douze langues. Une largeur réglée à la souris prime toujours. */
+#grid-head[data-tab="issues"] th:nth-child(1),
+#grid-head[data-tab="issues"] th:nth-child(2) { width: 135px; }
+#grid-head[data-tab="issues"] th:nth-child(3) { width: 25%; }
+
+/* Fenêtre étroite (largeur minimale 640 px) : la grille ne descend jamais sous
+   820 px ; en dessous, elle DÉFILE horizontalement (.gridwrap, overflow: auto ;
+   l'en-tête, dans le même tableau, défile avec le corps ; la synthèse et la
+   barre d'outils ne bougent pas) au lieu d'écraser ses colonnes. 820 px : la
+   plus petite largeur mesurée où, en fr, en, de, ru, ja, aucun en-tête n'est
+   coupé, les colonnes étroites gardent 48 px de texte (la place pour laquelle
+   leurs libellés courts sont écrits) et l'onglet Problèmes montre le nom entier
+   de l'en-tête de sécurité ; encore sous la largeur de la grille à l'ouverture
+   (1100 px : 850 px au banc, ≈ 848 dans WebView2), où rien ne défile. */
+.grid { min-width: 820px; }
+/* Le bandeau d'information (near-duplicates) reste en vue quand la grille défile
+   à l'horizontale. */
+.grid-banner { left: 0; }
 
 /* Champ « Pages max » verrouillé (« ∞ (max 200 000) », écrit par main.js) :
-   hors français, « max » se traduit par un mot plus long (« макс. », « maks. »)
-   et le nombre peut prendre un autre séparateur : 140 px au lieu de 118. */
-.setting input.is-locked:not(:lang(fr)) { width: 140px; }
+   « max » se traduit parfois par un mot plus long (« макс. », « maks. ») et le
+   nombre peut prendre un autre séparateur : 140 px (118 px avant, et le texte
+   français y était déjà coupé d'un pixel). */
+.setting input.is-locked { width: 140px; }
 
 /* Japonais : l'écriture n'a pas d'espaces, et le navigateur coupe alors une
    ligne n'importe où, y compris au milieu d'un mot (« 保存済 / み »). Avec
    « auto-phrase », il ne coupe qu'entre deux groupes de sens. Posé sur la
-   racine : la propriété s'hérite. Les valeurs du panneau Infos ont leur propre
-   règle (elles coupent n'importe où, pour les longues adresses) : en japonais
-   elles suivent aussi les groupes de sens, et ne coupent un long mot latin
-   (adresse, empreinte) qu'en dernier recours. */
+   racine : la propriété s'hérite. Les valeurs du panneau Infos passent à la
+   ligne aux espaces et ne coupent un long mot latin (adresse, empreinte) qu'en
+   dernier recours : en japonais elles suivent aussi les groupes de sens. */
 html:lang(ja) { word-break: auto-phrase; }
 html:lang(ja) .kv-val { word-break: auto-phrase; overflow-wrap: anywhere; }

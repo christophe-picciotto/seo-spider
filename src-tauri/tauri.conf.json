@@ -12,7 +12,8 @@
       {
         "title": "SEO Spider",
         "width": 1100,
-        "height": 800
+        "height": 800,
+        "minWidth": 640
       }
     ]
   },

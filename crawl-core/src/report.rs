@@ -383,8 +383,13 @@ pub struct CrawlProgress {
     pub active_workers: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Résumé d'un crawl : la charge utile de `crawl:done`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CrawlSummary {
+    /// TOUJOURS VIDE depuis le 14/11/2026 : chaque page est remise une seule
+    /// fois à l'interface, par `crawl:page`, et le moteur ne la garde pas (cf.
+    /// `tally`). Le champ reste pour que `crawl:done` garde la même forme
+    /// (`"pages": []`) ; l'interface n'en lit que `sitemap_urls`.
     pub pages: Vec<PageReport>,
     pub total_bytes: u64,
     pub total_requests: u32,
@@ -392,6 +397,31 @@ pub struct CrawlSummary {
     pub tech_detected: Vec<String>,
     #[serde(default)]
     pub sitemap_urls: Vec<String>,
+}
+
+impl CrawlSummary {
+    /// Cumule les totaux d'une page (octets, requêtes, requêtes dynamiques,
+    /// technos) SANS garder la page.
+    ///
+    /// Le moteur gardait autrefois chaque page en entier dans `pages`, pendant
+    /// tout le crawl et après (l'état reste en mémoire pour une reprise), puis la
+    /// renvoyait en bloc dans `crawl:done` — que l'interface ignorait : elle
+    /// avait déjà reçu chaque page par `crawl:page`. Pour un crawl de 415 Mo :
+    /// 722 Mo gardés, 536 Mo de clone en fin de crawl et un script de 812 Mo à
+    /// faire exécuter par la fenêtre ; au-delà de ~46 000 pages, ce script
+    /// dépassait la longueur maximale d'une chaîne JavaScript (V8 : 536 870 888
+    /// caractères), que la fenêtre ne peut pas exécuter. Mesures :
+    /// `tests/memoire_fin_de_crawl.rs`.
+    pub fn tally(&mut self, report: &PageReport) {
+        self.total_bytes = self.total_bytes.saturating_add(report.total_bytes);
+        self.total_requests = self.total_requests.saturating_add(report.request_count);
+        self.total_dynamic_requests = self.total_dynamic_requests.saturating_add(report.dynamic_requests);
+        for t in &report.tech {
+            if !self.tech_detected.iter().any(|x| x == t) {
+                self.tech_detected.push(t.clone());
+            }
+        }
+    }
 }
 
 #[cfg(test)]

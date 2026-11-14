@@ -46,6 +46,116 @@ pub struct CrawlState {
     /// si l'état a été vide via `clear_crawl`. Mutable derriere un `Mutex` car
     /// l'objet manage par Tauri est, lui, immuable.
     pub inner: Mutex<Option<Arc<SharedState>>>,
+    /// Crawls dont la tâche tourne encore (workers pas tous sortis, `crawl:done`
+    /// pas encore émis) : la fermeture différée de la fenêtre les attend.
+    pub running: Arc<std::sync::atomic::AtomicUsize>,
+    /// Pages remises à la fenêtre (`crawl:page`) depuis le lancement : avec le
+    /// compte de celles qu'elle a lues, elle sait combien il lui en reste en
+    /// file pendant une fermeture.
+    pub pages_emitted: Arc<std::sync::atomic::AtomicU64>,
+}
+
+/// La fermeture de la fenêtre, différée le temps d'enregistrer (main.rs) :
+/// demandée ? la fenêtre a-t-elle répondu qu'elle n'a plus rien à enregistrer ?
+/// et le nombre d'échecs d'enregistrement au moment de la demande. Une seconde
+/// demande ferme tout de suite.
+#[derive(Default)]
+pub struct ClosingState {
+    pub requested: std::sync::atomic::AtomicBool,
+    pub ready: std::sync::atomic::AtomicBool,
+    /// La fermeture précédente a été annulée, et la fenêtre a promis que la
+    /// suivante fermerait (« … la fermera SANS enregistrer le crawl. », « Vous
+    /// pouvez fermer de nouveau la fenêtre. ») : un échec d'enregistrement pendant
+    /// celle-ci ne la retient plus (`close_ready` avec `unsaved`).
+    pub unsaved: std::sync::atomic::AtomicBool,
+    /// La fenêtre a reçu l'annonce de la fermeture (`close_ack`).
+    pub acked: std::sync::atomic::AtomicBool,
+    /// Ses signes de vie (`alive`, au plus un par seconde pendant qu'elle lit
+    /// des pages ; `close_ack`, `close_ready`) : compteur.
+    pub life: std::sync::atomic::AtomicU64,
+    pub failures_at: std::sync::atomic::AtomicU64,
+    /// Texte ajouté au titre de la fenêtre dès la demande de fermeture, dans la
+    /// langue de l'interface (`closing_title`) : SEUL signe visible tant que la
+    /// fenêtre lit encore des pages en file, avant d'afficher son propre message.
+    pub title_text: std::sync::Mutex<String>,
+    /// Le titre d'avant, à remettre si la fermeture est annulée.
+    pub title_before: std::sync::Mutex<Option<String>>,
+}
+
+impl ClosingState {
+    /// Fermeture annulée (un enregistrement a échoué) : la prochaine demande
+    /// repartira de zéro, et la fenêtre retrouve son titre.
+    pub fn cancel(&self, window: &tauri::Window) {
+        self.ready.store(false, std::sync::atomic::Ordering::SeqCst);
+        self.requested.store(false, std::sync::atomic::Ordering::SeqCst);
+        if let Some(t) = self.title_before.lock().unwrap().take() {
+            let _ = window.set_title(&t);
+        }
+    }
+}
+
+/// Le texte, traduit, que la fenêtre veut voir ajouter à son titre pendant une
+/// fermeture différée (envoyé au démarrage et à chaque changement de langue).
+#[tauri::command]
+pub fn closing_title(closing: State<'_, ClosingState>, text: String) {
+    *closing.title_text.lock().unwrap() = text;
+}
+
+/// Signe de vie de la fenêtre pendant qu'elle lit des pages (au plus un par
+/// seconde) : même avec des milliers de pages en file, la fermeture différée
+/// sait qu'elle est vivante et l'attend.
+#[tauri::command]
+pub fn alive(closing: State<'_, ClosingState>, crawl: State<'_, CrawlState>) -> AliveReply {
+    closing.life.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    AliveReply {
+        closing: closing.requested.load(std::sync::atomic::Ordering::SeqCst),
+        emitted: crawl.pages_emitted.load(std::sync::atomic::Ordering::SeqCst),
+    }
+}
+
+/// Réponse au signe de vie : une fermeture est-elle demandée (la fenêtre cesse
+/// alors ses rendus et ne fait plus que lire ses pages, enregistrer, fermer) ?
+/// et combien de pages le moteur lui a remises en tout (pour dire combien il lui
+/// en reste à lire).
+#[derive(serde::Serialize)]
+pub struct AliveReply {
+    closing: bool,
+    emitted: u64,
+}
+
+/// La fenêtre a reçu l'annonce de la fermeture (donc lu tout ce qui la
+/// précédait : pages en file, `crawl:done`).
+#[tauri::command]
+pub fn close_ack(closing: State<'_, ClosingState>) {
+    closing.life.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    closing.acked.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Réponse de la fenêtre à `app:close_check` : elle n'a plus rien à enregistrer.
+/// `unsaved` : elle tient la promesse de l'annulation précédente — un échec
+/// d'enregistrement pendant cette fermeture ne la retient pas (main.rs).
+#[tauri::command]
+pub fn close_ready(closing: State<'_, ClosingState>, unsaved: Option<bool>) {
+    closing.life.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    closing.unsaved.store(unsaved.unwrap_or(false), std::sync::atomic::Ordering::SeqCst);
+    closing.acked.store(true, std::sync::atomic::Ordering::SeqCst);
+    closing.ready.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// La fenêtre renonce à la fermeture différée (un enregistrement a échoué :
+/// son message doit rester à l'écran) ; la prochaine demande repartira de zéro.
+#[tauri::command]
+pub fn close_cancel(window: tauri::Window, closing: State<'_, ClosingState>) {
+    closing.cancel(&window);
+}
+
+/// Décompte d'un crawl en cours, rendu à la fin de sa tâche, même si elle panique.
+struct RunningGuard(Arc<std::sync::atomic::AtomicUsize>);
+
+impl Drop for RunningGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
 }
 
 /// Demarre un nouveau crawl, ou REPREND un crawl mis en pause.
@@ -62,8 +172,14 @@ pub struct CrawlState {
 pub async fn start_crawl(
     app: AppHandle,
     state: State<'_, CrawlState>,
+    closing: State<'_, ClosingState>,
     config: CrawlConfig,
 ) -> Result<(), String> {
+    // La fenêtre se ferme (elle enregistre d'abord ce qu'elle a) : aucun crawl
+    // ne démarre plus, sinon la fermeture l'attendrait.
+    if closing.requested.load(std::sync::atomic::Ordering::SeqCst) {
+        return Err("fermeture de la fenêtre en cours".to_string());
+    }
     // Seed nettoyee de son fragment (`#...`) AVANT tout : `SharedState::new` fait
     // le même nettoyage, donc sans ca la comparaison de reprise ligne ~73
     // (`existing.seed_url == config.seed_url`) opposerait une seed normalisée a
@@ -108,7 +224,13 @@ pub async fn start_crawl(
     let app_page = app.clone();
     let app_done = app.clone();
 
+    // Compté jusqu'à la fin de la tâche (APRÈS l'émission de `crawl:done`).
+    state.running.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let en_cours = RunningGuard(Arc::clone(&state.running));
+    let emitted = Arc::clone(&state.pages_emitted);
+
     tauri::async_runtime::spawn(async move {
+        let _en_cours = en_cours;
         // Sitemap recupere EN PARALLELE du crawl (et non avant lui).
         //
         // Il etait `await` ici, donc le crawl ne demarrait qu'une fois le
@@ -135,8 +257,9 @@ pub async fn start_crawl(
             let _ = app_progress.emit("crawl:progress", progress);
         };
 
-        // Closure page -> événement "crawl:page".
+        // Closure page -> événement "crawl:page" (compté : cf. CrawlState::pages_emitted).
         let on_page = move |page: PageReport| {
+            emitted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let _ = app_page.emit("crawl:page", page);
         };
 
@@ -410,24 +533,271 @@ fn sanitize_id(id: &str) -> String {
     s
 }
 
-/// Enregistre un crawl complet (JSON) sous `crawls/<id>.json`. Renvoie le chemin du fichier.
-#[tauri::command]
-pub fn save_crawl(app: AppHandle, id: String, json: String, dir: Option<String>) -> Result<String, String> {
-    let d = crawls_dir(&app, &dir)?;
-    std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
-    let path = d.join(format!("{}.json", sanitize_id(&id)));
-    std::fs::write(&path, json).map_err(|e| e.to_string())?;
-    Ok(path.to_string_lossy().to_string())
+// -----------------------------------------------------------------------------
+// Enregistrer un crawl : EN MORCEAUX (cf. `crawl_core::savedcrawl::SaveSessions`)
+// -----------------------------------------------------------------------------
+//
+// Jusqu'au 14/11/2026, `save_crawl(id, json, dir)` recevait la chaîne du crawl
+// ENTIER et l'écrivait d'un coup, sur le fil principal (commande synchrone :
+// la fenêtre figeait). Au-delà de ~42 000 pages, la fenêtre ne pouvait même pas
+// fabriquer cette chaîne (longueur maximale d'une chaîne JavaScript) : rien
+// n'était enregistré. Désormais (`saveCurrentCrawl` dans main.js) :
+//   save_crawl_begin(id, dir)            → numéro de l'enregistrement
+//   save_crawl_part(<octets>)            × n, un morceau ≤ 4 194 304 caractères,
+//                                        numéro dans l'en-tête `Seo-Spider-Save`,
+//                                        position dans `Seo-Spider-Offset`
+//   save_crawl_end(save, total)          → chemin du fichier (renommage final) ;
+//                                        en échec { error, kept } (cf. SaveFailure)
+//   save_crawl_abort(save)               en cas d'échec côté fenêtre
+// Le format du fichier ne change pas : la fenêtre fabrique le même texte que
+// `JSON.stringify` du crawl entier, page par page.
+
+/// En-tête HTTP qui porte le numéro de l'enregistrement dans `save_crawl_part`
+/// (le corps, lui, est le morceau en octets : aucun échappement JSON).
+const SAVE_HEADER: &str = "seo-spider-save";
+
+/// En-tête HTTP qui porte la POSITION du morceau (octets déjà envoyés par la
+/// fenêtre) : un morceau perdu ou rejoué ne peut pas corrompre le fichier.
+const SAVE_OFFSET_HEADER: &str = "seo-spider-offset";
+
+/// L'échec de `save_crawl_end`, tel que la fenêtre le reçoit : la raison et,
+/// si le crawl complet a pu être gardé sur le disque malgré l'échec (fichier
+/// du site tenu par un autre programme), le fichier où il se trouve.
+#[derive(Debug, serde::Serialize)]
+pub struct SaveFailure {
+    error: String,
+    kept: Option<String>,
 }
 
-/// Charge un crawl enregistré par son identifiant (URL de départ). Renvoie "" si absent.
+impl From<crawl_core::savedcrawl::SaveError> for SaveFailure {
+    fn from(e: crawl_core::savedcrawl::SaveError) -> Self {
+        SaveFailure { error: e.reason, kept: e.kept.map(|p| p.to_string_lossy().to_string()) }
+    }
+}
+
+/// Commence l'enregistrement du crawl de `id` sous `crawls/<id>.json` (ou le
+/// dossier choisi) : fichier temporaire à côté, l'ancien fichier reste intact
+/// jusqu'à `save_crawl_end`. Rend le numéro de l'enregistrement.
 #[tauri::command]
-pub fn load_crawl(app: AppHandle, id: String, dir: Option<String>) -> Result<String, String> {
-    let d = crawls_dir(&app, &dir)?;
-    let path = d.join(format!("{}.json", sanitize_id(&id)));
-    match std::fs::read_to_string(&path) {
-        Ok(s) => Ok(s),
-        Err(_) => Ok(String::new()),
+pub async fn save_crawl_begin(
+    app: AppHandle,
+    saves: State<'_, crawl_core::savedcrawl::SaveSessions>,
+    id: String,
+    dir: Option<String>,
+) -> Result<u32, String> {
+    let path = crawls_dir(&app, &dir)?.join(format!("{}.json", sanitize_id(&id)));
+    let saves = saves.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || saves.begin(&path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Le morceau, en octets. Par le protocole `ipc://` (le chemin normal), Tauri
+/// remet le Uint8Array tel quel (`InvokeBody::Raw`). Si ce protocole a échoué
+/// une seule fois, Tauri fait passer TOUT l'IPC de la fenêtre par `postMessage`
+/// jusqu'à la fin de la session, et le Uint8Array y arrive en tableau de nombres
+/// (`InvokeBody::Json`) : accepté aussi, l'enregistrement marche par les deux.
+fn save_part_bytes(body: &tauri::ipc::InvokeBody) -> Result<Vec<u8>, String> {
+    match body {
+        tauri::ipc::InvokeBody::Raw(bytes) => Ok(bytes.clone()),
+        tauri::ipc::InvokeBody::Json(serde_json::Value::Array(values)) => values
+            .iter()
+            .map(|v| v.as_u64().and_then(|n| u8::try_from(n).ok()))
+            .collect::<Option<Vec<u8>>>()
+            .ok_or_else(|| "morceau illisible".to_string()),
+        tauri::ipc::InvokeBody::Json(_) => Err("morceau attendu en octets".to_string()),
+    }
+}
+
+/// Un nombre porté par un en-tête de `save_crawl_part`.
+fn header_number<T: std::str::FromStr>(request: &tauri::ipc::Request<'_>, name: &str) -> Option<T> {
+    request.headers().get(name).and_then(|v| v.to_str().ok()).and_then(|v| v.trim().parse().ok())
+}
+
+/// Ajoute un morceau à un enregistrement : le CORPS de l'appel, en octets
+/// (`invoke("save_crawl_part", Uint8Array, { headers: { "Seo-Spider-Save": n,
+/// "Seo-Spider-Offset": position } })`), écrit hors du fil principal.
+#[tauri::command]
+pub async fn save_crawl_part(
+    saves: State<'_, crawl_core::savedcrawl::SaveSessions>,
+    request: tauri::ipc::Request<'_>,
+) -> Result<(), String> {
+    let save: u32 = header_number(&request, SAVE_HEADER).ok_or_else(|| "numéro d'enregistrement absent".to_string())?;
+    let offset: u64 = header_number(&request, SAVE_OFFSET_HEADER).ok_or_else(|| "position du morceau absente".to_string())?;
+    let bytes = save_part_bytes(request.body())?;
+    let saves = saves.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || saves.write(save, offset, bytes))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Termine un enregistrement : `total` = octets envoyés par la fenêtre
+/// (contrôlés), écriture forcée sur le disque, puis le temporaire est RENOMMÉ
+/// par-dessus l'ancien fichier. Rend le chemin du fichier ; en échec, la raison
+/// et, s'il a pu être gardé, le fichier où se trouve le crawl.
+#[tauri::command]
+pub async fn save_crawl_end(
+    saves: State<'_, crawl_core::savedcrawl::SaveSessions>,
+    save: u32,
+    total: u64,
+) -> Result<String, SaveFailure> {
+    let saves = saves.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || saves.end(save, total))
+        .await
+        .map_err(|e| SaveFailure { error: e.to_string(), kept: None })?
+        .map(|p| p.to_string_lossy().to_string())
+        .map_err(SaveFailure::from)
+}
+
+/// Abandonne un enregistrement (erreur côté fenêtre) : temporaire retiré,
+/// ancien fichier intact.
+#[tauri::command]
+pub async fn save_crawl_abort(saves: State<'_, crawl_core::savedcrawl::SaveSessions>, save: u32) -> Result<(), String> {
+    let saves = saves.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || saves.abort(save))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// -----------------------------------------------------------------------------
+// Relire un crawl enregistré : EN FLUX (cf. `crawl_core::savedcrawl`)
+// -----------------------------------------------------------------------------
+//
+// Jusqu'au 14/11/2026, `load_crawl` lisait le fichier en entier et le rendait
+// comme une chaîne : Tauri la ré-échappait, la fenêtre la décodait puis la
+// relisait. Pour le fichier de 415 Mo de Chris, la réponse faisait 460 millions
+// de caractères (86 % de la longueur maximale d'une chaîne JavaScript) : au-delà
+// de ~480 Mo, un crawl enregistré ne pouvait plus s'ouvrir du tout. Et
+// l'interface l'appelait à chaque démarrage d'une adresse déjà crawlée, juste
+// pour proposer « Nouveau crawl / Revoir l'enregistrement ».
+//
+// Désormais :
+//   - `saved_crawl_info` : aperçu (adresse, date, NOMBRE de pages) pour ce
+//     dialogue, sans charger aucune page ;
+//   - `saved_crawl_open` / `pick_open_project` ouvrent une LECTURE ; la fenêtre
+//     en tire les pages par `saved_crawl_next`, un message de ~4 Mo à la fois
+//     (`{"pages":[…]}`), jusqu'au message de fin (`{"done":true,…}`) ;
+//   - le lecteur n'a jamais plus d'un message d'avance : le moteur ne tient pas
+//     le fichier, et la fenêtre ne reçoit jamais plus de ~4 Mo d'un coup.
+
+/// Ce qu'une lecture remet à la fenêtre : un message de pages, ou le message de
+/// fin (`savedcrawl::SavedCrawlEnd`), déjà en JSON.
+enum SavedChunk {
+    Pages(String),
+    End(String),
+}
+
+struct SavedRead {
+    id: u32,
+    rx: tokio::sync::mpsc::Receiver<Result<SavedChunk, String>>,
+}
+
+/// La lecture en cours (UNE à la fois : en ouvrir une autre abandonne celle-ci,
+/// dont le lecteur s'arrête dès qu'il veut remettre un message).
+#[derive(Default)]
+pub struct SavedCrawlReads {
+    slot: std::sync::Mutex<Option<SavedRead>>,
+    next_id: std::sync::atomic::AtomicU32,
+}
+
+/// Lance la lecture en flux de `file` dans un thread à part et l'enregistre
+/// comme lecture en cours. Rend son numéro.
+fn start_saved_read(reads: &SavedCrawlReads, file: std::fs::File) -> u32 {
+    // Capacité 1 : le lecteur a au plus un message d'avance sur la fenêtre.
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<SavedChunk, String>>(1);
+    std::thread::spawn(move || {
+        let reader = std::io::BufReader::with_capacity(1 << 20, file);
+        let end = crawl_core::savedcrawl::read_pages(reader, crawl_core::savedcrawl::MESSAGE_BYTES, |m| {
+            tx.blocking_send(Ok(SavedChunk::Pages(m))).is_ok()
+        });
+        // Fenêtre partie (lecture abandonnée) : l'envoi échoue, rien à faire.
+        let _ = tx.blocking_send(match end {
+            Ok(end) => serde_json::to_string(&end).map(SavedChunk::End).map_err(|e| e.to_string()),
+            Err(e) => Err(e),
+        });
+    });
+    let id = reads.next_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+    *reads.slot.lock().unwrap() = Some(SavedRead { id, rx });
+    id
+}
+
+/// Message suivant de la lecture `read` : `Ok((json, fin))`.
+async fn next_saved_chunk(reads: &SavedCrawlReads, read: u32) -> Result<(String, bool), String> {
+    // Le récepteur est SORTI de l'emplacement pendant l'attente : une autre
+    // lecture peut s'ouvrir entre-temps sans attendre celle-ci.
+    let mut current = {
+        let mut slot = reads.slot.lock().unwrap();
+        match slot.take() {
+            Some(r) if r.id == read => r,
+            other => {
+                *slot = other;
+                return Err("lecture inconnue ou abandonnée".to_string());
+            }
+        }
+    };
+    match current.rx.recv().await {
+        Some(Ok(SavedChunk::Pages(json))) => {
+            let mut slot = reads.slot.lock().unwrap();
+            // Une lecture plus récente a pris la place : celle-ci est abandonnée
+            // (son récepteur, libéré ici, arrête son lecteur).
+            if slot.is_none() {
+                *slot = Some(current);
+            }
+            Ok((json, false))
+        }
+        Some(Ok(SavedChunk::End(json))) => Ok((json, true)),
+        Some(Err(e)) => Err(e),
+        None => Err(crawl_core::savedcrawl::INTERRUPTED.to_string()),
+    }
+}
+
+/// Aperçu d'un crawl enregistré, pour le dialogue « Nouveau crawl / Revoir
+/// l'enregistrement » : `{seed_url, date, count}` (nombre de pages), ou `None`
+/// si aucun enregistrement n'est lisible pour cette adresse — comme avant, un
+/// fichier absent ou illisible vaut « pas d'enregistrement ».
+#[tauri::command]
+pub async fn saved_crawl_info(
+    app: AppHandle,
+    id: String,
+    dir: Option<String>,
+) -> Result<Option<crawl_core::savedcrawl::SavedCrawlInfo>, String> {
+    let path = crawls_dir(&app, &dir)?.join(format!("{}.json", sanitize_id(&id)));
+    tauri::async_runtime::spawn_blocking(move || {
+        let file = std::fs::File::open(&path).ok()?;
+        crawl_core::savedcrawl::read_info(std::io::BufReader::with_capacity(1 << 20, file)).ok()
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Ouvre la lecture en flux du crawl enregistré pour `id` ; rend son numéro, ou
+/// `None` s'il n'y a pas d'enregistrement.
+#[tauri::command]
+pub fn saved_crawl_open(
+    app: AppHandle,
+    reads: State<'_, SavedCrawlReads>,
+    id: String,
+    dir: Option<String>,
+) -> Result<Option<u32>, String> {
+    let path = crawls_dir(&app, &dir)?.join(format!("{}.json", sanitize_id(&id)));
+    Ok(std::fs::File::open(&path).ok().map(|file| start_saved_read(&reads, file)))
+}
+
+/// Message suivant d'une lecture : `{"pages":[…]}`, puis `{"done":true,
+/// "seed_url":…,"date":…,"sitemap_urls":…,"count":<nombre de pages>}`. Erreur si le
+/// fichier n'est pas un crawl (la fenêtre jette alors ce qu'elle a reçu).
+/// Rendu tel quel, en JSON : la fenêtre reçoit des objets, sans double lecture.
+#[tauri::command]
+pub async fn saved_crawl_next(reads: State<'_, SavedCrawlReads>, read: u32) -> Result<tauri::ipc::Response, String> {
+    next_saved_chunk(&reads, read).await.map(|(json, _)| tauri::ipc::Response::new(json))
+}
+
+/// Abandonne la lecture `read` (son lecteur s'arrête, le fichier se ferme).
+#[tauri::command]
+pub fn saved_crawl_close(reads: State<'_, SavedCrawlReads>, read: u32) {
+    let mut slot = reads.slot.lock().unwrap();
+    if slot.as_ref().map(|r| r.id) == Some(read) {
+        *slot = None;
     }
 }
 
@@ -514,24 +884,30 @@ fn dialog_label(given: Option<String>, default_fr: &str) -> String {
     }
 }
 
-/// Ouvre un selecteur de FICHIER (.json) et renvoie le CONTENU du projet choisi,
-/// ou None si annule. Le frontend parse ce JSON et l'affiche (consultation).
+/// Ouvre un selecteur de FICHIER (.json) et OUVRE LA LECTURE EN FLUX du projet
+/// choisi (cf. `saved_crawl_next`) : rend son numéro, ou None si l'utilisateur
+/// annule ou si le fichier ne s'ouvre pas (comme avant : rien ne se passe).
+/// Il rendait autrefois le CONTENU du fichier, d'un bloc (cf. `saved_crawl_info`).
 ///
 /// `filter_name` (facultatif, `filterName` côté JS) : libellé du filtre dans la
 /// langue de l'interface (clé `engine.dialog_project`) ; « Projet de crawl » sinon.
 #[tauri::command]
-pub async fn pick_open_project(app: AppHandle, filter_name: Option<String>) -> Result<Option<String>, String> {
+pub async fn pick_open_project(
+    app: AppHandle,
+    reads: State<'_, SavedCrawlReads>,
+    filter_name: Option<String>,
+) -> Result<Option<u32>, String> {
     let (tx, rx) = tokio::sync::oneshot::channel();
     app.dialog()
         .file()
         .add_filter(dialog_label(filter_name, "Projet de crawl"), &["json"])
         .pick_file(move |file| {
-            let content = file
-                .and_then(|f| f.into_path().ok())
-                .and_then(|p| std::fs::read_to_string(p).ok());
-            let _ = tx.send(content);
+            let _ = tx.send(file.and_then(|f| f.into_path().ok()));
         });
-    rx.await.map_err(|e| e.to_string())
+    let path = rx.await.map_err(|e| e.to_string())?;
+    Ok(path
+        .and_then(|p| std::fs::File::open(p).ok())
+        .map(|file| start_saved_read(&reads, file)))
 }
 
 /// Ouvre un selecteur de fichier (.txt / .csv) et renvoie la LISTE DES URLs
@@ -650,6 +1026,113 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    // --- Point 9 (14/11/2026) : relire un crawl enregistré en flux -----------
+
+    use super::{next_saved_chunk, start_saved_read, SavedCrawlReads};
+
+    /// Un crawl enregistré de `n` pages, tel que l'interface l'écrit.
+    fn crawl_de_test(n: usize) -> String {
+        let pages: Vec<String> = (0..n)
+            .map(|i| format!(r#"{{"url":"https://a.fr/{i}/","status":200,"seo":{{"title":"Page « {i} » — été"}},"outlinks":[{{"target":"https://a.fr/","anchor":"{}"}}]}}"#, "x".repeat(i % 50)))
+            .collect();
+        format!(
+            r#"{{"seed_url":"https://a.fr/","date":"2026-11-14T08:00:00.000Z","pages":[{}],"sitemap_urls":["https://a.fr/"]}}"#,
+            pages.join(",")
+        )
+    }
+
+    /// Tire tous les messages d'une lecture, comme la fenêtre.
+    async fn tout_lire(reads: &SavedCrawlReads, id: u32) -> Result<(Vec<serde_json::Value>, serde_json::Value), String> {
+        let mut pages = Vec::new();
+        loop {
+            let (json, fin) = next_saved_chunk(reads, id).await?;
+            let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+            if fin {
+                return Ok((pages, v));
+            }
+            pages.extend(v["pages"].as_array().unwrap().iter().cloned());
+        }
+    }
+
+    /// La fenêtre reçoit, message par message, EXACTEMENT les pages du fichier
+    /// (mêmes valeurs que `JSON.parse` du fichier entier), puis le reste.
+    #[tokio::test]
+    async fn lecture_en_flux_rend_les_pages_du_fichier() {
+        let dir = dossier_de_test("lecture-en-flux");
+        let chemin = dir.join("crawl.json");
+        // ~25 000 pages de ~180 octets : plusieurs messages de 4 Mo.
+        let texte = crawl_de_test(25_000);
+        std::fs::write(&chemin, &texte).unwrap();
+        let reads = SavedCrawlReads::default();
+        let id = start_saved_read(&reads, std::fs::File::open(&chemin).unwrap());
+        let (pages, fin) = tout_lire(&reads, id).await.unwrap();
+        let attendu: serde_json::Value = serde_json::from_str(&texte).unwrap();
+        assert_eq!(serde_json::Value::Array(pages), attendu["pages"]);
+        assert_eq!(fin["done"], true);
+        assert_eq!(fin["count"], 25_000);
+        assert_eq!(fin["seed_url"], attendu["seed_url"]);
+        assert_eq!(fin["date"], attendu["date"]);
+        assert_eq!(fin["sitemap_urls"], attendu["sitemap_urls"]);
+        // Lecture terminée : elle n'est plus connue.
+        assert!(next_saved_chunk(&reads, id).await.is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Un fichier qui n'est pas un crawl : erreur (la fenêtre jette tout).
+    #[tokio::test]
+    async fn lecture_en_flux_d_un_fichier_invalide() {
+        let dir = dossier_de_test("lecture-invalide");
+        let complet = crawl_de_test(30);
+        // Fin du fichier coupée (ses derniers caractères sont en ASCII).
+        let tronque = &complet[..complet.len() - 5];
+        for (nom, texte) in [("tronque", tronque), ("pas-un-crawl", "[1,2,3]"), ("vide", "")] {
+            let chemin = dir.join(format!("{nom}.json"));
+            std::fs::write(&chemin, texte).unwrap();
+            let reads = SavedCrawlReads::default();
+            let id = start_saved_read(&reads, std::fs::File::open(&chemin).unwrap());
+            assert!(tout_lire(&reads, id).await.is_err(), "{nom} accepté");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Ouvrir une lecture en abandonne une autre : l'ancienne n'est plus servie,
+    /// la nouvelle va jusqu'au bout.
+    #[tokio::test]
+    async fn une_nouvelle_lecture_abandonne_la_precedente() {
+        let dir = dossier_de_test("lecture-abandonnee");
+        let chemin = dir.join("crawl.json");
+        std::fs::write(&chemin, crawl_de_test(25_000)).unwrap();
+        let reads = SavedCrawlReads::default();
+        let premiere = start_saved_read(&reads, std::fs::File::open(&chemin).unwrap());
+        let (_, fin) = next_saved_chunk(&reads, premiere).await.unwrap();
+        assert!(!fin);
+        let seconde = start_saved_read(&reads, std::fs::File::open(&chemin).unwrap());
+        assert!(next_saved_chunk(&reads, premiere).await.is_err());
+        let (pages, fin) = tout_lire(&reads, seconde).await.unwrap();
+        assert_eq!(pages.len(), 25_000);
+        assert_eq!(fin["count"], 25_000);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    // --- Point 36 (14/11/2026) : enregistrer un crawl en morceaux -------------
+
+    use super::save_part_bytes;
+
+    /// Un morceau arrive en octets bruts (protocole ipc://) ou, si Tauri est
+    /// passé en repli postMessage, en tableau de nombres : mêmes octets.
+    #[test]
+    fn morceau_d_enregistrement_par_les_deux_chemins_de_tauri() {
+        use tauri::ipc::InvokeBody;
+        let texte = r#"{"seed_url":"https://a.fr/","pages":[{"title":"Été « 2026 » 🕷"}"#;
+        assert_eq!(save_part_bytes(&InvokeBody::Raw(texte.as_bytes().to_vec())).unwrap(), texte.as_bytes());
+        let nombres = serde_json::Value::Array(texte.bytes().map(serde_json::Value::from).collect());
+        assert_eq!(save_part_bytes(&InvokeBody::Json(nombres)).unwrap(), texte.as_bytes());
+        // Ce qui n'est pas un morceau en octets est refusé (rien n'est écrit).
+        assert!(save_part_bytes(&InvokeBody::Json(serde_json::json!([123, 256]))).is_err());
+        assert!(save_part_bytes(&InvokeBody::Json(serde_json::json!([123, -1]))).is_err());
+        assert!(save_part_bytes(&InvokeBody::Json(serde_json::json!({ "json": "{}" }))).is_err());
     }
 
     /// `pagesData` disparaît ; toutes les autres clés ressortent telles quelles.

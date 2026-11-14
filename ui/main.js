@@ -34,6 +34,13 @@
   // Un texte gardé dans l'état (barre d'état, message bref…) est une CLÉ et ses
   // paramètres, jamais la phrase : au changement de langue, il se recalcule.
   // Un paramètre peut être lui-même un message (ex. « 3 site(s) »).
+  //
+  // Mise en forme à l'affichage (donc récrite au changement de langue) :
+  //   - un {n} numérique est un compteur affiché (barre d'état, message bref) :
+  //     séparateur de milliers de la langue ; {count}, qui choisit la forme
+  //     plurielle, reste brut ;
+  //   - une {date} (horodatage ISO, ou « AAAA-MM-JJ ») s'écrit au format de la
+  //     langue (fmtDate).
   function msg(key, params) { return { key: key, params: params || null }; }
   function msgText(m) {
     if (!m) return "";
@@ -44,7 +51,10 @@
       for (var k in m.params) {
         if (!Object.prototype.hasOwnProperty.call(m.params, k)) continue;
         var v = m.params[k];
-        p[k] = (v && typeof v === "object" && v.key) ? msgText(v) : v;
+        if (v && typeof v === "object" && v.key) v = msgText(v);
+        else if (k === "n" && typeof v === "number") v = I18N.fmtNumber(v);
+        else if (k === "date" && typeof v === "string") v = fmtDate(v);
+        p[k] = v;
       }
     }
     return I18N.t(m.key, p);
@@ -62,34 +72,18 @@
     return s;
   }
 
-  // Séparateur décimal de la langue (« , » en français), mémorisé jusqu'au
-  // prochain changement de langue.
-  var decimalSepCache = null;
-  function decimalSep() {
-    if (decimalSepCache === null) decimalSepCache = String(I18N.fmtNumber(1.5)).replace(/[0-9]/g, "") || ".";
-    return decimalSepCache;
-  }
-  // Nombre à `digits` décimales : les chiffres de toFixed, le séparateur de la
-  // langue. Remplace les anciens `toFixed(n).replace(".", ",")` : en
-  // français, le résultat est identique.
-  function fmtDecimal(x, digits) { return x.toFixed(digits).replace(".", decimalSep()); }
-
-  // Nombre à décimales des poids, du débit et du ratio texte/code, au format de
-  // la langue (« 12,3 » en allemand, « 12.3 » en anglais) ; `legacy` = son
-  // écriture d'aujourd'hui (toFixed ou String : POINT décimal).
-  //
-  // PROVISOIRE — EXCEPTION FRANÇAISE, en attente d'une décision : en
-  // français, ces nombres gardent EXACTEMENT leur écriture d'aujourd'hui, point
-  // compris (« 12.3 Ko », « 3.4 » p/s, « 12.3 % »). Pour passer au format de la
-  // langue en français aussi (« 12,3 Ko »), supprimer la ligne marquée.
+  // Nombre à décimales des poids, du débit, du ratio texte/code, des temps
+  // Cloudflare, des secondes et de l'âge d'un cache, au format de la langue,
+  // français compris (« 12,3 » en français et en allemand, « 12.3 » en anglais,
+  // séparateur de milliers compris). Les exports CSV, eux, gardent les nombres
+  // BRUTS (point décimal) : ce sont des données.
   //
   // Formateur mémorisé par langue et par nombre de décimales : appelé avec des
   // options, I18N.fmtNumber construit un Intl.NumberFormat à chaque appel
   // (≈ 10 µs mesurées), et l'onglet Bande passante en demande deux par ligne.
   // Même résultat : Intl.NumberFormat(I18N.lang, options), I18N.fmtNumber en repli.
   var decFmt = { lang: null, map: {} };
-  function fmtDec(x, minDigits, maxDigits, legacy) {
-    if (I18N.lang === "fr") return legacy;   // PROVISOIRE : exception française, à retirer
+  function fmtDec(x, minDigits, maxDigits) {
     var opts = { minimumFractionDigits: minDigits, maximumFractionDigits: maxDigits };
     if (decFmt.lang !== I18N.lang) decFmt = { lang: I18N.lang, map: {} };
     var k = minDigits + ":" + maxDigits;
@@ -99,19 +93,50 @@
     return decFmt.map[k] ? decFmt.map[k].format(x) : I18N.fmtNumber(x, opts);
   }
 
+  // Un nombre et son unité ne se séparent jamais en fin de ligne : les espaces
+  // du texte d'unité (« {n} Ko », « {n} ms », « {n} % ») deviennent des espaces
+  // insécables. Fait ici, une fois, plutôt que dans les douze fichiers de langue.
+  var NBSP = String.fromCharCode(160);
+  function fmtUnit(key, n) { return I18N.t(key, { n: n }).split(" ").join(NBSP); }
+
+  // Date écrite au format de la langue (13/11/2026, 13.11.2026, 2026/11/13… ;
+  // l'anglais du produit est britannique, jour/mois/année). Un horodatage ISO
+  // COMPLET donne son jour LOCAL : un crawl du 14 à 00:30, heure de Paris, est
+  // du 14 (son jour en temps universel serait le 13). Une date seule
+  // « AAAA-MM-JJ » (ancien fichier sans heure) est lue telle quelle, sans
+  // décalage ; un horodatage illisible retombe sur ses dix premiers caractères.
+  var dateFmt = { lang: null, local: null, utc: null };
+  function fmtDate(iso) {
+    var s = String(iso || ""), m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+    if (!m) return s;
+    if (dateFmt.lang !== I18N.lang) {
+      var loc = I18N.lang === "en" ? "en-GB" : I18N.lang;
+      dateFmt = { lang: I18N.lang, local: null, utc: null };
+      try {
+        dateFmt.local = new Intl.DateTimeFormat(loc, { day: "2-digit", month: "2-digit", year: "numeric" });
+        dateFmt.utc = new Intl.DateTimeFormat(loc, { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });
+      } catch (e) { dateFmt.local = dateFmt.utc = null; }
+    }
+    var complet = s.length > 10 ? new Date(s) : null;
+    if (complet && !isNaN(complet.getTime()) && dateFmt.local) return dateFmt.local.format(complet);
+    return dateFmt.utc ? dateFmt.utc.format(new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]))) : m[1] + "-" + m[2] + "-" + m[3];
+  }
+
   // =========================================================================
   // Utilitaires de formatage
   // =========================================================================
-  // Unité de la langue (o/Ko/Mo/Go en français) ; nombre au format de la
-  // langue, sauf en français où il garde son point d'aujourd'hui (cf. fmtDec).
+  // Unité de la langue (o/Ko/Mo/Go en français), nombre au format de la langue.
+  // Jamais plus de trois chiffres avant la virgule : on passe à l'unité suivante
+  // dès que la valeur ARRONDIE atteint 1000 (« 0,98 Mo » et non « 1 003,9 Ko »,
+  // trop large pour la colonne Poids).
   function fmtBytes(bytes) {
-    if (!bytes || bytes < 0) return I18N.t("unit.bytes", { n: 0 });
-    if (bytes < 1024) return I18N.t("unit.bytes", { n: bytes });
-    var x;
-    if (bytes < 1024 * 1024) { x = bytes / 1024; return I18N.t("unit.kb", { n: fmtDec(x, 1, 1, x.toFixed(1)) }); }
-    if (bytes < 1024 * 1024 * 1024) { x = bytes / (1024 * 1024); return I18N.t("unit.mb", { n: fmtDec(x, 2, 2, x.toFixed(2)) }); }
-    x = bytes / (1024 * 1024 * 1024);
-    return I18N.t("unit.gb", { n: fmtDec(x, 2, 2, x.toFixed(2)) });
+    if (!bytes || bytes < 0) return fmtUnit("unit.bytes", 0);
+    if (bytes < 1000) return fmtUnit("unit.bytes", bytes);
+    var kb = bytes / 1024;
+    if (Number(kb.toFixed(1)) < 1000) return fmtUnit("unit.kb", fmtDec(kb, 1, 1));
+    var mb = bytes / (1024 * 1024);
+    if (Number(mb.toFixed(2)) < 1000) return fmtUnit("unit.mb", fmtDec(mb, 2, 2));
+    return fmtUnit("unit.gb", fmtDec(bytes / (1024 * 1024 * 1024), 2, 2));
   }
   // Echappe le HTML (titres/meta peuvent contenir < > & " issus du site).
   function esc(v) {
@@ -201,13 +226,18 @@
   function respMs(p) {
     return p && p.response_time_ms != null ? (p.response_time_ms || 0) : 0;
   }
-  // Formate un temps : "<n> ms" si < 1000 ms, sinon "<x,x> s" (séparateur
-  // décimal de la langue : virgule en français).
+  // Formate un temps : "<n> ms" si < 1000 ms, sinon "<x,x> s" (séparateurs
+  // décimal et de milliers de la langue : virgule en français).
   function fmtSpeed(ms) {
     ms = ms || 0;
-    if (ms < 1000) return I18N.t("unit.ms", { n: ms });
-    return I18N.t("unit.s", { n: fmtDecimal(ms / 1000, 1) });
+    if (ms < 1000) return fmtUnit("unit.ms", ms);
+    return fmtUnit("unit.s", fmtDec(round1(ms / 1000), 1, 1));
   }
+  // Arrondi au dixième, UNE fois, par toFixed (valeur binaire exacte). Le nombre
+  // arrondi est ensuite seulement mis en forme (fmtDec) : Intl, qui arrondit
+  // l'écriture décimale la plus courte, donnerait 24,0 pour 23,95 (86 220 s)
+  // là où l'unité a été choisie sur 23,9 — exactement le défaut du point 3.
+  function round1(x) { return Number(x.toFixed(1)); }
   // Classe de couleur facon "rapidite" : vert <=500 ms, orange <=1500 ms,
   // rouge au-dela. Renvoie "" si pas de mesure (0) pour rester neutre.
   function speedClass(ms) {
@@ -263,10 +293,12 @@
 
   // Ce qu'a fait UNE couche, en trois mots : « a fourni la page » ou
   // « est alle chercher plus loin ». C'est la seule chose qu'on veut savoir
-  // en lisant la liste des couches.
+  // en lisant la liste des couches. EXPIRED a son propre texte : la couche
+  // avait bien une copie, mais périmée (ce n'est pas « n'avait pas la page »).
   function layerRole(st) {
     if (st === "HIT" || st === "EDGE" || st === "STALE" || st === "UPDATING") return I18N.t("cachetip.role_served");
-    if (st === "MISS" || st === "EXPIRED") return I18N.t("cachetip.role_missing");
+    if (st === "MISS") return I18N.t("cachetip.role_missing");
+    if (st === "EXPIRED") return I18N.t("cachetip.role_expired");
     if (st === "REVALIDATED") return I18N.t("cachetip.role_revalidated");
     if (st === "BYPASS") return I18N.t("cachetip.role_bypassed");
     if (st === "DYNAMIC") return I18N.t("cachetip.role_dynamic");
@@ -328,7 +360,7 @@
       if (!label) continue;
       // Colonnes d'un petit tableau texte : durée, puis étape du trajet. La durée
       // peut avoir des décimales (« dur=0.5 ») : format de la langue (cf. fmtDec).
-      var line = "   " + I18N.t("unit.ms", { n: fmtDec(ms, 0, 3, String(ms)) }) + "  " + I18N.t(label);
+      var line = "   " + fmtUnit("unit.ms", fmtDec(ms, 0, 3)) + "  " + I18N.t(label);
       // La ligne qui repond à la question qu'on se pose vraiment.
       if (key === "cforigin") {
         line += "  " + (ms > 0 ? I18N.t("cachetip.origin_worked") : I18N.t("cachetip.origin_idle"));
@@ -405,13 +437,17 @@
     return text;
   }
 
-  // Age lisible : secondes, minutes, heures ou jours.
+  // Age lisible : secondes, minutes, heures ou jours. L'unité se choisit sur la
+  // valeur ARRONDIE, telle qu'elle s'affichera : 3 599 s donne « 1,0 h » (et
+  // non « 60 min »), 86 399 s « 1,0 j » (et non « 24,0 h »).
   function fmtAge(s) {
     s = s || 0;
-    if (s < 60) return I18N.t("unit.s", { n: s });
-    if (s < 3600) return I18N.t("unit.min", { n: Math.round(s / 60) });
-    if (s < 86400) return I18N.t("unit.h", { n: fmtDecimal(s / 3600, 1) });
-    return I18N.t("unit.d", { n: fmtDecimal(s / 86400, 1) });
+    if (s < 60) return fmtUnit("unit.s", s);
+    var min = Math.round(s / 60);
+    if (min < 60) return fmtUnit("unit.min", min);
+    var h = round1(s / 3600);
+    if (h < 24) return fmtUnit("unit.h", fmtDec(h, 1, 1));
+    return fmtUnit("unit.d", fmtDec(round1(s / 86400), 1, 1));
   }
 
   // Ligne "Cache" du panneau de detail : verdict, en-tête qui a tranche, age,
@@ -637,7 +673,7 @@
       target: 0, done: 0,
       totalBytes: 0, totalPages: 0, totalDynamic: 0, totalMiss: 0,
       stopRequested: false, running: false,
-      config: {}, lastTechs: [], lastRows: []
+      config: {}, lastTechs: []
     },
 
     // Cadence des re-rendus (batch via requestAnimationFrame pour gros crawls)
@@ -654,6 +690,8 @@
     statusMsg: null,
     statusBytes: 0,
     statusRate: null,                   // débit affiché (pages/s), null = « 0 » initial
+    // Compteurs bruts de la barre d'état (cf. renderStatusCounts) ; total null = « ∞ ».
+    statusCounts: { done: 0, total: 0, queued: 0, avgms: 0 },
 
     unlisteners: []
   };
@@ -683,7 +721,7 @@
         { key: "cache",     labelKey: "col.cache" },
         { key: "cacheby",   labelKey: "col.served_by", titleKey: "col.served_by_full" },
         { key: "ctype",     labelKey: "col.content_type" },
-        { key: "speed",     labelKey: "col.speed", titleKey: "col.speed_full", num: true },
+        { key: "speed",     labelKey: "col.speed", titleKey: "col.speed_full", num: true, csvUnit: "ms" },
         { key: "words",     labelKey: "col.words", titleKey: "col.words_full", num: true },
         { key: "title",     labelKey: "col.title" },
         { key: "indexable", labelKey: "col.indexable", titleKey: "col.indexable_full" },
@@ -712,10 +750,11 @@
             text: respMs(p) ? String(respMs(p)) : "", sort: respMs(p) },
           { html: '<span class="col-num">' + words + '</span>', text: String(words), sort: words },
           { html: esc(title || "—"), text: title, sort: title },
-          // Colonne étroite : la pastille peut être coupée, ou abrégée par la
-          // langue (« Oui » / « Non ») ; le libellé complet est au survol.
+          // Colonne étroite : la pastille porte la valeur courte de la langue
+          // (« Oui » / « Non ») ; le libellé complet est au survol et dans le
+          // CSV (« Indexable » / « Non indexable »), lisible hors de l'écran.
           { html: indexable ? pill("ok", I18N.t("cell.indexable")) : pill("err", I18N.t("cell.non_indexable")),
-            text: indexable ? I18N.t("cell.indexable") : I18N.t("cell.non_indexable"), sort: indexable ? 1 : 0,
+            text: indexable ? I18N.t("cell.indexable_full") : I18N.t("cell.non_indexable_full"), sort: indexable ? 1 : 0,
             tip: indexable ? I18N.t("cell.indexable_full") : I18N.t("cell.non_indexable_full") },
           { html: '<span class="col-num">' + nout + '</span>', text: String(nout), sort: nout }
         ];
@@ -750,7 +789,7 @@
       kind: "pages",
       columns: [
         { key: "url",        labelKey: "col.address" },
-        { key: "length",     labelKey: "col.length", num: true },
+        { key: "length",     labelKey: "col.length", titleKey: "col.url_length_full", num: true, csvUnit: "chars" },
         { key: "nonascii",   labelKey: "col.non_ascii" },
         { key: "underscores", labelKey: "col.underscores" },
         { key: "uppercase",  labelKey: "col.uppercase" },
@@ -840,9 +879,11 @@
       columns: [
         { key: "url",   labelKey: "col.address" },
         { key: "title", labelKey: "col.title" },
-        { key: "len",   labelKey: "col.length", num: true },
-        { key: "dup",   labelKey: "col.duplicate" },
-        { key: "state", labelKey: "col.state" }
+        // Libellés complets propres à l'onglet : dans le CSV, « Longueur » seul
+        // ne dirait pas de quoi.
+        { key: "len",   labelKey: "col.length", titleKey: "col.title_length_full", num: true, csvUnit: "chars" },
+        { key: "dup",   labelKey: "col.duplicate", titleKey: "col.title_dup_full" },
+        { key: "state", labelKey: "col.state", titleKey: "col.title_state_full" }
       ],
       row: function (p) {
         var s = seoOf(p);
@@ -867,9 +908,9 @@
       columns: [
         { key: "url",  labelKey: "col.address" },
         { key: "meta", labelKey: "col.meta_description" },
-        { key: "len",  labelKey: "col.length", num: true },
-        { key: "dup",  labelKey: "col.duplicate" },
-        { key: "state", labelKey: "col.state" }
+        { key: "len",  labelKey: "col.length", titleKey: "col.meta_length_full", num: true, csvUnit: "chars" },
+        { key: "dup",  labelKey: "col.duplicate", titleKey: "col.meta_dup_full" },
+        { key: "state", labelKey: "col.state", titleKey: "col.meta_state_full" }
       ],
       row: function (p) {
         var s = seoOf(p);
@@ -895,8 +936,8 @@
         { key: "url",   labelKey: "col.address" },
         { key: "h1",    labelKey: "col.first_h1" },
         { key: "count", labelKey: "col.count", num: true },
-        { key: "dup",   labelKey: "col.duplicate" },
-        { key: "state", labelKey: "col.state" }
+        { key: "dup",   labelKey: "col.duplicate", titleKey: "col.h1_dup_full" },
+        { key: "state", labelKey: "col.state", titleKey: "col.h1_state_full" }
       ],
       row: function (p) {
         var s = seoOf(p);
@@ -932,7 +973,7 @@
         var sims = nearDupOf(p);                 // URLs quasi-dupliquées (memorise)
         var n = sims.length;
         var ndHtml = n
-          ? '<span class="state-pill state-pill--warn">' + esc(I18N.t("cell.yes_count", { n: n })) + '</span>'
+          ? '<span class="state-pill state-pill--warn">' + esc(I18N.t("cell.yes_count", { n: I18N.fmtNumber(n) })) + '</span>'
           : '<span class="muted">—</span>';
         return [
           { html: urlCellHtml(p.url), text: p.url || "", sort: p.url || "" },
@@ -951,9 +992,9 @@
       kind: "pages",
       columns: [
         { key: "url",     labelKey: "col.address" },
-        { key: "total",   labelKey: "col.images", num: true },
+        { key: "total",   labelKey: "col.images", titleKey: "col.image_count_full", num: true },
         { key: "missing", labelKey: "col.missing_alt", num: true },
-        { key: "state",   labelKey: "col.state" }
+        { key: "state",   labelKey: "col.state", titleKey: "col.images_state_full" }
       ],
       row: function (p) {
         var s = seoOf(p);
@@ -961,12 +1002,14 @@
         var missing = s ? (s.images_missing_alt || 0) : 0;
         var kind = missing > 0 ? "warn" : "ok";
         var label = missing > 0 ? I18N.t("cell.n_missing_alt", { n: missing }) : I18N.t("state.ok");
+        // À l'écran, le nombre au format de la langue ; dans le CSV (`text`), brut.
+        var shown = missing > 0 ? I18N.t("cell.n_missing_alt", { n: I18N.fmtNumber(missing) }) : label;
         return [
           { html: urlCellHtml(p.url), text: p.url || "", sort: p.url || "" },
           { html: '<span class="col-num">' + total + '</span>', text: String(total), sort: total },
           { html: missing > 0 ? '<span class="col-num num-bad">' + missing + '</span>'
                               : '<span class="col-num">0</span>', text: String(missing), sort: missing },
-          { html: pill(kind, label), text: label, sort: missing }
+          { html: pill(kind, shown), text: label, sort: missing }
         ];
       }
     },
@@ -1059,7 +1102,7 @@
         else if (r && r.missingBack && r.missingBack.length) {
           recipHtml = '<span class="state-pill state-pill--warn" title="' +
                       esc(r.missingBack.join(" | ")) + '">' +
-                      esc(I18N.t("cell.recip_missing_count", { n: r.missingBack.length })) + '</span>';
+                      esc(I18N.t("cell.recip_missing_count", { n: I18N.fmtNumber(r.missingBack.length) })) + '</span>';
           recipText = I18N.t("cell.recip_missing_list", { urls: r.missingBack.join(" | ") });
           recipSort = 1;
         } else {
@@ -1191,11 +1234,14 @@
         var cat = catLabel(it.category);
         var message = issueText(it);
         return [
-          { html: pill(sevKind(it.severity), sevLabel(it.severity)), text: it.severity, sort: sevRank(it.severity) },
+          // L'export CSV écrit le LIBELLÉ de la sévérité (« Critique »), comme
+          // l'export « Tous les problèmes », et non son identifiant (« critical »).
+          { html: pill(sevKind(it.severity), sevLabel(it.severity)), text: sevLabel(it.severity), sort: sevRank(it.severity) },
           { html: esc(cat || "—"), text: cat || "", sort: cat || "" },
           { html: urlCellHtml(it.url), text: it.url || "", sort: it.url || "" },
-          // Le message est souvent plus long que sa colonne : entier au survol.
-          { html: esc(message || ""), text: message || "", sort: message || "", tip: message || "" }
+          // Le message est souvent plus long que sa colonne : entier au survol,
+          // par l'infobulle posée au survol des cellules coupées (initCellTips).
+          { html: esc(message || ""), text: message || "", sort: message || "" }
         ];
       }
     },
@@ -1250,14 +1296,17 @@
       columns: [
         { key: "url",    labelKey: "col.address" },
         { key: "tech",   labelKey: "col.tech" },
-        { key: "weight", labelKey: "col.total_size", titleKey: "col.total_size_full", num: true },
-        { key: "speed",  labelKey: "col.speed", titleKey: "col.speed_full", num: true },
-        { key: "imgs",   labelKey: "col.images", num: true },
+        { key: "weight", labelKey: "col.total_size", titleKey: "col.total_size_full", num: true, csvUnit: "bytes" },
+        { key: "speed",  labelKey: "col.speed", titleKey: "col.speed_full", num: true, csvUnit: "ms" },
+        // Dans le CSV, la colonne Images ne porte que le POIDS des images.
+        { key: "imgs",   labelKey: "col.images", titleKey: "col.images_weight_full", num: true, csvUnit: "bytes" },
         { key: "req",    labelKey: "col.requests", titleKey: "col.requests_full", num: true },
         { key: "dyn",    labelKey: "col.dynamic", titleKey: "col.dynamic_full", num: true },
         { key: "miss",   labelKey: "col.cache_miss", titleKey: "col.cache_miss_full", num: true },
         { key: "probe",  labelKey: "col.probe" },
-        { key: "bar",    label: "" }
+        // Barre du poids de la page rapporté à la plus lourde du crawl : un
+        // en-tête (« % »), une infobulle, et le pourcentage dans le CSV.
+        { key: "bar",    labelKey: "col.weight_share" }
       ],
       row: function (p) {
         var tech = Array.isArray(p.tech) ? p.tech : [];
@@ -1281,7 +1330,8 @@
           { html: '<span class="col-num">' + dyn + '</span>', text: String(dyn), sort: dyn },
           { html: '<span class="col-num">' + miss + '</span>', text: String(miss), sort: miss },
           { html: '<span class="badge">' + esc(probeLabel(p.measured_with)) + '</span>', text: probeLabel(p.measured_with), sort: p.measured_with || "" },
-          { html: '<span class="wbar"><i style="width:' + pct + '%"></i></span>', text: "", sort: weight }
+          { html: '<span class="wbar"><i style="width:' + pct + '%"></i></span>', text: String(pct), sort: weight,
+            tip: fmtUnit("unit.percent", I18N.fmtNumber(pct)) }
         ];
       }
     }
@@ -1378,6 +1428,15 @@
     if (!col) return "";
     var key = colTitleKey(col);
     return key ? I18N.t(key) : colLabel(col);
+  }
+  // En-tête d'une colonne dans l'export CSV de l'onglet : le libellé complet,
+  // suivi de l'unité des nombres BRUTS que la colonne contient (`csvUnit` :
+  // ms, octets, caractères) — « Temps de réponse (ms) ». Dans le CSV seulement :
+  // à l'écran, la cellule montre déjà son unité (« 555,9 Ko »).
+  // Clés : "export.unit_ms", "export.unit_bytes", "export.unit_chars".
+  function csvHeader(col) {
+    var t = colTitle(col);
+    return col && col.csvUnit ? I18N.t("export.unit_" + col.csvUnit, { label: t }) : t;
   }
 
   // ----- Textes écrits par le MOTEUR ----------------------------------------
@@ -1517,7 +1576,7 @@
   // =========================================================================
   function scheduleRender() {
     S.dirty = true;
-    if (S.rafPending) return;
+    if (S.rafPending || rendusSuspendus) return;   // fermeture en cours : pas de rendu (moteur, 4e tour)
 
     // Pendant un crawl, les pages arrivent en continu : sans plafond, on
     // reconstruisait TOUT à chaque frame (agrégats sur toutes les pages et
@@ -1536,7 +1595,7 @@
     var run = function () {
       requestAnimationFrame(function () {
         S.rafPending = false;
-        if (!S.dirty) return;
+        if (!S.dirty || rendusSuspendus) return;   // (programmé avant la fermeture : reporté)
         S.dirty = false;
         S.lastRenderAt = Date.now();
         rebuildAggregates();   // Vague 4 : inlinks/issues/bw recalcules (idempotent)
@@ -1705,7 +1764,7 @@
     if (banner) {
       if (S.activeTab === "content" && S.nearDupSkipped) {
         banner.hidden = false;
-        banner.textContent = I18N.t("grid.near_dup_disabled", { max: NEAR_DUP_MAX_PAGES });
+        banner.textContent = I18N.t("grid.near_dup_disabled", { max: I18N.fmtNumber(NEAR_DUP_MAX_PAGES) });
       } else {
         banner.hidden = true;
       }
@@ -1770,8 +1829,8 @@
       }
     }
 
-    // --- Construction HTML (une seule affectation innerHTML = perf) ---
-    var rows = "";
+    // --- Construction HTML (une chaîne par ligne) ---
+    var rowHtml = [];
     var selKey = S.selectedUrl ? normUrl(S.selectedUrl) : null;
     // Ordre d'affichage memorise : c'est lui qui donne son sens a « de cette
     // ligne a celle-la » (Shift+clic) et l'ordre des adresses copiees.
@@ -1791,16 +1850,18 @@
       if (selKey && def.kind === "pages" && normUrl(item.url) === selKey) classes.push("is-selected");
       if (hasRowClass) { var rc = def.rowClass(item); if (rc) classes.push(rc); }
       var clsAttr = classes.length ? ' class="' + classes.join(" ") + '"' : "";
-      rows += '<tr data-url="' + esc(rowUrl) + '"' + clsAttr + '>';
+      var rh = '<tr data-url="' + esc(rowUrl) + '"' + clsAttr + '>';
       for (var k = 0; k < cells.length; k++) {
-        // `tip` : texte complet au survol, quand la colonne coupe la cellule.
-        rows += "<td" + ((rowSel && k === S.sel.col) ? ' class="is-multi"' : "") +
+        // `tip` : infobulle qui dit AUTRE CHOSE que le texte de la cellule
+        // (libellé complet d'une valeur courte). Une cellule simplement coupée
+        // reçoit son texte entier au survol (initCellTips).
+        rh += "<td" + ((rowSel && k === S.sel.col) ? ' class="is-multi"' : "") +
           (cells[k].tip ? ' title="' + esc(cells[k].tip) + '"' : "") + ">";
-        rows += cells[k].html + "</td>";
+        rh += cells[k].html + "</td>";
       }
-      rows += "</tr>";
+      rowHtml.push(rh + "</tr>");
     }
-    body.innerHTML = rows;
+    writeGridRows(body, rowHtml);
     S.gridRows = gridRows;
     updateSelBar();
 
@@ -1828,6 +1889,87 @@
         }
       }
     }
+  }
+
+  // Écrit les lignes de la grille. Pendant un crawl la grille est récrite ~3
+  // fois par seconde : les lignes DÉJÀ affichées à l'identique sont gardées
+  // telles quelles (mêmes nœuds), seule la suite qui change est récrite. Une
+  // infobulle — qui attend ~0,5 s d'immobilité sur le même élément — peut ainsi
+  // s'afficher pendant un crawl, et le survol en cours n'est pas perdu. Tri,
+  // filtre, onglet ou langue changés : la première ligne diffère, tout est
+  // récrit d'un coup comme avant.
+  function writeGridRows(body, rowHtml) {
+    var prev = body.__rowHtml, same = 0;
+    if (prev && body.__rowTab === S.activeTab && body.rows.length === prev.length) {
+      var lim = Math.min(prev.length, rowHtml.length);
+      while (same < lim && prev[same] === rowHtml[same]) same++;
+    }
+    if (same === 0) {
+      body.innerHTML = rowHtml.join("");
+    } else {
+      if (same < body.rows.length) {
+        var rg = document.createRange();
+        rg.setStartBefore(body.rows[same]);
+        rg.setEndAfter(body.lastChild);
+        rg.deleteContents();
+      }
+      if (same < rowHtml.length) body.insertAdjacentHTML("beforeend", rowHtml.slice(same).join(""));
+    }
+    // Le HTML des lignes n'est gardé que PENDANT un crawl, seul moment où des
+    // rendus répétés gardent le haut de la grille ; hors crawl, chaque rendu vient
+    // d'un geste qui change les lignes (tri, filtre, onglet, langue), et ce texte
+    // coûtait 74 à 142 Mo sur un crawl de 36 679 pages. Sans lui, le rendu
+    // suivant récrit toute la grille, comme avant le rendu partiel.
+    body.__rowHtml = S.running ? rowHtml : null;
+    body.__rowTab = S.activeTab;
+  }
+
+  // Une cellule COUPÉE (texte plus large que sa colonne, ou pastille qui finit
+  // par « … ») et sans infobulle — ni sur elle, ni sur un élément dedans — reçoit
+  // au survol son texte entier pour infobulle. Un seul écouteur pour toute la
+  // grille : rien n'est écrit d'avance dans les lignes (100 000 lignes de
+  // l'onglet Problèmes ne portent plus 100 000 attributs title). Une cellule à
+  // badges (hreflang, technologies, en-têtes manquants) prend le texte de son
+  // export CSV, lisible (« fr -> https://… | en -> … »).
+  function cellIsCut(td) {
+    var cs = getComputedStyle(td), box = td.getBoundingClientRect();
+    var inner = box.width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) -
+                parseFloat(cs.borderLeftWidth) - parseFloat(cs.borderRightWidth);
+    var rg = document.createRange();
+    rg.selectNodeContents(td);
+    if (rg.getBoundingClientRect().width > inner + 0.25) return true;
+    var kids = td.querySelectorAll("span");
+    for (var i = 0; i < kids.length; i++) {
+      if (kids[i].scrollWidth > kids[i].clientWidth && getComputedStyle(kids[i]).overflowX !== "visible") return true;
+    }
+    return false;
+  }
+  function initCellTips() {
+    var body = $("grid-body");
+    if (!body) return;
+    body.addEventListener("mouseover", function (e) {
+      var td = e.target.closest ? e.target.closest("td") : null;
+      if (!td || td.parentNode.parentNode !== body) return;
+      // Infobulle posée ici à un survol précédent (marquée data-tip-auto) : retirée
+      // si la cellule n'est plus coupée (colonne élargie, fenêtre agrandie).
+      if (td.hasAttribute("data-tip-auto")) {
+        if (!cellIsCut(td)) { td.removeAttribute("title"); td.removeAttribute("data-tip-auto"); }
+        return;
+      }
+      // Une infobulle d'origine, sur la cellule ou dans la cellule, prime. Sauf
+      // celle des badges de type des données structurées (« Voir le JSON-LD
+      // brut ») : la cellule reçoit la liste des types, lue entre les badges ; sur
+      // un badge, le navigateur montre toujours l'infobulle du badge.
+      if (td.hasAttribute("title") || td.querySelector("[title]:not(.badge--schema)")) return;
+      if (!cellIsCut(td)) return;
+      var txt = "";
+      if (td.querySelector(".badge")) {
+        var row = S.gridRows[td.parentNode.sectionRowIndex];
+        txt = row && row.texts[td.cellIndex] != null ? String(row.texts[td.cellIndex]) : "";
+      }
+      if (!txt) txt = td.textContent.replace(/\s+/g, " ").trim();
+      if (txt) { td.setAttribute("title", txt); td.setAttribute("data-tip-auto", "1"); }
+    });
   }
 
   // =========================================================================
@@ -1865,9 +2007,10 @@
       // Problèmes : issues backend + issues hreflang dérivées côté JS.
       issues: S.issues.length + S.hreflangIssues.length
     };
+    // Affichés au format de la langue (« 1 234 ») ; récrits au changement de langue.
     document.querySelectorAll(".tab-count").forEach(function (el) {
       var key = el.getAttribute("data-count");
-      el.textContent = counts[key] != null ? counts[key] : 0;
+      el.textContent = I18N.fmtNumber(counts[key] != null ? counts[key] : 0);
     });
   }
 
@@ -2113,22 +2256,28 @@
   // Fabrique une ligne d'Overview pour le groupe Sitemap (data-sm = vue cible).
   // Chaque ligne à sa vue — "orphan" comprise, qui n'est plus un simple
   // raccourci vers "all". is-active suit S.activeTab + S.sitemapView.
-  function smRow(view, label, n, tone) {
+  function smRow(view, label, n, tone, desc) {
     var toneCls = n > 0 && tone ? (" ov-" + tone) : "";
     var active = (S.activeTab === "sitemap" && S.sitemapView === view) ? " is-active" : "";
+    desc.push({ cls: "ov-row" + toneCls + active, n: n });
     return '<div class="ov-row' + toneCls + active + '" data-sm="' + view +
            '" data-empty="' + (n ? 0 : 1) + '">' +
            '<span class="ov-label" title="' + esc(label) + '">' + esc(label) + '</span>' +
-           '<span class="ov-count">' + n + '</span></div>';
+           '<span class="ov-count">' + I18N.fmtNumber(n) + '</span></div>';
   }
 
   function renderOverview() {
     var tree = $("overview-tree");
     if (!tree) return;
     var html = "";
+    // `desc` : état de chaque ligne, dans l'ordre du panneau ; `struct` : ce qui
+    // ne change qu'avec la langue (titres de groupes, libellés).
+    var desc = [], struct = I18N.lang;
     for (var g = 0; g < OVERVIEW.length; g++) {
       var grp = OVERVIEW[g];
-      html += '<div class="ov-group"><div class="ov-group-title">' + esc(I18N.t(grp.groupKey)) + '</div>';
+      var grpTitle = I18N.t(grp.groupKey);
+      struct += "|" + grpTitle;
+      html += '<div class="ov-group"><div class="ov-group-title">' + esc(grpTitle) + '</div>';
       for (var r = 0; r < grp.rows.length; r++) {
         var row = grp.rows[r];
         var n = countFor(row.pred);
@@ -2137,10 +2286,12 @@
         // Le libellé finit par « … » quand le compteur prend la place (grands
         // nombres, langues aux mots longs) : il se lit entier au survol.
         var rowLabel = I18N.t(row.labelKey);
+        struct += "/" + rowLabel;
+        desc.push({ cls: "ov-row" + toneCls + activeCls, n: n });
         html += '<div class="ov-row' + toneCls + activeCls + '" data-cat="' + row.id +
                 '" data-tab="' + grp.tab + '" data-empty="' + (n ? 0 : 1) + '">' +
                 '<span class="ov-label" title="' + esc(rowLabel) + '">' + esc(rowLabel) + '</span>' +
-                '<span class="ov-count">' + n + '</span></div>';
+                '<span class="ov-count">' + I18N.fmtNumber(n) + '</span></div>';
       }
       html += '</div>';
     }
@@ -2151,13 +2302,32 @@
     var nOrphan = countSitemapOrphans();
     var nNotIn  = countNotInSitemap();
     var nSmTotal = S.sitemapUrls.length;
+    struct += "|" + I18N.t("overview.group_sitemap");
     html += '<div class="ov-group"><div class="ov-group-title">' + esc(I18N.t("overview.group_sitemap")) + '</div>';
-    html += smRow("all",   I18N.t("overview.sitemap_all"),    nSmTotal, nSmTotal ? "ok" : "");
-    html += smRow("orphan", I18N.t("overview.sitemap_orphans"), nOrphan, "warn");
-    html += smRow("notin", I18N.t("overview.sitemap_not_in"),  nNotIn,  "warn");
+    html += smRow("all",   I18N.t("overview.sitemap_all"),    nSmTotal, nSmTotal ? "ok" : "", desc);
+    html += smRow("orphan", I18N.t("overview.sitemap_orphans"), nOrphan, "warn", desc);
+    html += smRow("notin", I18N.t("overview.sitemap_not_in"),  nNotIn,  "warn", desc);
     html += '</div>';
 
-    tree.innerHTML = html;
+    // Le panneau n'est RÉCRIT que si sa structure change (langue, libellés).
+    // Sinon, seuls les compteurs et les couleurs qui ont changé sont mis à jour
+    // en place : pendant un crawl, les libellés (et leur infobulle) restent les
+    // mêmes nœuds au lieu d'être remplacés ~3 fois par seconde.
+    var els = tree.__rows;
+    if (tree.__struct === struct && els && els.length === desc.length && els[0] && els[0].isConnected) {
+      for (var d = 0; d < desc.length; d++) {
+        var el = els[d], want = desc[d];
+        if (el.className !== want.cls) el.className = want.cls;
+        var empty = want.n ? "0" : "1";
+        if (el.getAttribute("data-empty") !== empty) el.setAttribute("data-empty", empty);
+        var cnt = el.lastChild, txt = I18N.fmtNumber(want.n);   // au format de la langue
+        if (cnt && cnt.textContent !== txt) cnt.textContent = txt;
+      }
+    } else {
+      tree.innerHTML = html;
+      tree.__struct = struct;
+      tree.__rows = tree.querySelectorAll(".ov-row");
+    }
 
     // Compteurs des filtres de sévérité (onglet Problèmes). Les issues hreflang
     // dérivées côté JS sont toutes de sévérité "warning" : on les ajoute au
@@ -2169,10 +2339,11 @@
     setSevCount("opportunity", S.sevCounts.opportunity || 0);
   }
 
-  // Met à jour un <span data-sevcount="X"> (compteurs des filtres de sévérité).
+  // Met à jour un <span data-sevcount="X"> (compteurs des filtres de sévérité),
+  // au format de la langue.
   function setSevCount(val, n) {
     var el = document.querySelector('[data-sevcount="' + val + '"]');
-    if (el) el.textContent = n;
+    if (el) el.textContent = I18N.fmtNumber(n);
   }
 
   // Retrouve la definition d'une catégorie par son id.
@@ -2180,7 +2351,7 @@
     for (var g = 0; g < OVERVIEW.length; g++) {
       for (var r = 0; r < OVERVIEW[g].rows.length; r++) {
         if (OVERVIEW[g].rows[r].id === id) {
-          return { row: OVERVIEW[g].rows[r], tab: OVERVIEW[g].tab };
+          return { row: OVERVIEW[g].rows[r], tab: OVERVIEW[g].tab, groupKey: OVERVIEW[g].groupKey };
         }
       }
     }
@@ -2343,13 +2514,14 @@
 
   // La phrase « N cellule(s) · colonne » est un gabarit de index.html (agent
   // interface, contrat §12) : ce fichier n'écrit que les VALEURS de ses cases,
-  // le nombre brut et le libellé de colonne ; l'accord suit le nombre en direct.
+  // le nombre (au format de la langue : i18n.js n'en lit que les chiffres pour
+  // l'accord) et le libellé de colonne ; l'accord suit le nombre en direct.
   function updateSelBar() {
     var bar = $("multi-sel");
     if (!bar) return;
     var n = selCount();
     bar.hidden = !n;
-    setText("multi-sel-count", n);
+    setText("multi-sel-count", I18N.fmtNumber(n));
     setText("multi-sel-col", selColumnLabel());
   }
 
@@ -2367,9 +2539,10 @@
 
   // --- Menu contextuel (clic droit sur une cellule) -----------------------
   // « Copier N valeur(s) — colonne » : gabarit de index.html (agent interface) ;
-  // ce fichier n'en écrit que les deux cases (nombre brut, libellé de colonne).
+  // ce fichier n'en écrit que les deux cases (nombre au format de la langue,
+  // libellé de colonne).
   function fillCtxMenu() {
-    setText("ctx-copy-count", selCount());
+    setText("ctx-copy-count", I18N.fmtNumber(selCount()));
     setText("ctx-col-label", selColumnLabel());
   }
   function showCtxMenu(x, y) {
@@ -2472,14 +2645,14 @@
     var p = S.byUrl[normUrl(S.selectedUrl)];
     if (!p) return;
 
-    // Compteurs des sous-onglets.
+    // Compteurs des sous-onglets (au format de la langue).
     var inl = S.inlinksIndex[normUrl(S.selectedUrl)] || [];
     var outs = Array.isArray(p.outlinks) ? p.outlinks : [];
-    setText("dt-inlinks-count", inl.length);
-    setText("dt-outlinks-count", outs.length);
-    setText("dt-images-count", imagesMissingAltOf(p).length);
+    setText("dt-inlinks-count", I18N.fmtNumber(inl.length));
+    setText("dt-outlinks-count", I18N.fmtNumber(outs.length));
+    setText("dt-images-count", I18N.fmtNumber(imagesMissingAltOf(p).length));
     // D) Compteur de blocs JSON-LD bruts présents sur la page.
-    setText("dt-schema-count", structuredRawOf(p).length);
+    setText("dt-schema-count", I18N.fmtNumber(structuredRawOf(p).length));
 
     // Onglets actifs.
     document.querySelectorAll(".dtab").forEach(function (b) {
@@ -2489,30 +2662,38 @@
     var body = $("detail-body");
     if (!body) return;
 
+    var html = "";
     if (S.detailTab === "inlinks") {
-      body.innerHTML = renderLinkTable(
+      html = renderLinkTable(
         inl.map(function (x) { return { url: x.from, anchor: x.anchor, rel: x.rel }; }),
         [I18N.t("detail.h_inlink_source"), I18N.t("detail.h_anchor"), "Rel"],
         ["url", "anchor", "rel"],
         I18N.t("detail.no_inlinks")
       );
     } else if (S.detailTab === "outlinks") {
-      body.innerHTML = renderLinkTable(
+      html = renderLinkTable(
         outs.map(function (l) { return { url: l.target, anchor: l.anchor, rel: l.rel, internal: l.internal }; }),
         [I18N.t("detail.h_destination"), I18N.t("detail.h_anchor"), I18N.t("detail.h_link_type"), "Rel"],
         ["url", "anchor", "type", "rel"],
         I18N.t("detail.no_outlinks")
       );
     } else if (S.detailTab === "images") {
-      body.innerHTML = renderImagesMissingAlt(p);
+      html = renderImagesMissingAlt(p);
     } else if (S.detailTab === "serp") {
-      body.innerHTML = renderSerp(p);
+      html = renderSerp(p);
     } else if (S.detailTab === "info") {
-      body.innerHTML = renderInfo(p);
+      html = renderInfo(p);
     } else if (S.detailTab === "schema") {
-      body.innerHTML = renderStructuredData(p);   // D) JSON-LD bruts indentes
+      html = renderStructuredData(p);   // D) JSON-LD bruts indentes
     } else if (S.detailTab === "source") {
-      body.innerHTML = renderSource(p);
+      html = renderSource(p);
+    }
+    // Récrit seulement si le contenu a changé : pendant un crawl, le panneau
+    // ouvert est redemandé ~3 fois par seconde, et le remplacer à l'identique
+    // effaçait l'infobulle survolée (et la position dans la zone Source).
+    if (body.__html !== html || !body.firstChild) {
+      body.innerHTML = html;
+      body.__html = html;
     }
   }
 
@@ -2567,8 +2748,8 @@
       }
       html += '<div class="sd-block">' +
               '<div class="sd-block-head">' +
-              (label ? tHtml("detail.sd_block_typed", { n: i + 1 }, { type: '<span class="sd-type">' + esc(label) + '</span>' })
-                     : esc(I18N.t("detail.sd_block", { n: i + 1 }))) +
+              (label ? tHtml("detail.sd_block_typed", { n: I18N.fmtNumber(i + 1) }, { type: '<span class="sd-type">' + esc(label) + '</span>' })
+                     : esc(I18N.t("detail.sd_block", { n: I18N.fmtNumber(i + 1) }))) +
               '</div>' +
               '<pre class="sd-json">' + esc(pretty) + '</pre>' +
               '</div>';
@@ -2619,7 +2800,7 @@
     var emptyMsg = missing > 0
       // Le compteur est la mais pas la liste : rapport enregistré AVANT que le
       // backend ne remonte les URLs. Le dire, sinon on cherche un bug ailleurs.
-      ? I18N.t("detail.alt_counted_no_urls", { count: missing, n: missing })
+      ? I18N.t("detail.alt_counted_no_urls", { count: missing, n: I18N.fmtNumber(missing) })
       : I18N.t("detail.alt_all_ok");
     var h = renderLinkTable(items, [I18N.t("detail.h_image_src"), I18N.t("detail.h_file")], ["url", "file"], emptyMsg);
     // Le compteur peut depasser la liste : doublons fusionnes, plafond backend,
@@ -2627,7 +2808,7 @@
     // tronquee par erreur.
     if (items.length && missing > items.length) {
       h += '<div class="detail-empty">' +
-           esc(I18N.t("detail.alt_more_than_urls", { count: items.length, missing: missing, n: items.length })) + '</div>';
+           esc(I18N.t("detail.alt_more_than_urls", { count: items.length, missing: I18N.fmtNumber(missing), n: I18N.fmtNumber(items.length) })) + '</div>';
     }
     return h;
   }
@@ -2660,7 +2841,7 @@
     if (!m.length) return I18N.t("detail.no_mixed_content");
     // On liste les premieres ressources mixtes pour faciliter le diagnostic.
     var head = m.slice(0, 5).join("  |  ");
-    return I18N.t("detail.mixed_resources", { count: m.length, n: m.length, list: head + (m.length > 5 ? "  | ..." : "") });
+    return I18N.t("detail.mixed_resources", { count: m.length, n: I18N.fmtNumber(m.length), list: head + (m.length > 5 ? "  | ..." : "") });
   }
   function secInfoHeaders(p) {
     var h = missingHeadersOf(p);
@@ -2692,7 +2873,7 @@
       var u = pg && pg.url ? pg.url : k;
       return urlCellHtml(u);
     });
-    return tHtml("detail.near_dup_pages", { count: sims.length, n: sims.length }, { urls: parts.join("  |  ") });
+    return tHtml("detail.near_dup_pages", { count: sims.length, n: I18N.fmtNumber(sims.length) }, { urls: parts.join("  |  ") });
   }
   // Texte de l'état de reciprocite hreflang pour la page p.
   function hreflangRecipHtml(p) {
@@ -2713,7 +2894,7 @@
   // Ratio texte/code en %, une décimale au plus (« 12.3 % » aujourd'hui en français).
   function textRatioText(s) {
     var r = Math.round((s.text_ratio || 0) * 1000) / 10;
-    return I18N.t("unit.percent", { n: fmtDec(r, 0, 1, String(r)) });
+    return fmtUnit("unit.percent", fmtDec(r, 0, 1));
   }
 
   // Vue "Infos / En-têtes" : liste clé/valeur.
@@ -2738,10 +2919,10 @@
       [I18N.t("detail.k_language"), (s && s.lang) ? s.lang : "—"],
       [I18N.t("detail.k_viewport"), (s && s.viewport) ? s.viewport : "—"],
       [I18N.t("detail.k_charset"), (s && s.charset) ? s.charset : "—"],
-      [I18N.t("detail.k_words"), s ? String(s.word_count || 0) : "0"],
+      [I18N.t("detail.k_words"), s ? I18N.fmtNumber(s.word_count || 0) : "0"],
       // Signe % et nombre au format de la langue (en français : écriture d'aujourd'hui, cf. fmtDec).
       [I18N.t("detail.k_text_ratio"), s ? textRatioText(s) : "—"],
-      [I18N.t("detail.k_links_int_ext"), s ? ((s.internal_links || 0) + " / " + (s.external_links || 0)) : "—"],
+      [I18N.t("detail.k_links_int_ext"), s ? (I18N.fmtNumber(s.internal_links || 0) + " / " + I18N.fmtNumber(s.external_links || 0)) : "—"],
       [I18N.t("detail.k_techs"), (Array.isArray(p.tech) && p.tech.length) ? p.tech.join(", ") : "—"],
       [I18N.t("detail.k_sd_valid"), schemaInfoValid(p)],
       [I18N.t("detail.k_sd_errors"), schemaInfoErrors(p)],
@@ -2807,14 +2988,14 @@
     var queued = prog && prog.queued != null ? prog.queued : 0;
     var bytes = prog && prog.total_bytes_so_far != null ? prog.total_bytes_so_far : S.bw.totalBytes;
     var unlimited = !!(S.multi.config && S.multi.config.unlimited);
-    var totalLabel = unlimited ? "∞" : String(done + queued);
 
     var curUrl = (prog && prog.current_url) ? prog.current_url : "";
     var urlEl = $("status-url");
     if (urlEl) { urlEl.textContent = curUrl; urlEl.title = curUrl; }
-    setText("status-done", done);
-    setText("status-total", totalLabel);
-    setText("status-queued", queued);
+    // Compteurs gardés BRUTS, écrits au format de la langue (renderStatusCounts).
+    S.statusCounts.done = done;
+    S.statusCounts.total = unlimited ? null : done + queued;
+    S.statusCounts.queued = queued;
     S.statusBytes = bytes;           // gardé pour retraduire l'unité à chaud
     setText("status-bytes", fmtBytes(bytes));
 
@@ -2823,7 +3004,7 @@
       var elapsed = (Date.now() - S.rateStartTs) / 1000;
       var rate = elapsed > 0 ? (done / elapsed) : 0;
       S.statusRate = rate;           // gardé pour le réécrire au format d'une autre langue
-      setText("status-rate", fmtDec(rate, 1, 1, rate.toFixed(1)));
+      setText("status-rate", fmtDec(rate, 1, 1));
     }
 
     // Workers RÉELLEMENT occupés / threads configurés.
@@ -2838,7 +3019,8 @@
     // Temps de réponse moyen par page (ms) sur les pages mesurées (Vague 4+).
     var rts = S.pages.filter(function (p) { return p && p.response_time_ms; });
     var avgMs = rts.length ? Math.round(rts.reduce(function (a, p) { return a + p.response_time_ms; }, 0) / rts.length) : 0;
-    setText("status-avgms", avgMs);
+    S.statusCounts.avgms = avgMs;
+    renderStatusCounts();
 
     // Barre de progression (indeterminee si unlimited : on borne a 90%).
     var fill = $("status-fill");
@@ -2847,6 +3029,32 @@
       var pct = unlimited ? Math.min(90, done % 100) : (total > 0 ? Math.round((done / total) * 100) : 0);
       fill.style.width = pct + "%";
     }
+  }
+
+  // Compteurs de la barre d'état (pages faites / total, file, temps de réponse
+  // moyen) au format de la langue : « 12 345 » en français, « 12,345 » en
+  // anglais. Le total d'un crawl sans limite reste « ∞ ». Récrits au changement
+  // de langue.
+  function renderStatusCounts() {
+    var c = S.statusCounts;
+    setText("status-done", I18N.fmtNumber(c.done));
+    setText("status-total", c.total == null ? "∞" : I18N.fmtNumber(c.total));
+    setText("status-queued", I18N.fmtNumber(c.queued));
+    setText("status-avgms", I18N.fmtNumber(c.avgms));
+  }
+
+  // Barre d'état remise à zéro, quand aucun crawl n'est en cours ni rejoué :
+  // nouveau crawl, « Vider », crawl enregistré rouvert en consultation (qui
+  // gardait sinon l'adresse en cours et le temps moyen du crawl précédent).
+  function resetStatusBar() {
+    S.statusCounts = { done: 0, total: 0, queued: 0, avgms: 0 };
+    renderStatusCounts();
+    var urlEl = $("status-url");
+    if (urlEl) { urlEl.textContent = ""; urlEl.title = ""; }
+    S.statusRate = null; setText("status-rate", 0);
+    S.statusBytes = 0; setText("status-bytes", fmtBytes(0));
+    setText("status-workers", 0); setText("status-threads", 0);
+    var fill = $("status-fill"); if (fill) fill.style.width = "0%";
   }
 
   // VAGUE 4 (C) — Met à jour libellés + états (disabled) des 3 boutons selon
@@ -2879,6 +3087,7 @@
       clear.textContent = I18N.t("btn.clear");
       clear.title = I18N.t("btn.clear_title");
     }
+    var op = $("btn-open-project"); if (op) { op.disabled = S.running; op.setAttribute("data-i18n-title", S.running ? "engine.open_project_busy" : "drawer.open_project_title"); op.title = I18N.t(op.getAttribute("data-i18n-title")); }   // ouvrir un projet jetterait le crawl en cours (moteur, relecture du 14/11)
   }
 
   // Texte d'état de la barre de statut. `m` : un message (cf. msg) — gardé
@@ -2894,18 +3103,20 @@
   function updateMultiStatus() {
     var el = $("status-multi");
     if (!el) return;
-    if (S.multi.target > 1) {
+    // Seule une liste de sites importée a plusieurs passages (la répétition d'un
+    // crawl unique a été retirée : target vaut alors 1).
+    if (S.multi.target > 1 && S.multi.seeds && S.multi.seeds.length) {
       el.hidden = false;
-      var isList = !!(S.multi.seeds && S.multi.seeds.length);
       // En cours ET en pause, le site affiché est celui qui n'est pas fini (en
       // pause, ce libellé est rejoué au changement de langue).
       var idx = Math.min(S.multi.done + ((S.running || S.paused) ? 1 : 0), S.multi.target);
-      // En multi-sites, afficher AUSSI le site en cours : sur une liste de 40
-      // domaines, "Site 12/40" seul ne dit pas lequel est en train de tourner.
-      var p = { i: idx, total: S.multi.target, bytes: fmtBytes(S.multi.totalBytes),
-                count: S.multi.totalPages, pages: S.multi.totalPages };
-      if (isList) p.host = hostOf(S.multi.config.seed_url);
-      el.textContent = I18N.t(isList ? "status.multi_site" : "status.multi_run", p);
+      // Afficher AUSSI le site en cours : sur une liste de 40 domaines,
+      // "Site 12/40" seul ne dit pas lequel est en train de tourner.
+      // Compteurs au format de la langue ; `count` (forme plurielle) reste brut.
+      var p = { i: I18N.fmtNumber(idx), total: I18N.fmtNumber(S.multi.target), bytes: fmtBytes(S.multi.totalBytes),
+                count: S.multi.totalPages, pages: I18N.fmtNumber(S.multi.totalPages),
+                host: hostOf(S.multi.config.seed_url) };
+      el.textContent = I18N.t("status.multi_site", p);
       el.title = el.textContent;      // lisible au survol quand la barre le coupe
     } else {
       el.hidden = true;
@@ -2921,6 +3132,7 @@
 
     TAURI.event.listen("crawl:page", function (event) {
       ingestPage(event.payload || {});
+      pageRecue();    // fermeture différée : signe de vie, même avec des milliers de pages en file
     }).then(function (u) { S.unlisteners.push(u); });
 
     TAURI.event.listen("crawl:progress", function (event) {
@@ -2948,10 +3160,12 @@
     }).then(function (u) { S.unlisteners.push(u); });
 
     TAURI.event.listen("crawl:done", function (event) {
-      // Vague 3 : le payload de crawl:done est le CrawlSummary complet. On y
-      // recupere sitemap_urls pour alimenter l'onglet Sitemap. Les autres
-      // champs (pages/total_bytes...) sont déjà reçus en flux via crawl:page,
-      // on ne les reexploite donc pas ici (pas de double comptage).
+      // Vague 3 : le payload de crawl:done est le CrawlSummary (totaux). On y
+      // recupere sitemap_urls pour alimenter l'onglet Sitemap. Les pages sont
+      // reçues en flux via crawl:page : `pages` est toujours vide depuis le
+      // 14/11/2026 (le moteur les renvoyait toutes une seconde fois ici, en un
+      // seul message — 416 Mo pour un crawl de 415 Mo). Les totaux ne sont pas
+      // reexploites ici (pas de double comptage).
       var summary = (event && event.payload) ? event.payload : {};
       var smap = Array.isArray(summary.sitemap_urls) ? summary.sitemap_urls : [];
       if (smap.length) {   // ne pas écraser si vide : l'event crawl:sitemap (début) fait foi
@@ -2973,6 +3187,11 @@
         // chacune emet sa progression (active_workers = N…1) APRÈS lui.
         setText("status-workers", 0);
         scheduleRender();
+        // Ces pages en vol sont arrivées APRÈS l'enregistrement pris au clic
+        // Stop : on réenregistre, avec elles (le plus récent remplace l'autre
+        // sans bruit s'il tournait encore). Sinon, pause puis fermeture : elles
+        // manquaient au fichier, et le moteur ne les recrawle pas (déjà vues).
+        saveCurrentCrawl();
         return;
       }
 
@@ -2989,7 +3208,6 @@
       var techSet = {};
       S.pages.forEach(function (p) { (p.tech || []).forEach(function (t) { if (t) techSet[t] = 1; }); });
       S.multi.lastTechs = Object.keys(techSet);
-      S.multi.lastRows  = S.pages.slice();
       updateMultiStatus();
       scheduleRender();   // rafraîchit compteur + grille de l'onglet Sitemap
 
@@ -3037,9 +3255,10 @@
 
     TAURI.core.invoke("start_crawl", { config: S.multi.config })
       .catch(function (err) {
-        setStatusState(msg("status.error", { error: err || msg("status.unknown") }));
         console.error("start_crawl error:", err);
-        finishSequence();
+        // L'erreur reste affichée : la fin de séquence ne la remplace plus par
+        // « Terminé — … ».
+        finishSequence(msg("status.error", { error: err || msg("status.unknown") }));
       });
   }
 
@@ -3054,6 +3273,7 @@
     S.paused = false;
     S.multi.stopRequested = false;
     S.multi.running = true;
+    S.multi.marqueSansEnregistrer = S.multi.promesseFermeture = false;   // les pages de la reprise seront enregistrées (fermeture)
     updateButtons();
     S.rateStartTs = Date.now();
     setStatusState(msg("status.resuming"));
@@ -3063,18 +3283,36 @@
     // garantit l'état) puis on relance le crawl backend avec la même config.
     TAURI.core.invoke("start_crawl", { config: S.multi.config })
       .catch(function (err) {
-        setStatusState(msg("status.error", { error: err || msg("status.unknown") }));
         console.error("start_crawl (resume) error:", err);
-        finishSequence();
+        finishSequence(msg("status.error", { error: err || msg("status.unknown") }));
       });
   }
 
   // B : enregistre le crawl courant dans le local data (crawls/<site>.json).
-  // Appele à la FIN et au STOP. save_crawl ÉCRASE l'enregistrement précédent du
-  // même site -> relancer un crawl sur la même URL remplace l'ancien.
+  // Appele à la FIN et au STOP. Le nouvel enregistrement REMPLACE celui du même
+  // site -> relancer un crawl sur la même URL remplace l'ancien.
+  //
+  // EN MORCEAUX (point 36, 14/11/2026). Le texte du fichier est fabriqué page
+  // par page — au caractère près celui de
+  // JSON.stringify({ seed_url, date, pages, sitemap_urls }) — sans jamais tenir
+  // la chaîne du crawl entier, et part au moteur par morceaux d'au plus
+  // SAVE_PART_CHARS caractères, en octets (save_crawl_part), chacun avec sa
+  // position (octets déjà envoyés, contrôlée par le moteur, comme le total à
+  // la fin). Le moteur les écrit dans un fichier temporaire qu'il renomme à la
+  // fin (save_crawl_end) : l'ancien fichier reste intact jusque-là, et tel quel
+  // si l'envoi échoue. Si le renommage reste refusé (fichier du site tenu par
+  // un autre programme), le crawl complet est gardé à côté et l'erreur le dit.
+  // Autrefois la chaîne entière était fabriquée d'un bloc : au-delà de ~42 000
+  // pages elle dépassait la longueur maximale d'une chaîne JavaScript
+  // (RangeError, rien n'était enregistré), et l'écriture figeait la fenêtre.
+  var SAVE_PART_CHARS = 4194304;   // 2^22 caractères : 0,8 % de la limite de V8
   function saveCurrentCrawl(showPath) {
     var seed = S.multi.config && S.multi.config.seed_url;
     if (!TAURI || !seed || !S.pages.length) return;
+    // Fermeture où l'on a ANNONCÉ quitter sans enregistrer (l'enregistrement
+    // précédent a échoué sans rien garder) : ne pas réessayer, sinon la
+    // fermeture s'annulerait de nouveau, en boucle.
+    if (closingAfterSave && quitterSansEnregistrer()) return;
     // MULTI-SITES : n'enregistrer que les pages DU SITE COURANT, pas la grille
     // cumulée. Sans ce decoupage, le fichier projet de chaque site contiendrait
     // aussi les pages de tous les sites précédents.
@@ -3082,40 +3320,389 @@
       ? S.pages.slice(S.multi.pagesOffset || 0)
       : S.pages.slice();
     if (!pages.length) return;
-    var crawlData = JSON.stringify({
-      seed_url: seed,
-      date: new Date().toISOString(),
-      pages: pages,
-      sitemap_urls: S.sitemapUrls || []
-    });
-    TAURI.core.invoke("save_crawl", { id: seed, json: crawlData, dir: saveDirArg() })
-      .then(function (path) { if (path) { S.lastSavePath = path; if (showPath) setStatusState(msg("status.saved", { path: path })); } })
-      .catch(function (err) { console.error("save_crawl error:", err); });
+    var sitemap = S.sitemapUrls || [];
+    var buf = '{"seed_url":' + JSON.stringify(seed) + ',"date":' + JSON.stringify(new Date().toISOString()) + ',"pages":[';
+    var i = 0, j = 0, phase = 0, save = null, sent = 0, encoder = new TextEncoder();
+    // La barre d'état n'est à cet enregistrement que tant que le crawl affiché
+    // est le sien (un crawl relancé ou un projet ouvert remplace S.multi), et
+    // pas pendant une fermeture différée (son message reste affiché).
+    var owner = S.multi, total = S.pages.length;   // pages couvertes par cet enregistrement
+    function shown() { return S.multi === owner && !closingAfterSave; }
+    // Compté parmi les enregistrements en cours (fermeture différée : son
+    // avancement, et la réponse au moteur une fois tous finis).
+    var suivi = { pct: 0 };
+    savesEnCours.push(suivi);
+    function fini() {
+      var k = savesEnCours.indexOf(suivi);
+      if (k >= 0) savesEnCours.splice(k, 1);
+      if (closingAfterSave) afficherFermeture();   // ex. : le crawl mis en pause finit ses pages
+      verifierFermeture();
+    }
+    // Un élément de tableau, tel que JSON.stringify d'un tableau l'écrit.
+    function element(v) { var s = JSON.stringify(v); return s === undefined ? "null" : s; }
+    // Complète le texte jusqu'à un morceau plein (ou jusqu'au bout du fichier).
+    function fill() {
+      while (buf.length < SAVE_PART_CHARS && phase < 2) {
+        if (phase === 0) {
+          if (i < pages.length) buf += (i ? "," : "") + element(pages[i++]);
+          else { buf += '],"sitemap_urls":['; phase = 1; }
+        } else if (j < sitemap.length) buf += (j ? "," : "") + element(sitemap[j++]);
+        else { buf += "]}"; phase = 2; }
+      }
+    }
+    // Remet au moteur les morceaux pleins (à la fin : tout le reste), un à la fois.
+    function flush() {
+      if (buf.length < SAVE_PART_CHARS && !(phase === 2 && buf.length)) return Promise.resolve();
+      var n = Math.min(buf.length, SAVE_PART_CHARS);
+      var c = buf.charCodeAt(n - 1);
+      if (n < buf.length && c >= 0xD800 && c <= 0xDBFF) n--;   // jamais une paire de substitution coupée
+      var part = buf.slice(0, n);
+      buf = buf.slice(n);
+      var bytes = encoder.encode(part);
+      return TAURI.core.invoke("save_crawl_part", bytes,
+                               { headers: { "Seo-Spider-Save": String(save), "Seo-Spider-Offset": String(sent) } })
+        .then(function () { sent += bytes.length; return flush(); });
+    }
+    function next() {
+      fill();
+      suivi.pct = Math.min(99, Math.floor(100 * i / pages.length));
+      // Avancement : pour l'enregistrement de fin de crawl seulement, et tant
+      // qu'il reste à envoyer (un petit crawl part en un morceau, sans message) ;
+      // pendant une fermeture différée, celui de la fermeture, toujours.
+      if (closingAfterSave) afficherFermeture();
+      else if (showPath && phase < 2 && shown()) setStatusState(msg("engine.saving", { pct: suivi.pct }));
+      return flush().then(function () { return phase === 2 ? null : next(); });
+    }
+    TAURI.core.invoke("save_crawl_begin", { id: seed, dir: saveDirArg() })
+      .then(function (n) { save = n; return next(); })
+      .then(function () { return TAURI.core.invoke("save_crawl_end", { save: save, total: sent }); })
+      .then(function (path) {
+        if (path) { S.lastSavePath = path; if (showPath && shown()) setStatusState(msg("status.saved", { path: path })); }
+        owner.pagesEnregistrees = Math.max(owner.pagesEnregistrees || 0, total);
+        owner.marqueSansEnregistrer = owner.promesseFermeture = false;
+        fini();
+      })
+      .catch(function (err) {
+        if (save != null) TAURI.core.invoke("save_crawl_abort", { save: save }).catch(function () {});
+        // save_crawl_end échoue avec { error, kept } ; les autres, avec un texte.
+        var reason = (err && typeof err === "object" && typeof err.error === "string")
+          ? err.error : String((err && err.message) || err);
+        // Un enregistrement plus récent du même site a pris la place : rien à dire.
+        if (reason === "save_superseded") { fini(); return; }
+        console.error("save_crawl error:", err);
+        // Crawl complet gardé à côté (fichier du site tenu par un autre programme).
+        var text = (err && err.kept)
+          ? msg("engine.save_kept", { error: reason, path: err.kept })
+          : msg("engine.save_failed", { error: reason });
+        // Crawl gardé à côté : ces pages SONT sur le disque, il n'y a plus rien à
+        // réenregistrer (la fermeture suivante ne réessaie pas).
+        if (err && err.kept) owner.pagesEnregistrees = Math.max(owner.pagesEnregistrees || 0, total);
+        // Gardé à l'écran jusqu'au clic ; et dans la barre d'état si le crawl
+        // affiché est celui-ci. Pendant une fermeture différée : elle est annulée —
+        // sauf si elle suit une annulation, qui a promis que la suivante fermerait
+        // (P-1 : l'échec du réenregistrement des pages en vol ne la retient plus).
+        if (closingAfterSave && !fermeturePromise()) {
+          echecPendantFermeture = true;
+          if (!(err && err.kept)) echecSansCopie = true;
+        }
+        signalerEchec(text);
+        if (S.multi === owner) setStatusState(text);
+        fini();
+      });
   }
 
-  function finishSequence() {
+  // Fermeture DIFFÉRÉE (main.rs). Le moteur soumet TOUJOURS la fermeture à
+  // la fenêtre : elle seule sait si elle a des pages non enregistrées (à
+  // pleine vitesse, elle a des milliers de pages de retard sur lui). Elle
+  // reçoit l'annonce (app:closing_after_save) APRÈS tout ce qui la précède —
+  // pages en file, crawl:done et l'enregistrement qu'il lance —, répond aussitôt
+  // par un signe de vie (close_ack), met un crawl en cours en pause (ce qui
+  // l'enregistre, pages en vol comprises au crawl:done) ou enregistre ce qui ne
+  // l'est pas encore. Un encadré (pas la barre d'état : trop étroite, elle
+  // rognait l'avertissement) montre l'avancement et prévient qu'une nouvelle
+  // fermeture abandonne l'enregistrement. Une fois le crawl fini, le moteur
+  // demande (app:close_check) s'il reste quelque chose à enregistrer : la
+  // fenêtre répond (close_ready) quand elle n'a plus d'enregistrement en cours
+  // — aussitôt s'il n'y avait rien. Un échec annule la fermeture, et dit
+  // comment quitter : la fermeture suivante ferme, sans boucle.
+  var savesEnCours = [];   // l'avancement { pct } de chaque enregistrement en cours
+  var closingAfterSave = false, verificationDemandee = false, echecPendantFermeture = false;
+  var echecSansCopie = false;      // un échec de cette fermeture n'a RIEN gardé sur le disque
+  var pauseParFermeture = false;   // la fermeture a mis en pause un crawl qui tournait
+  var fermetureTexte = null;       // la ligne d'avancement de l'encadré de fermeture
+  // À chaque page reçue (crawl:page) : compte, et au plus une fois par seconde
+  // un signe de vie au moteur. L'annonce d'une fermeture arrive DERRIÈRE toutes
+  // les pages en file (des dizaines de secondes à lire après un crawl très
+  // rapide) ; le moteur ne ferme une fenêtre silencieuse qu'au bout du délai
+  // de silence. Et sa réponse dit si une fermeture est demandée : la fenêtre
+  // cesse alors aussitôt ses rendus (c'est eux qui ralentissent la lecture) et
+  // dit combien de pages il lui reste à lire, avant même d'avoir lu l'annonce.
+  var pagesRecues = 0;              // pages reçues depuis le lancement de la fenêtre
+  var pagesAttendues = 0;           // pages remises par le moteur (réponse de alive)
+  var lecturePourFermeture = false; // fermeture demandée, annonce pas encore lue
+  var rendusSuspendus = false;      // pas de rendu de grille pendant une fermeture
+  var dernierSigneDeVie = 0, derniereLecture = 0, annulations = 0;
+  function pageRecue() {
+    pagesRecues++;
+    var t = Date.now();
+    if (lecturePourFermeture && t - derniereLecture >= 250) { derniereLecture = t; afficherFermeture(); }
+    if (!TAURI || t - dernierSigneDeVie < 1000) return;
+    dernierSigneDeVie = t;
+    var a = annulations;
+    TAURI.core.invoke("alive").then(function (r) {
+      // (une réponse partie avant l'annulation d'une fermeture ne vaut plus)
+      if (!r || a !== annulations) return;
+      if (!r.closing) {
+        // Plus de fermeture pour le moteur : lecture finie, le rendu reprend.
+        if (lecturePourFermeture && !closingAfterSave) {
+          lecturePourFermeture = rendusSuspendus = false;
+          fermetureTexte = null;
+          remplirFermeture();
+          renderNow();
+        }
+        return;
+      }
+      pagesAttendues = r.emitted || 0;
+      if (!closingAfterSave && !lecturePourFermeture) {
+        lecturePourFermeture = true;
+        rendusSuspendus = true;
+        afficherFermeture();
+      }
+    }).catch(function () {});
+  }
+  // La marque « quitter sans enregistrer » : posée par une fermeture annulée sur un
+  // échec qui n'a rien gardé (annoncé alors), elle vaut pour les pages de CE crawl,
+  // celles encore en vol comprises (déjà réessayées au crawl:done). Elle tombe à la
+  // REPRISE (resumeRun : les pages nouvelles seront enregistrées, au moins essayées)
+  // et à un enregistrement réussi ; un nouveau crawl ou un projet ouvert part sans elle.
+  function quitterSansEnregistrer() {
+    return !!(S.multi && S.multi.marqueSansEnregistrer);
+  }
+  // La PROMESSE de toute annulation (« … la fermera SANS enregistrer le crawl. » comme
+  // « Vous pouvez fermer de nouveau la fenêtre. ») : la fermeture suivante ferme du
+  // premier coup — un échec d'enregistrement pendant elle ne la retient plus, ni ici ni
+  // dans le moteur (close_ready `unsaved`). Tombe comme la marque : reprise, réussite.
+  function fermeturePromise() {
+    return !!(S.multi && (S.multi.promesseFermeture || S.multi.marqueSansEnregistrer));
+  }
+  // Le texte que le moteur ajoute au TITRE de la fenêtre dès qu'on demande à la
+  // fermer : seul signe visible tant qu'elle lit encore des pages en file. Dans
+  // la langue de l'interface, renvoyé à chaque changement de langue.
+  function envoyerTitreFermeture() {
+    if (TAURI) TAURI.core.invoke("closing_title", { text: I18N.t("engine.closing_title") }).catch(function () {});
+  }
+  envoyerTitreFermeture();
+  I18N.onChange(envoyerTitreFermeture);
+  // Des pages reçues ne sont pas encore enregistrées : les premières pages d'un
+  // crawl, ou celles arrivées depuis le dernier enregistrement réussi. « Vider »
+  // et un nouveau crawl repartent de zéro (S.multi et S.pages neufs) ; un crawl
+  // rouvert est déjà enregistré (loadSavedCrawl).
+  function pagesNonEnregistrees() {
+    return S.pages.length > ((S.multi && S.multi.pagesEnregistrees) || 0);
+  }
+  function afficherFermeture() {
+    if (closingAfterSave && savesEnCours.length) {
+      var pct = Math.min.apply(null, savesEnCours.map(function (s) { return s.pct; }));
+      fermetureTexte = msg("engine.closing_after_save", { pct: pct });
+    } else if (closingAfterSave && pauseParFermeture) {
+      // Rien ne s'enregistre encore : le crawl mis en pause finit ses pages en vol.
+      fermetureTexte = msg("engine.closing_waiting");
+    } else if (lecturePourFermeture) {
+      // L'annonce n'est pas encore lue : la fenêtre lit les pages déjà reçues.
+      var reste = Math.max(0, pagesAttendues - pagesRecues);
+      fermetureTexte = msg("engine.closing_reading", { count: reste, n: I18N.fmtNumber(reste) });
+    }
+    remplirFermeture();
+  }
+  function annulerFermeture() {
+    if (!closingAfterSave) return;
+    var sansCopie = echecSansCopie;
+    closingAfterSave = verificationDemandee = echecPendantFermeture = echecSansCopie = false;
+    fermetureTexte = null;
+    remplirFermeture();
+    // La fenêtre reste : son rendu reprend.
+    lecturePourFermeture = rendusSuspendus = false;
+    annulations++;
+    renderNow();
+    // Dit pourquoi la fenêtre reste ouverte et COMMENT la quitter, sans boucle :
+    // crawl gardé à côté → plus rien à enregistrer, la fermeture suivante ferme ;
+    // rien de gardé → la fermeture suivante ferme SANS réessayer (sauf après une
+    // reprise du crawl), annoncé ici. Dans les deux cas, elle ferme du premier coup.
+    if (S.multi) {
+      S.multi.promesseFermeture = true;
+      if (sansCopie) S.multi.marqueSansEnregistrer = true;
+    }
+    signalerEchec(msg(sansCopie ? "engine.closing_cancelled" : "engine.closing_cancelled_kept"));
+    // Et que le crawl est en pause si c'est la fermeture qui l'y a mis (il le
+    // reste : rien n'est relancé sans qu'on le demande).
+    if (pauseParFermeture) signalerEchec(msg("engine.closing_paused", { resume: msg("btn.resume") }));
+    pauseParFermeture = false;
+  }
+  function verifierFermeture() {
+    if (!closingAfterSave || !TAURI) return;
+    if (echecPendantFermeture) {
+      annulerFermeture();
+      TAURI.core.invoke("close_cancel").catch(function () {});
+      return;
+    }
+    if (!verificationDemandee || savesEnCours.length) return;
+    verificationDemandee = false;
+    // `unsaved` : cette fermeture tient la promesse de l'annulation précédente — le
+    // moteur ne retient pas non plus la fenêtre pour un échec pendant elle (main.rs).
+    TAURI.core.invoke("close_ready", { unsaved: fermeturePromise() }).catch(function () {});
+  }
+  function entrerEnFermeture() {
+    closingAfterSave = true; verificationDemandee = false; echecPendantFermeture = false;
+    echecSansCopie = false; pauseParFermeture = false; fermetureTexte = null;
+    lecturePourFermeture = false; rendusSuspendus = true;   // plus de rendu : on lit, enregistre, ferme
+    TAURI.core.invoke("close_ack").catch(function () {});
+    if (quitterSansEnregistrer()) {
+      // Annoncé à l'annulation précédente : on quitte sans réessayer (le moteur
+      // arrête de lui-même un crawl qui tournait).
+    } else if (S.running) {                               // la pause enregistre le crawl en cours
+      pauseParFermeture = true;
+      onStop();
+    } else if (!savesEnCours.length && pagesNonEnregistrees()) {
+      saveCurrentCrawl();                                  // pas encore (ou mal) enregistré
+    }
+    afficherFermeture();
+  }
+  if (TAURI && TAURI.event) {
+    TAURI.event.listen("app:closing_after_save", entrerEnFermeture);
+    TAURI.event.listen("app:close_check", function () {
+      if (!closingAfterSave) {
+        // Page rechargée pendant une fermeture (elle n'en a pas reçu l'annonce, et
+        // n'a plus rien en mémoire), ou fermeture que la fenêtre vient d'annuler :
+        // répondre, pour que le moteur ne l'attende pas.
+        if (!savesEnCours.length) {
+          TAURI.core.invoke("close_ack").catch(function () {});
+          TAURI.core.invoke("close_ready").catch(function () {});
+        }
+        return;
+      }
+      verificationDemandee = true;
+      verifierFermeture();
+    });
+    TAURI.event.listen("app:closing_cancelled", annulerFermeture);
+  }
+
+  // Échecs d'enregistrement : gardés à l'écran jusqu'au clic, TOUS — un second
+  // échec n'efface plus le premier, et ceux d'une pause puis de son
+  // réenregistrement, ou d'une liste de sites, sont encore là à la fin. (Le
+  // message flottant de 2 s ne laissait pas le temps de lire un chemin.)
+  var echecsAffiches = [];
+  function signalerEchec(m) {
+    echecsAffiches.push(m);
+    remplirEchecs();
+  }
+  // Les deux encadrés (échecs, fermeture) dans une colonne en bas à droite,
+  // AU-DESSUS du message flottant de 2 s (centré, à 44 px du bas) et de la
+  // barre d'état, quelle que soit sa hauteur : ils ne recouvrent ni l'un ni
+  // l'autre. Le texte passe à la ligne : lisible en entier dès 640 px de large.
+  function conteneurAvis() {
+    var c = $("notices");
+    if (!c) {
+      c = document.createElement("div");
+      c.id = "notices";
+      c.style.cssText = "position:fixed;right:12px;z-index:1002;display:flex;flex-direction:column;" +
+        "align-items:flex-end;gap:6px;max-width:min(760px,calc(100vw - 24px));pointer-events:none;";
+      document.body.appendChild(c);
+    }
+    var barre = document.querySelector("footer.statusbar");
+    c.style.bottom = Math.max(84, (barre ? barre.offsetHeight : 26) + 8) + "px";
+    return c;
+  }
+  window.addEventListener("resize", function () { if ($("notices")) conteneurAvis(); });
+  // L'encadré de la fermeture différée, neutre : l'avancement, et sur sa propre
+  // ligne l'avertissement (jamais rogné) ; il disparaît seul à la fin.
+  function remplirFermeture() {
+    var box = $("closing-notice");
+    if (!(closingAfterSave || lecturePourFermeture) || !fermetureTexte) {
+      if (box && box.parentNode) box.parentNode.removeChild(box);
+      return;
+    }
+    if (!box) {
+      box = document.createElement("div");
+      box.id = "closing-notice";
+      box.setAttribute("role", "status");
+      box.style.cssText = "pointer-events:auto;padding:8px 12px;font-size:12px;line-height:1.45;" +
+        "color:var(--text,#1c2330);background:var(--header-bg2,#f5f6f8);border:1px solid var(--border,#ccd);" +
+        "border-radius:4px;box-shadow:0 6px 20px rgba(0,0,0,.2);overflow-wrap:anywhere;";
+      conteneurAvis().appendChild(box);
+    }
+    box.textContent = "";
+    var ligne = document.createElement("div");
+    ligne.textContent = msgText(fermetureTexte);
+    var avertissement = document.createElement("div");
+    avertissement.style.fontWeight = "600";
+    avertissement.textContent = I18N.t("engine.closing_warning");
+    box.appendChild(ligne);
+    box.appendChild(avertissement);
+  }
+  I18N.onChange(remplirFermeture);
+  function remplirEchecs() {
+    var box = $("save-failures");
+    if (!echecsAffiches.length) {
+      if (box && box.parentNode) box.parentNode.removeChild(box);
+      return;
+    }
+    if (!box) {
+      box = document.createElement("div");
+      box.id = "save-failures";
+      box.setAttribute("role", "alert");
+      box.style.cssText = "position:relative;pointer-events:auto;" +
+        "padding:8px 30px 8px 12px;font-size:12px;line-height:1.45;color:#fff;background:var(--danger-dark,#b91c1c);" +
+        "border-radius:4px;box-shadow:0 6px 20px rgba(0,0,0,.25);cursor:pointer;overflow-wrap:anywhere;";
+      box.onclick = function () { echecsAffiches = []; remplirEchecs(); };
+      var c = conteneurAvis();
+      c.insertBefore(box, c.firstChild);   // au-dessus de l'encadré de fermeture
+    }
+    box.title = I18N.t("engine.save_failures_close");
+    box.textContent = "";
+    echecsAffiches.forEach(function (m) {
+      var ligne = document.createElement("div");
+      ligne.textContent = msgText(m);
+      box.appendChild(ligne);
+    });
+    var croix = document.createElement("span");
+    croix.textContent = "×";
+    croix.setAttribute("aria-hidden", "true");
+    croix.style.cssText = "position:absolute;right:10px;top:5px;font-size:15px;font-weight:700;";
+    box.appendChild(croix);
+  }
+  I18N.onChange(remplirEchecs);
+
+  // Fin de la séquence de crawl. `failure` (facultatif) : le message d'erreur
+  // d'un démarrage refusé, qui reste alors affiché à la place de « Terminé ».
+  function finishSequence(failure) {
     S.multi.running = false;
     S.running = false;
     S.paused = false;                 // VAGUE 4 (C) : fin réelle -> retour à l'état idle
     updateButtons();
+    // Démarrage refusé : la jauge garde sa valeur (0, ou l'avancement de la pause).
     var fill = $("status-fill");
-    if (fill) fill.style.width = "100%";
+    if (fill && !failure) fill.style.width = "100%";
     var isList = !!(S.multi.seeds && S.multi.seeds.length);
     // Deux nombres, deux accords : chaque groupe « N site(s) » est un message
-    // à part entière, la phrase les place.
+    // à part entière, la phrase les place. Un crawl unique ne compte plus ses
+    // « runs » (la répétition des crawls a été retirée) : « Terminé — N pages. »
     var nDone = S.multi.done, nPages = S.multi.totalPages;
     var pagesMsg = msg("status.n_pages", { count: nPages, n: nPages });
-    setStatusState(isList
+    if (failure) setStatusState(failure);
+    else setStatusState(isList
       ? msg("status.done_sites", { sites: msg("status.n_sites", { count: nDone, n: nDone }), pages: pagesMsg })
-      : msg("status.done_runs", { runs: msg("status.n_runs", { count: nDone, n: nDone }), pages: pagesMsg }));
+      : msg("status.done", { pages: pagesMsg }));
     // Plus aucun worker ne tourne : le dernier `crawl:progress` a été emis par
     // le dernier worker ALORS QU'IL etait encore compte actif (voulu en cours de
     // crawl, mensonger une fois termine).
     setText("status-workers", 0);
     updateMultiStatus();
 
-    // Une entrée d'historique par séquence.
-    addHistoryEntry({
+    // Une entrée d'historique par séquence — sauf un démarrage refusé sans
+    // aucune page : l'adresse refusée (une faute de frappe, peut-être) n'entre
+    // ni dans l'historique ni dans l'autocomplétion. Le refus d'une REPRISE
+    // (des pages déjà crawlées) garde son entrée.
+    if (!failure || S.pages.length) addHistoryEntry({
       date: new Date().toISOString(),
       // En multi-sites, la seed courante est le DERNIER site de la liste :
       // l'historique afficherait "https://dernier-site.fr" pour une série de 40.
@@ -3151,8 +3738,9 @@
     // B : enregistre le crawl complet (écrase l'ancien du même site).
     // En multi-sites, chaque site a DÉJÀ été enregistré à la fin de son propre
     // crawl (dans le handler `crawl:done`) : re-sauver ici ne ferait que
-    // reecrire à l'identique le dernier de la liste.
-    if (!isList) saveCurrentCrawl(true);
+    // reecrire à l'identique le dernier de la liste. Après un échec, le chemin
+    // du fichier n'est pas annoncé : il remplacerait le message d'erreur.
+    if (!isList) saveCurrentCrawl(!failure);
 
     // Le crawl est fini : on repasse d'un affichage FRAIS (cadence plafonnee)
     // à un affichage EXACT. Sans ce rendu force, la carte des near-duplicates
@@ -3177,6 +3765,7 @@
     S.sitemapUrls = [];
     S.sitemapSet = {};
     S.bw = { totalBytes: 0, maxWeight: 0 };
+    resetStatusBar();
     closeDetail();
     renderTabCounts();
     renderOverview();
@@ -3195,9 +3784,10 @@
     S.multi = {
       target: 0, done: 0, totalBytes: 0, totalPages: 0, totalDynamic: 0, totalMiss: 0,
       stopRequested: false, running: false,
-      config: { seed_url: data.seed_url || "" }, lastTechs: [], lastRows: []
+      config: { seed_url: data.seed_url || "" }, lastTechs: []
     };
     var pages = Array.isArray(data.pages) ? data.pages : [];
+    S.multi.pagesEnregistrees = pages.length;   // un crawl rouvert est déjà enregistré (fermeture)
     for (var i = 0; i < pages.length; i++) ingestPage(pages[i]);
     S.sitemapUrls = Array.isArray(data.sitemap_urls) ? data.sitemap_urls : [];
     S.sitemapSet = {};
@@ -3205,16 +3795,94 @@
       if (S.sitemapUrls[s]) S.sitemapSet[normUrl(S.sitemapUrls[s])] = true;
     }
     var vp = { url: data.seed_url || "", count: pages.length, n: pages.length };
-    if (data.date) vp.date = String(data.date).slice(0, 10);
+    // Horodatage COMPLET : fmtDate (via msgText) en écrit le jour LOCAL ; un ancien
+    // fichier qui n'a que « AAAA-MM-JJ » est lu tel quel.
+    if (data.date) vp.date = String(data.date);
     setStatusState(msg(data.date ? "status.viewing_dated" : "status.viewing", vp));
     updateButtons();
     scheduleRender();
   }
 
+  // C : relit un crawl ENREGISTRÉ EN FLUX, puis l'affiche par loadSavedCrawl().
+  // `ouverture` : promesse du numéro de la lecture ouverte par le moteur
+  // (saved_crawl_open, pick_open_project), ou null s'il n'y a rien à lire.
+  // Le moteur remet les pages par messages de ~4 Mo (saved_crawl_next), jusqu'au
+  // message de fin ; elles ne s'affichent qu'une fois TOUT reçu, donc un fichier
+  // invalide ne remplace pas ce qui est à l'écran.
+  // Autrefois le fichier arrivait d'un bloc, comme une seule chaîne : pour le
+  // crawl de 415 Mo, une réponse de 896 Mo et un texte de 812 Mo dans la
+  // fenêtre en plus des pages ; au-delà de ~480 Mo, il ne s'ouvrait plus du tout.
+  // `absentEstUneErreur` : vrai pour « Revoir » (saved_crawl_open) — pas de
+  // lecture veut dire que le fichier a disparu ou ne s'ouvre plus, et on le dit ;
+  // faux pour « Ouvrir un projet », où c'est la boîte de dialogue annulée.
+  var savedReadTurn = 0;   // la dernière ouverture OBTENUE ; une plus ancienne est abandonnée
+  function openSavedCrawl(ouverture, absentEstUneErreur) {
+    // La fenêtre reste utilisable pendant la lecture : si un crawl démarre,
+    // reprend ou si l'on vide entre-temps, la lecture est abandonnée.
+    var enCoursAuDepart = S.running, turn = 0, multiAuDepart = null;
+    function obsolete() {
+      return turn !== savedReadTurn || S.multi !== multiAuDepart || (S.running && !enCoursAuDepart);
+    }
+    return ouverture.then(function (read) {
+      if (read == null) {
+        if (absentEstUneErreur) setStatusState(msg("status.bad_project"));
+        return false;
+      }
+      // Un crawl a démarré pendant la boîte de dialogue : on ne le jette pas.
+      if (S.running && !enCoursAuDepart) {
+        TAURI.core.invoke("saved_crawl_close", { read: read }).catch(function () {});
+        return false;
+      }
+      // Le tour n'est pris qu'une fois la lecture OBTENUE : une seconde
+      // ouverture dont on annule la boîte de dialogue n'abandonne plus la
+      // première (son avancement restait figé dans la barre d'état).
+      turn = ++savedReadTurn;
+      multiAuDepart = S.multi;
+      var pages = [];
+      // Quelques secondes pour un très gros crawl : le compte des pages lues
+      // dit que l'ouverture avance (`n` déjà mis en forme, `count` brut pour le pluriel).
+      function avancement() {
+        setStatusState(msg("engine.opening_saved", { count: pages.length, n: I18N.fmtNumber(pages.length) }));
+      }
+      avancement();
+      function suivant() {
+        if (obsolete()) {
+          TAURI.core.invoke("saved_crawl_close", { read: read }).catch(function () {});
+          return false;
+        }
+        return TAURI.core.invoke("saved_crawl_next", { read: read }).then(function (m) {
+          if (obsolete()) return suivant();      // referme la lecture
+          if (m && m.done === true) {
+            loadSavedCrawl({ seed_url: m.seed_url, date: m.date, pages: pages, sitemap_urls: m.sitemap_urls });
+            return true;
+          }
+          if (!m || !Array.isArray(m.pages)) throw new Error("message inattendu");
+          for (var i = 0; i < m.pages.length; i++) pages.push(m.pages[i]);
+          avancement();
+          return suivant();
+        });
+      }
+      return suivant().catch(function (e) {
+        // Fichier qui n'est pas un crawl (ou lecture interrompue) : on jette
+        // ce qui a été reçu, comme quand JSON.parse échouait.
+        if (obsolete()) return false;
+        console.error("saved_crawl_next:", e);
+        setStatusState(msg("status.bad_project"));
+        return false;
+      });
+    }, function (e) {
+      console.error("saved_crawl open:", e);
+      setStatusState(msg("status.bad_project"));   // plus seulement la console
+      return false;
+    });
+  }
+
   // C : dialogue Nouveau crawl / Revoir l'enregistrement (créé dynamiquement).
+  // `data` : l'aperçu du moteur (saved_crawl_info : seed_url, date, count) ;
+  // les pages ne sont lues que si l'on choisit « Revoir ».
   function showCrawlChoice(url, data) {
     var old = $("crawl-choice-modal"); if (old) old.parentNode.removeChild(old);
-    var nb = Array.isArray(data.pages) ? data.pages.length : 0;
+    var nb = (typeof data.count === "number") ? data.count : 0;
     var date = data.date ? String(data.date).slice(0, 10) : "";
     var ov = document.createElement("div");
     ov.id = "crawl-choice-modal";
@@ -3236,8 +3904,10 @@
     var titleEl = box.children[0], textEl = box.children[1];
     ov.__fill = function () {
       titleEl.textContent = I18N.t("dialog.saved_title");
+      // Nombre au format de la langue (`count` brut, pour l'accord) ; date au jour
+      // LOCAL de l'horodatage complet de l'aperçu (fmtDate).
       textEl.innerHTML = tHtml(date ? "dialog.saved_text_dated" : "dialog.saved_text",
-                               { count: nb, n: nb, date: date },
+                               { count: nb, n: I18N.fmtNumber(nb), date: fmtDate(data.date) },
                                { url: '<strong>' + esc(url) + '</strong>' });
       setText("cc-cancel", I18N.t("dialog.cancel"));
       setText("cc-review", I18N.t("dialog.review"));
@@ -3246,7 +3916,10 @@
     ov.__fill();
     function close() { if (ov.parentNode) ov.parentNode.removeChild(ov); }
     $("cc-cancel").onclick = close;
-    $("cc-review").onclick = function () { close(); loadSavedCrawl(data); };
+    $("cc-review").onclick = function () {
+      close();
+      openSavedCrawl(TAURI.core.invoke("saved_crawl_open", { id: url, dir: saveDirArg() }), true);
+    };
     $("cc-new").onclick = function () { close(); S._forceNew = true; onSubmit({ preventDefault: function () {} }); };
     ov.onclick = function (e) { if (e.target === ov) close(); };
   }
@@ -3304,7 +3977,7 @@
     if (!b) return;
     if (!IMPORT.urls.length) { b.hidden = true; b.innerHTML = ""; return; }
     b.hidden = false;
-    b.innerHTML = esc(I18N.t("import.badge", { count: IMPORT.urls.length, n: IMPORT.urls.length })) +
+    b.innerHTML = esc(I18N.t("import.badge", { count: IMPORT.urls.length, n: I18N.fmtNumber(IMPORT.urls.length) })) +
                   ' <span class="x" title="' + esc(I18N.t("import.remove_title")) + '">×</span>';
     b.querySelector(".x").addEventListener("click", function () {
       IMPORT.urls = [];
@@ -3346,7 +4019,7 @@
       target: IMPORT.urls.length, done: 0,
       totalBytes: 0, totalPages: 0, totalDynamic: 0, totalMiss: 0,
       stopRequested: false, running: true,
-      config: config, lastTechs: [], lastRows: [],
+      config: config, lastTechs: [],
       seeds: IMPORT.urls.slice(),   // <- active le mode multi-sites
       pagesOffset: 0
     };
@@ -3438,6 +4111,7 @@
     });
   }
 
+  var apercuEnCours = false;   // aperçu d'un crawl enregistré demandé, pas encore revenu (onSubmit)
   function onSubmit(evt) {
     evt.preventDefault();
     if (!TAURI) { alert(I18N.t("dialog.no_tauri")); return; }
@@ -3463,16 +4137,26 @@
     }
 
     // C : si un crawl est déjà enregistré pour cette URL, proposer Nouveau / Revoir.
+    // Le moteur n'en rend qu'un APERÇU (adresse, date, nombre de pages) : le
+    // fichier, qui peut peser des centaines de Mo, n'est lu que sur « Revoir ».
+    // Cet aperçu prend un peu de temps pour un très gros crawl (le fichier est
+    // parcouru) : la barre d'état le dit, et un second clic pendant ce temps
+    // est ignoré (chaque clic relançait une analyse).
     if (!S._forceNew && typedUrl) {
-      TAURI.core.invoke("load_crawl", { id: typedUrl, dir: saveDirArg() }).then(function (json) {
-        var saved = null;
-        try { saved = json ? JSON.parse(json) : null; } catch (e) { saved = null; }
-        if (saved && Array.isArray(saved.pages) && saved.pages.length) {
-          showCrawlChoice(typedUrl, saved);
+      if (apercuEnCours) return;
+      apercuEnCours = true;
+      var etatAvant = S.statusMsg, demarrage = msg("status.starting");
+      setStatusState(demarrage);
+      TAURI.core.invoke("saved_crawl_info", { id: typedUrl, dir: saveDirArg() }).then(function (info) {
+        apercuEnCours = false;
+        if (info && info.count > 0) {
+          // Rien n'a démarré : la barre retrouve son message, sauf si un autre l'a remplacé.
+          if (S.statusMsg === demarrage) setStatusState(etatAvant);
+          showCrawlChoice(typedUrl, info);
         } else {
           S._forceNew = true; onSubmit(evt);
         }
-      }).catch(function () { S._forceNew = true; onSubmit(evt); });
+      }).catch(function () { apercuEnCours = false; S._forceNew = true; onSubmit(evt); });
       return;
     }
     S._forceNew = false;
@@ -3485,7 +4169,7 @@
       target: repetitions, done: 0,
       totalBytes: 0, totalPages: 0, totalDynamic: 0, totalMiss: 0,
       stopRequested: false, running: true,
-      config: config, lastTechs: [], lastRows: []
+      config: config, lastTechs: []
     };
 
     // Nouvelle séquence : jeu de données vierge + reset des filtres.
@@ -3536,19 +4220,13 @@
       target: 0, done: 0,
       totalBytes: 0, totalPages: 0, totalDynamic: 0, totalMiss: 0,
       stopRequested: false, running: false,
-      config: {}, lastTechs: [], lastRows: []
+      config: {}, lastTechs: []
     };
     S.running = false;
     S.search = ""; var se = $("grid-search"); if (se) se.value = "";
     clearCategoryFilter();
-    resetData();
-    var fill = $("status-fill"); if (fill) fill.style.width = "0%";
+    resetData();                       // remet aussi la barre d'état à zéro (resetStatusBar)
     setStatusState(msg("status.idle"));
-    setText("status-done", 0); setText("status-total", 0);
-    setText("status-queued", 0); setText("status-rate", 0); S.statusRate = null;
-    S.statusBytes = 0;
-    setText("status-bytes", fmtBytes(0));
-    setText("status-workers", 0); setText("status-threads", 0);
     updateMultiStatus();
     S.paused = false;                  // VAGUE 4 (C) : retour à l'état idle
     updateButtons();
@@ -3584,9 +4262,16 @@
     S.catFilter = { predicate: found.row.pred, labelKey: found.row.labelKey };
     // Indicateur de filtre actif.
     var af = $("active-filter");
-    if (af) { af.hidden = false; setText("active-filter-label", I18N.t(found.row.labelKey)); }
+    if (af) { af.hidden = false; setText("active-filter-label", catFilterLabel(found)); }
     setActiveTab(found.tab);
     renderOverview();
+  }
+
+  // Libellé du filtre actif : le GROUPE et la ligne du panneau de synthèse
+  // (« Titres › Manquant ») — la ligne seule (« Manquant ») ne dit pas s'il
+  // s'agit du title, de la meta description ou du H1.
+  function catFilterLabel(found) {
+    return I18N.t("overview.filter_label", { group: I18N.t(found.groupKey), row: I18N.t(found.row.labelKey) });
   }
 
   function clearCategoryFilter() {
@@ -3658,7 +4343,7 @@
       }
     }
     // Reutilise le helper commun downloadCsv (BOM + RFC4180).
-    var header = def.columns.map(function (c) { return colTitle(c); });
+    var header = def.columns.map(csvHeader);
     var rows = mapped.map(function (cells) {
       return cells.map(function (c) { return c.text; });
     });
@@ -3682,8 +4367,9 @@
                     l.rel || "", l.internal ? I18N.t("cell.internal") : I18N.t("cell.external") ]);
       }
     }
+    // Dernière colonne : Interne / Externe, d'où son nom « type de lien ».
     downloadCsv(I18N.t("export.file_links"),
-                [I18N.t("export.h_source"), I18N.t("export.h_target"), I18N.t("export.h_anchor"), "rel", I18N.t("export.h_internal")],
+                [I18N.t("export.h_source"), I18N.t("export.h_target"), I18N.t("export.h_anchor"), "rel", I18N.t("export.h_link_type")],
                 rows);
   }
 
@@ -3748,10 +4434,11 @@
                 [I18N.t("report.h_url"), I18N.t("report.h_canonical"), I18N.t("report.h_type")], rows);
   }
 
-  // Pages non-indexables : url, raison (noindex / canonicalisée / bloquée).
+  // Pages non-indexables : url, raison (noindex / canonicalisée / code HTTP).
   // On ne liste que les pages effectivement NON indexables. La raison est
   // déduite des signaux SEO : meta/x-robots noindex, canonical vers une autre
-  // URL (canonicalised), ou statut HTTP non-2xx (bloquée/erreur).
+  // URL (canonicalised), ou statut HTTP non-2xx — donné tel quel (« code HTTP
+  // 301 ») : une redirection ou une page absente n'est pas « bloquée ».
   function reportNonIndexable() {
     var rows = [];
     for (var i = 0; i < S.pages.length; i++) {
@@ -3763,7 +4450,8 @@
       if (s && s.noindex) reasons.push("noindex");
       if (s && s.canonicalised) reasons.push(I18N.t("report.reason_canonicalised"));
       var code = p.status || 0;
-      if (code < 200 || code >= 300) reasons.push(I18N.t("report.reason_blocked", { code: code }));
+      if (!code) reasons.push(I18N.t("report.reason_no_response"));
+      else if (code < 200 || code >= 300) reasons.push(I18N.t("report.reason_status_code", { code: code }));
       if (!s) reasons.push(I18N.t("report.reason_not_html"));
       if (!reasons.length) reasons.push(I18N.t("report.reason_non_indexable"));
       rows.push([ p.url || "", reasons.join(" ; ") ]);
@@ -3806,7 +4494,8 @@
   function persistPrefs() {
     try { localStorage.setItem("seoSpiderPrefs", JSON.stringify(PREFS)); } catch (e) {}
   }
-  // Dossier d'enregistrement a passer aux commandes save_crawl/load_crawl (null = defaut app).
+  // Dossier d'enregistrement a passer aux commandes save_crawl_begin /
+  // saved_crawl_info / saved_crawl_open (null = defaut app).
   function saveDirArg() { return (PREFS.saveDir && PREFS.saveDir.trim()) ? PREFS.saveDir.trim() : null; }
 
   // =========================================================================
@@ -3892,16 +4581,12 @@
       }).catch(function (e) { console.error("pick_folder:", e); });
     });
     // #E : ouvrir un PROJET enregistré (dialogue fichier .json) -> consultation.
+    // Le moteur ouvre une LECTURE du fichier choisi (null si annulé) ; ses pages
+    // arrivent en flux (openSavedCrawl), plus d'un bloc.
     var openBtn = $("btn-open-project");
     if (openBtn) openBtn.addEventListener("click", function () {
       if (!TAURI) return;
-      TAURI.core.invoke("pick_open_project", { filterName: I18N.t("engine.dialog_project") }).then(function (json) {
-        if (!json) return;
-        var data = null;
-        try { data = JSON.parse(json); } catch (e) { data = null; }
-        if (data && Array.isArray(data.pages)) { loadSavedCrawl(data); }
-        else { setStatusState(msg("status.bad_project")); }
-      }).catch(function (e) { console.error("pick_open_project:", e); });
+      openSavedCrawl(TAURI.core.invoke("pick_open_project", { filterName: I18N.t("engine.dialog_project") }));
     });
   }
 
@@ -4050,7 +4735,7 @@
   function historyLabel(h) {
     var seeds = Array.isArray(h.seeds) ? h.seeds : null;
     if (!seeds || !seeds.length) return h.url;
-    return I18N.t("history.site_list", { count: seeds.length, n: seeds.length, host: hostOf(seeds[0]) });
+    return I18N.t("history.site_list", { count: seeds.length, n: I18N.fmtNumber(seeds.length), host: hostOf(seeds[0]) });
   }
   function refreshUrlDatalist() {
     var dl = $("url-history");
@@ -4241,6 +4926,7 @@
     initDetailResize();   // panneau de detail redimensionnable (hauteur persistee)
     initExternalLinks();  // liens d'URL -> navigateur par defaut du système
     initMultiSelect();    // clic / Shift+clic / Ctrl+clic -> copie des adresses
+    initCellTips();       // infobulle au survol d'une cellule coupée
 
     // Volet de réglages repliable.
     var toggle = $("btn-toggle-settings");
@@ -4367,22 +5053,23 @@
   // juste avant cet appel. (Le champ « Pages max » s'abonne dans setupControls.)
   // =========================================================================
   function onLangChange() {
-    decimalSepCache = null;
     updateButtons();
     setStatusState(S.statusMsg);
     setText("status-bytes", fmtBytes(S.statusBytes || 0));
-    if (S.statusRate != null) setText("status-rate", fmtDec(S.statusRate, 1, 1, S.statusRate.toFixed(1)));
+    if (S.statusRate != null) setText("status-rate", fmtDec(S.statusRate, 1, 1));
+    renderStatusCounts();        // séparateur de milliers de la nouvelle langue
     updateMultiStatus();
     renderImportBadge();
     renderNetInfo();
     renderCopyButton();
     refreshUrlDatalist();       // libellés des séries de sites proposées par l'autocomplétion
+    renderTabCounts();          // compteurs des onglets : séparateur de milliers de la langue
     renderOverview();
     renderGrid();               // l'en-tête se reconstruit : la langue est dans sa signature
     if (S.selectedUrl) renderDetail();
     if (S.catId) {
       var found = findCat(S.catId);
-      if (found) setText("active-filter-label", I18N.t(found.row.labelKey));
+      if (found) setText("active-filter-label", catFilterLabel(found));
     }
     var menu = $("ctx-menu");
     if (menu && !menu.hidden) fillCtxMenu();

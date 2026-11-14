@@ -1,10 +1,13 @@
 //! Coût mémoire des champs que le chantier i18n a ajoutés aux problèmes SEO
 //! (`Issue::code`, `Issue::params`), mesuré sur les VRAIS types du moteur.
 //!
-//! Le moteur garde chaque page en entier dans `summary.pages` pendant tout le
-//! crawl, puis la clone à la fin (`crawler.rs`) : quelques centaines d'octets de
-//! plus par problème font des centaines de Mo à 200 000 pages, sur une
-//! application qui a déjà manqué de mémoire.
+//! Quand ce test a été écrit (13/11/2026), le moteur gardait chaque page en
+//! entier dans `summary.pages` pendant tout le crawl, puis la clonait à la fin :
+//! quelques centaines d'octets de plus par problème faisaient des centaines de
+//! Mo à 200 000 pages. Depuis le 14/11/2026, il ne garde plus les pages (cf.
+//! `CrawlSummary::tally`, `tests/memoire_fin_de_crawl.rs`) : un problème ne vit
+//! plus que le temps de sa page (au plus une page par thread du crawl). Le test
+//! reste un garde-fou sur la taille d'un problème.
 //!
 //! Test d'intégration = binaire À PART : son allocateur compteur ne touche ni la
 //! bibliothèque ni ses autres tests. Compteurs par thread (les tests tournent en
