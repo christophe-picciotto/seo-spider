@@ -6,7 +6,7 @@ mod commands;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use commands::{ClosingState, CrawlState, SavedCrawlReads};
+use commands::{ClosingState, CrawlState, ExportSessions, SavedCrawlReads};
 use crawl_core::savedcrawl::{CloseOutcome, SaveSessions, CLOSE_REASK, CLOSE_SILENCE};
 use tauri::{Emitter, Manager};
 
@@ -31,6 +31,8 @@ fn main() {
         .manage(SavedCrawlReads::default())
         // Enregistrements de crawls en cours (en morceaux, un par site).
         .manage(SaveSessions::default())
+        // Exports CSV en cours d'écriture (dossier des téléchargements).
+        .manage(ExportSessions::default())
         .manage(ClosingState::default())
         // Fermer la fenêtre : la fermeture est TOUJOURS d'abord soumise à la
         // fenêtre — elle seule sait si elle a des pages non enregistrées (à
@@ -130,6 +132,10 @@ fn main() {
             commands::save_crawl_part,
             commands::save_crawl_end,
             commands::save_crawl_abort,
+            commands::export_begin,
+            commands::export_part,
+            commands::export_end,
+            commands::export_abort,
             commands::saved_crawl_info,
             commands::saved_crawl_open,
             commands::saved_crawl_next,
@@ -153,8 +159,11 @@ fn main() {
             // Fermeture FORCÉE pendant un enregistrement (seconde demande, ou
             // délai de sûreté) : la fenêtre ne remettra plus aucun morceau. Le
             // temporaire incomplet est retiré, l'ancien fichier du site reste.
+            // Un export en cours d'écriture est retiré de même : jamais un CSV
+            // tronqué qui passerait pour complet.
             if let tauri::RunEvent::Exit = event {
                 app.state::<SaveSessions>().abort_all();
+                app.state::<ExportSessions>().abort_all();
             }
         });
 }

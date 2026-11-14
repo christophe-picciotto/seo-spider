@@ -941,6 +941,8 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "toast.copied": {"one":"{n} value copied — {col} column","other":"{n} values copied — {col} column"},
   // Message bref (2 s) quand le presse-papiers a refusé la copie.
   "toast.copy_failed": "Copy failed",
+  // Message affiché après un export CSV (message de 6 s, et barre d'état). {file} = chemin complet du fichier que l'application vient d'écrire (par exemple C:\Users\nom\Downloads\crawl-internal-2026-11-14-21-43-29.csv).
+  "toast.exported": "Export saved: {file}",
   // Titre du dialogue affiché quand on lance un crawl sur un site déjà enregistré.
   "dialog.saved_title": "Crawl already saved",
   // Texte du même dialogue : {url} = adresse du site (en gras) ; {n} = nombre de pages enregistrées (séparateur de milliers de la langue). Le français tutoie (« veux-tu ») : registre familier voulu par l'auteur, à garder si la langue le permet.
@@ -1167,6 +1169,8 @@ window.SEO_SPIDER_LOCALES["en"] = {
   "engine.saving": "Saving the crawl… {pct}%",
   // Encadré rouge en bas à droite, qui reste affiché jusqu'au clic (avec les autres échecs d'enregistrement de la séance, un par ligne) ; aussi dans la barre d'état (en bas, à gauche) si le crawl affiché est celui-là. Le fichier du crawl n'a pas pu être écrit sur le disque (disque plein, dossier interdit en écriture…). {error} = la raison, telle que la donne le système (souvent déjà dans la langue de Windows), jamais traduite. L'ancien fichier du même site, s'il existait, reste intact.
   "engine.save_failed": "Could not save the crawl: {error}",
+  // Encadré rouge en bas à droite, qui reste affiché jusqu'au clic (comme engine.save_failed), quand le fichier CSV d'un export n'a pas pu être écrit. {error} = la raison donnée par le système.
+  "engine.export_failed": "Could not save the export: {error}",
   // Encadré rouge en bas à droite, qui reste affiché jusqu'au clic (avec les autres échecs d'enregistrement de la séance, un par ligne) ; aussi dans la barre d'état (en bas, à gauche) si le crawl affiché est celui-là. Le crawl est entièrement écrit, mais n'a pas pu REMPLACER le fichier précédent du même site (souvent : un antivirus, un outil de synchronisation ou un autre programme tient ce fichier ouvert). Il est gardé dans un autre fichier, à côté, que « Ouvrir un projet » sait ouvrir. {error} = la raison donnée par le système, jamais traduite ; {path} = le chemin complet de ce fichier (par exemple C:\…\crawls\https___site.fr_.20261114T021507Z.json), jamais traduit.
   "engine.save_kept": "Could not replace the previous file: {error} — the crawl was kept in {path}",
   // Première ligne de l'encadré de fermeture (en bas à droite, gris, il disparaît seul à la fin) : l'utilisateur a demandé à fermer la fenêtre pendant un crawl ou pendant que le crawl s'enregistrait. Un crawl en cours est mis en pause, puis enregistré ; la fenêtre attend la fin de l'enregistrement (de quelques secondes à quelques minutes pour un très gros crawl), puis se ferme toute seule. {pct} = pourcentage déjà enregistré, entier de 0 à 99. La seconde ligne de l'encadré est engine.closing_warning. Pour « % », suivez la typographie de votre langue (comme engine.saving).

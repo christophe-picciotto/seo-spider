@@ -2837,15 +2837,15 @@
   }
 
   // Message flottant bref, en bas de la fenêtre. `m` : un message (clé +
-  // paramètres, cf. msg) ou un texte déjà prêt.
-  function toast(m) {
+  // paramètres, cf. msg) ou un texte déjà prêt. `ms` : sa durée (2 s par défaut).
+  function toast(m, ms) {
     var t = $("toast");
     if (!t) return;
     toast._m = m;
     t.textContent = msgText(m);
     t.hidden = false;
     clearTimeout(toast._h);
-    toast._h = setTimeout(function () { t.hidden = true; }, 2000);
+    toast._h = setTimeout(function () { t.hidden = true; }, ms || 2000);
   }
 
   // --- Menu contextuel (clic droit sur une cellule) -----------------------
@@ -4682,20 +4682,85 @@
   // header : tableau de libellés ; rows : tableau de tableaux de cellules brutes.
   // filenameBase : suffixe horodate ajoute automatiquement. Reutilise par
   // l'export par onglet ET par les exports en masse / rapports (Vague 3).
+  // Séparateur des CSV : celui qu'attend le tableur de l'utilisateur. Un tableur réglé dans une langue qui
+  // écrit les décimales avec une virgule (français, allemand, espagnol, russe…) attend le POINT-VIRGULE et
+  // range sinon toute la ligne dans la première colonne ; les autres (anglais, japonais…) attendent la
+  // virgule. On lit la langue du SYSTÈME (c'est elle que suit le tableur), pas celle choisie dans
+  // l'application ; csvCell met de toute façon entre guillemets une valeur qui contient l'un ou l'autre.
+  function csvSeparator() {
+    var s;
+    try { s = (1.5).toLocaleString(); } catch (e) { s = ""; }
+    if (!/1.5/.test(s)) { try { s = (1.5).toLocaleString(I18N.lang); } catch (e2) { s = "1.5"; } }
+    return s.indexOf(",") >= 0 ? ";" : ",";
+  }
+
   function downloadCsv(filenameBase, header, rows) {
-    var lines = [];
-    lines.push(header.map(function (c) { return csvCell(c); }).join(","));
-    for (var i = 0; i < rows.length; i++) {
-      lines.push(rows[i].map(function (c) { return csvCell(c); }).join(","));
+    var sep = csvSeparator();
+    function ligne(cells) { return cells.map(function (c) { return csvCell(c); }).join(sep); }
+    // Horodatage du nom de fichier à l'heure LOCALE (il était en temps universel : une ou deux heures d'écart).
+    var d = new Date(), p2 = function (n) { return (n < 10 ? "0" : "") + n; };
+    var stamp = d.getFullYear() + "-" + p2(d.getMonth() + 1) + "-" + p2(d.getDate()) + "-" +
+                p2(d.getHours()) + "-" + p2(d.getMinutes()) + "-" + p2(d.getSeconds());
+    var fichier = filenameBase + "-" + stamp + ".csv";
+    // Une fois le fichier écrit, on le DIT (message de quelques secondes, et barre d'état quand aucun crawl
+    // n'y écrit) : sans cela on reclique sans savoir que l'export est fait.
+    function annoncer(chemin) {
+      var fait = msg("toast.exported", { file: chemin });
+      toast(fait, 6000);
+      if (!S.running) setStatusState(fait);
     }
-    var csv = "\ufeff" + lines.join("\r\n");   // BOM UTF-8
-    var blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement("a");
-    var stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
-    a.href = url; a.download = filenameBase + "-" + stamp + ".csv";
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    if (!TAURI) {
+      // Hors de l'application (interface ouverte dans un navigateur) : téléchargement du navigateur.
+      var lines = [ligne(header)];
+      for (var k = 0; k < rows.length; k++) lines.push(ligne(rows[k]));
+      var blob = new Blob(["\ufeff" + lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url; a.download = fichier;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+      annoncer(fichier);
+      return;
+    }
+    // Dans l'application, le MOTEUR écrit le fichier dans le dossier des téléchargements et rend son chemin
+    // (export_begin / export_part / export_end, par morceaux comme l'enregistrement d'un crawl). Ce n'est plus
+    // un « téléchargement » : WebView2 y répondait, dès le deuxième, par SA demande « télécharger plusieurs
+    // fichiers : autoriser / bloquer », hors de l'application, et rien ne disait si le fichier était écrit.
+    // Même texte qu'avant, à l'octet près : marque UTF-8 (pour Excel), lignes séparées par CR LF.
+    var buf = "\ufeff" + ligne(header);
+    var i = 0, id = null, sent = 0, encoder = new TextEncoder();
+    function fini() { return i >= rows.length; }
+    // Complète le texte jusqu'à un morceau plein (ou jusqu'à la dernière ligne).
+    function fill() {
+      while (buf.length < SAVE_PART_CHARS && !fini()) buf += "\r\n" + ligne(rows[i++]);
+    }
+    // Remet au moteur les morceaux pleins (à la fin : tout le reste), un à la fois.
+    function flush() {
+      if (buf.length < SAVE_PART_CHARS && !(fini() && buf.length)) return Promise.resolve();
+      var n = Math.min(buf.length, SAVE_PART_CHARS);
+      var c = buf.charCodeAt(n - 1);
+      if (n < buf.length && c >= 0xD800 && c <= 0xDBFF) n--;   // jamais une paire de substitution coupée
+      var part = buf.slice(0, n);
+      buf = buf.slice(n);
+      var bytes = encoder.encode(part);
+      return TAURI.core.invoke("export_part", bytes,
+                               { headers: { "Seo-Spider-Export": String(id), "Seo-Spider-Offset": String(sent) } })
+        .then(function () { sent += bytes.length; return flush(); });
+    }
+    function next() {
+      fill();
+      return flush().then(function () { return (fini() && !buf.length) ? null : next(); });
+    }
+    TAURI.core.invoke("export_begin", { name: fichier })
+      .then(function (n) { id = n; return next(); })
+      .then(function () { return TAURI.core.invoke("export_end", { id: id, total: sent }); })
+      .then(annoncer)
+      .catch(function (err) {
+        if (id != null) TAURI.core.invoke("export_abort", { id: id }).catch(function () {});
+        console.error("export error:", err);
+        // Gardé à l'écran jusqu'au clic, comme un enregistrement de crawl qui échoue.
+        signalerEchec(msg("engine.export_failed", { error: String((err && err.message) || err) }));
+      });
   }
 
   function exportCsv() {

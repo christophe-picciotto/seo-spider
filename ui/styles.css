@@ -328,6 +328,9 @@ a:hover { text-decoration: underline; }
   z-index: 1001; padding: 8px 14px; font-size: 12px; font-weight: 600;
   color: #fff; background: #1f2937; border-radius: 4px;
   box-shadow: 0 6px 20px rgba(0,0,0,.25); pointer-events: none;
+  /* Un message long (le chemin d'un export) : toute la largeur de la fenêtre
+     moins une marge, et il passe à la ligne même sans espace. */
+  width: max-content; max-width: calc(100vw - 24px); overflow-wrap: anywhere;
 }
 .toast[hidden] { display: none; }
 

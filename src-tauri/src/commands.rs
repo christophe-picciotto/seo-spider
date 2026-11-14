@@ -660,6 +660,225 @@ pub async fn save_crawl_abort(saves: State<'_, crawl_core::savedcrawl::SaveSessi
 }
 
 // -----------------------------------------------------------------------------
+// Exporter un CSV : écrit PAR LE MOTEUR dans le dossier des téléchargements
+// -----------------------------------------------------------------------------
+//
+// Jusqu'au 14/11/2026, la fenêtre fabriquait un « téléchargement » (lien
+// invisible cliqué par programme). WebView2 le traitait comme celui d'un site
+// web : dès le deuxième export, il affichait SA demande « télécharger plusieurs
+// fichiers : autoriser / bloquer », hors de l'application, et la fenêtre ne
+// savait jamais si le fichier avait été écrit. Désormais (`downloadCsv` dans
+// main.js), sur le modèle de l'enregistrement d'un crawl :
+//   export_begin(name)          → numéro de l'export ; le fichier est créé dans
+//                                 le dossier des téléchargements, sans jamais
+//                                 remplacer un fichier existant (« nom (2).csv »)
+//   export_part(<octets>)       × n, numéro dans l'en-tête `Seo-Spider-Export`,
+//                                 position dans `Seo-Spider-Offset`
+//   export_end(id, total)       → chemin complet du fichier écrit
+//   export_abort(id)            en cas d'échec : le fichier incomplet est retiré
+
+/// En-tête HTTP qui porte le numéro de l'export dans `export_part`.
+const EXPORT_HEADER: &str = "seo-spider-export";
+
+/// Un export en cours d'écriture.
+struct ExportFile {
+    file: std::fs::File,
+    path: std::path::PathBuf,
+    /// Octets écrits.
+    bytes: u64,
+    /// Position et longueur du dernier morceau écrit (sa répétition est ignorée).
+    last: Option<(u64, usize)>,
+}
+
+impl ExportFile {
+    /// Ferme et retire le fichier, incomplet.
+    fn discard(self) {
+        let ExportFile { file, path, .. } = self;
+        drop(file);
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+#[derive(Default)]
+struct ExportTable {
+    last_id: u32,
+    open: std::collections::HashMap<u32, ExportFile>,
+}
+
+/// Les exports CSV en cours d'écriture (un fichier ouvert par numéro).
+#[derive(Clone, Default)]
+pub struct ExportSessions(Arc<std::sync::Mutex<ExportTable>>);
+
+/// Nom de fichier d'un export, sans son extension : jamais un chemin (les
+/// séparateurs et les caractères que Windows interdit dans un nom deviennent
+/// « _ »), sans point ni espace aux deux bouts, 80 caractères au plus.
+fn export_stem(name: &str) -> String {
+    let name = name.trim();
+    let name = match name.char_indices().rev().nth(3) {
+        Some((at, _)) if name[at..].eq_ignore_ascii_case(".csv") => &name[..at],
+        _ => name,
+    };
+    let stem: String = name
+        .chars()
+        .map(|ch| {
+            if ch.is_control() || matches!(ch, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') {
+                '_'
+            } else {
+                ch
+            }
+        })
+        .take(80)
+        .collect();
+    let stem = stem.trim_matches(|ch: char| ch == '.' || ch.is_whitespace());
+    if stem.is_empty() {
+        "export".to_string()
+    } else {
+        stem.to_string()
+    }
+}
+
+impl ExportSessions {
+    fn table(&self) -> std::sync::MutexGuard<'_, ExportTable> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Crée le fichier de l'export dans `dir` : « nom.csv », ou « nom (2).csv »…
+    /// si ce nom est pris — un fichier existant n'est JAMAIS remplacé. Rend le
+    /// numéro de l'export.
+    pub fn begin(&self, dir: &std::path::Path, name: &str) -> Result<u32, String> {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        let stem = export_stem(name);
+        for n in 1..=999u32 {
+            let file_name = if n == 1 { format!("{stem}.csv") } else { format!("{stem} ({n}).csv") };
+            let path = dir.join(file_name);
+            match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+                Ok(file) => {
+                    let mut table = self.table();
+                    table.last_id += 1;
+                    let id = table.last_id;
+                    table.open.insert(id, ExportFile { file, path, bytes: 0, last: None });
+                    return Ok(id);
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(e.to_string()),
+            }
+        }
+        Err("aucun nom de fichier libre pour cet export".to_string())
+    }
+
+    /// Ajoute un morceau à l'export `id`. `offset` : sa position dans le fichier
+    /// (les octets que la fenêtre a déjà envoyés). La répétition du dernier
+    /// morceau est ignorée ; un morceau hors position, ou une erreur d'écriture,
+    /// abandonne l'export (fichier incomplet retiré).
+    pub fn write(&self, id: u32, offset: u64, bytes: &[u8]) -> Result<(), String> {
+        use std::io::Write;
+        let mut table = self.table();
+        let Some(export) = table.open.get_mut(&id) else {
+            return Err("export inconnu".to_string());
+        };
+        let echec = if offset != export.bytes {
+            if export.last == Some((offset, bytes.len())) {
+                return Ok(());
+            }
+            format!("morceau hors position (octet {offset}, attendu {})", export.bytes)
+        } else {
+            match export.file.write_all(bytes) {
+                Ok(()) => {
+                    export.bytes += bytes.len() as u64;
+                    export.last = Some((offset, bytes.len()));
+                    return Ok(());
+                }
+                Err(e) => e.to_string(),
+            }
+        };
+        let abandonne = table.open.remove(&id);
+        drop(table);
+        if let Some(export) = abandonne {
+            export.discard();
+        }
+        Err(echec)
+    }
+
+    /// Termine l'export `id`. `total` : les octets que la fenêtre a envoyés en
+    /// tout ; s'il diffère de ce qui a été écrit, ou si le système refuse de
+    /// confirmer l'écriture, le fichier est retiré. Rend le chemin du fichier.
+    pub fn end(&self, id: u32, total: u64) -> Result<std::path::PathBuf, String> {
+        let export = self.table().open.remove(&id).ok_or_else(|| "export inconnu".to_string())?;
+        if export.bytes != total {
+            let ecrits = export.bytes;
+            export.discard();
+            return Err(format!("export incomplet ({ecrits} octets écrits, {total} envoyés)"));
+        }
+        if let Err(e) = export.file.sync_all() {
+            export.discard();
+            return Err(e.to_string());
+        }
+        Ok(export.path)
+    }
+
+    /// Abandonne l'export `id` : son fichier, incomplet, est retiré.
+    pub fn abort(&self, id: u32) {
+        let abandonne = self.table().open.remove(&id);
+        if let Some(export) = abandonne {
+            export.discard();
+        }
+    }
+
+    /// Abandonne tous les exports en cours (l'application se ferme : la fenêtre
+    /// ne remettra plus aucun morceau).
+    pub fn abort_all(&self) {
+        let tous: Vec<ExportFile> = self.table().open.drain().map(|(_, e)| e).collect();
+        for export in tous {
+            export.discard();
+        }
+    }
+}
+
+/// Commence un export : crée « name » (extension .csv) dans le dossier des
+/// téléchargements de l'utilisateur. Rend le numéro de l'export.
+#[tauri::command]
+pub async fn export_begin(app: AppHandle, exports: State<'_, ExportSessions>, name: String) -> Result<u32, String> {
+    let dir = app.path().download_dir().map_err(|e| e.to_string())?;
+    let exports = exports.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || exports.begin(&dir, &name))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Ajoute un morceau à un export : le CORPS de l'appel, en octets
+/// (`invoke("export_part", Uint8Array, { headers: { "Seo-Spider-Export": n,
+/// "Seo-Spider-Offset": position } })`), écrit hors du fil principal.
+#[tauri::command]
+pub async fn export_part(exports: State<'_, ExportSessions>, request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let id: u32 = header_number(&request, EXPORT_HEADER).ok_or_else(|| "numéro d'export absent".to_string())?;
+    let offset: u64 = header_number(&request, SAVE_OFFSET_HEADER).ok_or_else(|| "position du morceau absente".to_string())?;
+    let bytes = save_part_bytes(request.body())?;
+    let exports = exports.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || exports.write(id, offset, &bytes))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Termine un export : rend le chemin complet du fichier écrit.
+#[tauri::command]
+pub async fn export_end(exports: State<'_, ExportSessions>, id: u32, total: u64) -> Result<String, String> {
+    let exports = exports.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || exports.end(id, total))
+        .await
+        .map_err(|e| e.to_string())?
+        .map(|p| p.to_string_lossy().to_string())
+}
+
+/// Abandonne un export (erreur côté fenêtre) : le fichier incomplet est retiré.
+#[tauri::command]
+pub async fn export_abort(exports: State<'_, ExportSessions>, id: u32) -> Result<(), String> {
+    let exports = exports.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || exports.abort(id))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// -----------------------------------------------------------------------------
 // Relire un crawl enregistré : EN FLUX (cf. `crawl_core::savedcrawl`)
 // -----------------------------------------------------------------------------
 //
@@ -1133,6 +1352,83 @@ mod tests {
         assert!(save_part_bytes(&InvokeBody::Json(serde_json::json!([123, 256]))).is_err());
         assert!(save_part_bytes(&InvokeBody::Json(serde_json::json!([123, -1]))).is_err());
         assert!(save_part_bytes(&InvokeBody::Json(serde_json::json!({ "json": "{}" }))).is_err());
+    }
+
+    // --- Export CSV écrit par le moteur (14/11/2026) --------------------------
+
+    use super::{export_stem, ExportSessions};
+
+    /// Le nom reçu de la fenêtre ne peut jamais désigner un autre dossier ni
+    /// porter une autre extension : `export_begin` ajoute « .csv » à ce radical.
+    #[test]
+    fn nom_d_export_jamais_un_chemin() {
+        assert_eq!(export_stem("crawl-internal-2026-11-14-21-43-29.csv"), "crawl-internal-2026-11-14-21-43-29");
+        assert_eq!(export_stem("  Rapport été.CSV "), "Rapport été");
+        assert_eq!(export_stem("..\\..\\Windows\\win.ini"), "_.._Windows_win.ini");
+        assert_eq!(export_stem("../../etc/passwd"), "_.._etc_passwd");
+        assert_eq!(export_stem("C:\\a<b>c|d?e*f\"g\n.csv"), "C__a_b_c_d_e_f_g_");
+        assert_eq!(export_stem(".."), "export");
+        assert_eq!(export_stem(".csv"), "export");
+        assert_eq!(export_stem(""), "export");
+        assert_eq!(export_stem(&"é".repeat(300)).chars().count(), 80);
+    }
+
+    /// Un export : les morceaux à la suite, le chemin rendu à la fin ; un fichier
+    /// existant n'est jamais remplacé (le suivant s'appelle « nom (2).csv »).
+    #[test]
+    fn export_ecrit_sans_jamais_remplacer() {
+        let dir = dossier_de_test("export-ecrit");
+        let exports = ExportSessions::default();
+        let entete = "\u{feff}Adresse;Titre\r\n".as_bytes();
+        let ligne = "https://a.fr/;\"Été ; hiver\"".as_bytes();
+        let (milieu, total) = (entete.len() as u64, (entete.len() + ligne.len()) as u64);
+        let a = exports.begin(&dir, "crawl-test.csv").unwrap();
+        exports.write(a, 0, entete).unwrap();
+        exports.write(a, milieu, ligne).unwrap();
+        // La répétition du dernier morceau (repli de Tauri) est ignorée.
+        exports.write(a, milieu, ligne).unwrap();
+        let chemin = exports.end(a, total).unwrap();
+        assert_eq!(chemin, dir.join("crawl-test.csv"));
+        assert_eq!(std::fs::read(&chemin).unwrap(), [entete, ligne].concat());
+        // Même nom une seconde fois : un autre fichier, le premier reste intact.
+        let b = exports.begin(&dir, "crawl-test.csv").unwrap();
+        exports.write(b, 0, b"x").unwrap();
+        assert_eq!(exports.end(b, 1).unwrap(), dir.join("crawl-test (2).csv"));
+        assert_eq!(std::fs::read(&chemin).unwrap().len() as u64, total);
+        // Un export terminé ne reçoit plus rien.
+        assert!(exports.write(a, total, b"y").is_err());
+        assert!(exports.end(a, total).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Morceau hors position, total faux, abandon, fermeture de l'application :
+    /// le fichier incomplet est retiré, il n'en reste jamais un morceau.
+    #[test]
+    fn export_incomplet_ne_laisse_aucun_fichier() {
+        let dir = dossier_de_test("export-incomplet");
+        let exports = ExportSessions::default();
+        let restants = || std::fs::read_dir(&dir).unwrap().count();
+        let a = exports.begin(&dir, "a").unwrap();
+        exports.write(a, 0, b"abc").unwrap();
+        assert!(exports.write(a, 7, b"def").is_err());   // un morceau a été perdu
+        assert!(exports.write(a, 3, b"def").is_err());   // l'export n'existe plus
+        assert_eq!(restants(), 0);
+        let b = exports.begin(&dir, "b").unwrap();
+        exports.write(b, 0, b"abc").unwrap();
+        assert!(exports.end(b, 5).is_err());             // la fenêtre en a envoyé 5
+        assert_eq!(restants(), 0);
+        let c = exports.begin(&dir, "c").unwrap();
+        exports.write(c, 0, b"abc").unwrap();
+        exports.abort(c);
+        exports.abort(c);                                // sans effet la seconde fois
+        assert_eq!(restants(), 0);
+        let d = exports.begin(&dir, "d").unwrap();
+        let e = exports.begin(&dir, "e").unwrap();
+        assert!(d != e);
+        assert_eq!(restants(), 2);
+        exports.abort_all();
+        assert_eq!(restants(), 0);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// `pagesData` disparaît ; toutes les autres clés ressortent telles quelles.
