@@ -1115,3 +1115,10 @@ html:lang(ja) .kv-val { word-break: auto-phrase; overflow-wrap: anywhere; }
 .grid tbody tr.grid-pad,
 .grid tbody tr.grid-pad:hover { background: transparent; cursor: default; }
 .grid tbody tr.grid-pad > td { height: auto; padding: 0; border: 0; max-width: none; }
+
+/* Onglet Bande passante : dans leurs 80 px, la valeur de la colonne Images (« 8 / 5,9 Ko », alignée à droite)
+   et l'en-tête français « Requêtes » étaient coupés de 1 à 2 px (mesuré dans la vraie fenêtre, de 640 à 1100 px).
+   La marge GAUCHE de ces cellules cède quelques pixels : rien ne bouge à droite (alignement des nombres,
+   flèche de tri). Une largeur réglée à la souris garde la priorité. */
+#grid-head[data-tab="bandwidth"] ~ #grid-body td:nth-child(5) { padding-left: 4px; }
+#grid-head[data-tab="bandwidth"] th:nth-child(6) { padding-left: 4px; }
