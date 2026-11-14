@@ -632,7 +632,21 @@
     // Une seule colonne à la fois : c'est ce qu'on copie. Clés = normUrl de la
     // ligne, pour survivre aux re-rendus de la grille pendant un crawl.
     sel: { col: -1, keys: {}, anchor: null },
-    gridRows: [],                       // [{key, texts:[...par colonne]}] dans l'ORDRE AFFICHE
+    // La VUE de la grille : les objets de l'onglet (pages, liens, problèmes…) dans
+    // l'ORDRE AFFICHÉ (filtres et tri appliqués), sans HTML ni texte gardés ; seules
+    // les lignes visibles sont écrites dans la page (renderWindow). Clés, textes et
+    // HTML d'une ligne se calculent à la demande (rowKeyAt, rowTextAt, rowHtmlAt).
+    view: null,                         // { tab, def, items, n }
+
+    // Grille VISIBLE (renderWindow) : key = « onglet|langue » de la hauteur mesurée ; h = hauteur posée sur
+    // toutes les lignes ; hMax = la plus haute ligne vue (h la rejoint au geste suivant) ; first / last =
+    // lignes écrites ; k = échelle de l'ascenseur (1 sous le plafond de Chromium) ; sig = la vue rendue
+    // (onglet, tri, filtres, langue) ; rows = aria-rowcount écrit ; top = haut des lignes (sous le bandeau et
+    // l'en-tête) au dernier rendu ; ktab = onglet de la dernière écriture (et de k) ; voulu = scrollTop d'avant
+    // qu'une vue plus courte ne le borne, à reprendre ; stEcrit = scrollTop à la fin de la dernière écriture ;
+    // probe = tableau témoin.
+    grid: { key: null, h: 0, hMax: 0, first: 0, last: 0, k: 1, ktab: null, sig: null, rows: -1, top: null,
+            voulu: null, stEcrit: null, probe: null },
 
     // Filtre pousse par la sidebar Overview : { predicate(p)->bool, label } ou null
     catFilter: null,
@@ -1760,6 +1774,8 @@
     // Bandeau d'information contextuel. Cas Vague 3 : sur l'onglet Contenu, si le
     // calcul des near-duplicates a été saute (trop de pages), on le signale —
     // sinon l'absence de near-dup serait trompeuse.
+    // (Le bandeau est AU-DESSUS du tableau : quand il apparaît ou disparaît, renderWindow
+    // garde les lignes de la vue en place.)
     var banner = $("grid-banner");
     if (banner) {
       if (S.activeTab === "content" && S.nearDupSkipped) {
@@ -1790,7 +1806,9 @@
     }
     var headSig = S.activeTab + "|" + S.sort.key + "|" + S.sort.dir + "|" + widthsSig + "|" + I18N.lang;
     if (head.__sig !== headSig) {
-      var hh = "<tr>";
+      // aria-rowindex : la ligne d'en-tête est la 1re ; les lignes écrites portent leur rang réel + 2
+      // (seules les lignes visibles sont dans la page, cf. renderWindow).
+      var hh = '<tr aria-rowindex="1">';
       for (var c = 0; c < def.columns.length; c++) {
         var col = def.columns[c];
         var cls = "";
@@ -1806,12 +1824,10 @@
       head.__sig = headSig;
     }
 
-    // --- Lignes (mappees + triees) ---
+    // --- La VUE : les objets de l'onglet, filtrés puis triés, sans aucun HTML ---
+    // L'ordre affiché donne son sens à « de cette ligne à celle-là » (Shift+clic)
+    // et à l'ordre des valeurs copiées ; seules les lignes visibles sont écrites.
     var items = currentItems();
-    var mapped = items.map(function (item) {
-      return { item: item, cells: def.row(item) };
-    });
-
     if (S.sort.key) {
       var idx = -1;
       for (var ci = 0; ci < def.columns.length; ci++) {
@@ -1819,56 +1835,33 @@
       }
       if (idx >= 0) {
         var dir = S.sort.dir === "asc" ? 1 : -1;
-        mapped.sort(function (a, b) {
-          var va = a.cells[idx].sort, vb = b.cells[idx].sort;
+        // Seule la valeur de tri de la colonne est gardée, le temps du tri : le
+        // HTML de toutes les lignes n'est plus construit pour être affiché. Même
+        // comparaison, même tri stable, donc même ordre qu'avant.
+        var keyed = items.map(function (item) { return { item: item, s: def.row(item)[idx].sort }; });
+        keyed.sort(function (a, b) {
+          var va = a.s, vb = b.s;
           var cmp;
           if (typeof va === "number" && typeof vb === "number") cmp = va - vb;
           else cmp = textCompare(String(va), String(vb));
           return cmp * dir;
         });
+        items = keyed.map(function (x) { return x.item; });
       }
     }
-
-    // --- Construction HTML (une chaîne par ligne) ---
-    var rowHtml = [];
-    var selKey = S.selectedUrl ? normUrl(S.selectedUrl) : null;
-    // Ordre d'affichage memorise : c'est lui qui donne son sens a « de cette
-    // ligne a celle-la » (Shift+clic) et l'ordre des adresses copiees.
-    var gridRows = [];
-    // rowClass : applique pour les onglets "pages" ET "sitemap" (surlignage alerte).
-    var hasRowClass = (def.kind === "pages" || def.kind === "sitemap") && typeof def.rowClass === "function";
-    for (var r = 0; r < mapped.length; r++) {
-      var cells = mapped[r].cells;
-      var item = mapped[r].item;
-      var rowUrl = item.url || item.from || "";   // pages/issues -> url ; liens -> from
-      // Classes cumulees : sélection (ligne ouverte dans le detail) + alerte
-      // eventuelle propre à l'onglet (URL trop longue, contenu mixte...).
-      var classes = [];
-      var rowKey = normUrl(rowUrl);
-      gridRows.push({ key: rowKey, texts: cells.map(function (c) { return c.text; }) });
-      var rowSel = (S.sel.col >= 0 && !!S.sel.keys[rowKey]);
-      if (selKey && def.kind === "pages" && normUrl(item.url) === selKey) classes.push("is-selected");
-      if (hasRowClass) { var rc = def.rowClass(item); if (rc) classes.push(rc); }
-      var clsAttr = classes.length ? ' class="' + classes.join(" ") + '"' : "";
-      var rh = '<tr data-url="' + esc(rowUrl) + '"' + clsAttr + '>';
-      for (var k = 0; k < cells.length; k++) {
-        // `tip` : infobulle qui dit AUTRE CHOSE que le texte de la cellule
-        // (libellé complet d'une valeur courte). Une cellule simplement coupée
-        // reçoit son texte entier au survol (initCellTips).
-        rh += "<td" + ((rowSel && k === S.sel.col) ? ' class="is-multi"' : "") +
-          (cells[k].tip ? ' title="' + esc(cells[k].tip) + '"' : "") + ">";
-        rh += cells[k].html + "</td>";
-      }
-      rowHtml.push(rh + "</tr>");
-    }
-    writeGridRows(body, rowHtml);
-    S.gridRows = gridRows;
+    S.view = { tab: S.activeTab, def: def, items: items, n: items.length };
+    // Un GESTE (onglet, tri, recherche, filtres, vue du Sitemap, langue) change la vue ; un rendu de crawl ne
+    // fait que la mettre à jour : la hauteur des lignes ne grandit qu'au premier (cf. renderWindow).
+    var vueSig = [S.activeTab, S.sort.key, S.sort.dir, S.search, S.catId, S.sevFilter, S.sitemapView, I18N.lang].join("|");
+    var geste = vueSig !== S.grid.sig;
+    S.grid.sig = vueSig;
+    renderWindow(true, geste);
     updateSelBar();
 
     // Message "grille vide".
     var empty = $("grid-empty");
     if (empty) {
-      if (mapped.length) { empty.hidden = true; }
+      if (items.length) { empty.hidden = true; }
       else {
         empty.hidden = false;
         if (def.kind === "sitemap") {
@@ -1891,37 +1884,334 @@
     }
   }
 
-  // Écrit les lignes de la grille. Pendant un crawl la grille est récrite ~3
-  // fois par seconde : les lignes DÉJÀ affichées à l'identique sont gardées
-  // telles quelles (mêmes nœuds), seule la suite qui change est récrite. Une
-  // infobulle — qui attend ~0,5 s d'immobilité sur le même élément — peut ainsi
-  // s'afficher pendant un crawl, et le survol en cours n'est pas perdu. Tri,
-  // filtre, onglet ou langue changés : la première ligne diffère, tout est
-  // récrit d'un coup comme avant.
-  function writeGridRows(body, rowHtml) {
-    var prev = body.__rowHtml, same = 0;
-    if (prev && body.__rowTab === S.activeTab && body.rows.length === prev.length) {
-      var lim = Math.min(prev.length, rowHtml.length);
-      while (same < lim && prev[same] === rowHtml[same]) same++;
+  // =========================================================================
+  // GRILLE VISIBLE : seules les lignes vues (et une marge) sont écrites
+  // =========================================================================
+  // Écrire toutes les lignes coûtait ~45 Ko de page par ligne (601 026 nœuds, 894 Mo
+  // pour 20 001 lignes) : la cause des « Out of Memory » de fin de crawl. Le tableau
+  // garde son en-tête fixe, ses largeurs de colonnes (réglées à la souris comprises)
+  // et son défilement horizontal ; son corps contient une ligne d'espacement en haut,
+  // les lignes [first, last[ de S.view (la vue ± GRID_MARGIN lignes), une ligne
+  // d'espacement en bas, de sorte que l'ascenseur a la hauteur de TOUTES les lignes
+  // (et, si le focus du clavier est sur une ligne sortie de la vue, cette ligne et ses
+  // deux voisines, à leur place, séparées des autres par une 3e ligne d'espacement).
+  //
+  // Hauteur de ligne H : celle de la ligne la plus haute de l'onglet (une pastille
+  // pousse une ligne de 26 à 27 px, un badge à 29), MESURÉE : sur un échantillon de
+  // l'onglet écrit hors de la vue à la première écriture (onglet ou langue nouveaux,
+  // vue vide auparavant), puis sur les lignes écrites ; jamais diminuée tant que
+  // l'onglet ne change pas. Une ligne plus haute que H qui arrive pendant un crawl garde
+  // d'abord sa hauteur naturelle (rien ne bouge sous la souris) ; au geste suivant
+  // (défilement, taille, tri, filtre…), toutes les lignes prennent sa hauteur et la
+  // ligne en haut de la vue reste la même, au même endroit.
+  //
+  // Au-delà de ce que le navigateur sait faire défiler (Chromium plafonne une hauteur
+  // à 33 554 428 px, soit ~1,24 million de lignes de 27 px : l'onglet Liens d'un gros
+  // crawl), l'ascenseur est mis à l'échelle (facteur k > 1) : la première et la
+  // dernière ligne restent atteignables, chaque pas de défilement avance de k fois
+  // plus. En dessous, k vaut exactement 1.
+  var GRID_MARGIN = 20;           // lignes écrites au-dessus et au-dessous de la vue
+  var GRID_SAMPLE = 200;          // lignes mesurées hors de la vue pour connaître H
+  var GRID_MAX_PX = 33000000;     // hauteur défilable sûre (plafond de Chromium : 33 554 428)
+  function gridWrap() { return document.querySelector(".gridwrap"); }
+  // Clé, texte et HTML d'une ligne de la vue, calculés à la demande.
+  function rowKeyAt(i) { var it = S.view.items[i]; return normUrl(it.url || it.from || ""); }
+  function rowTextAt(i, col) {
+    var c = S.view.def.row(S.view.items[i])[col];
+    return c && c.text != null ? String(c.text) : "";
+  }
+  // HTML d'une ligne SANS les marques de sélection (ligne ouverte dans le détail,
+  // cellules sélectionnées) : markSelection les pose sur les nœuds écrits ; une
+  // sélection ne fait ainsi jamais récrire une ligne.
+  function rowHtmlAt(v, i, hasRowClass) {
+    var item = v.items[i], cells = v.def.row(item);
+    var rowUrl = item.url || item.from || "";   // pages/issues -> url ; liens -> from
+    // Classes cumulees : alerte eventuelle propre à l'onglet (URL trop longue,
+    // contenu mixte...) + zébrage selon le rang RÉEL (un :nth-child compterait la
+    // ligne d'espacement).
+    var classes = [];
+    if (hasRowClass) { var rc = v.def.rowClass(item); if (rc) classes.push(rc); }
+    if (i % 2 === 1) classes.push("r-alt");
+    var rh = '<tr data-url="' + esc(rowUrl) + '" data-i="' + i + '" aria-rowindex="' + (i + 2) + '"' +
+             (classes.length ? ' class="' + classes.join(" ") + '"' : "") + '>';
+    for (var k = 0; k < cells.length; k++) {
+      // `tip` : infobulle qui dit AUTRE CHOSE que le texte de la cellule
+      // (libellé complet d'une valeur courte). Une cellule simplement coupée
+      // reçoit son texte entier au survol (initCellTips).
+      rh += "<td" + (cells[k].tip ? ' title="' + esc(cells[k].tip) + '"' : "") + ">";
+      rh += cells[k].html + "</td>";
     }
-    if (same === 0) {
-      body.innerHTML = rowHtml.join("");
-    } else {
-      if (same < body.rows.length) {
-        var rg = document.createRange();
-        rg.setStartBefore(body.rows[same]);
-        rg.setEndAfter(body.lastChild);
-        rg.deleteContents();
+    return rh + "</tr>";
+  }
+  // Marques de sélection sur les lignes écrites : la ligne ouverte dans le détail
+  // (is-selected, onglets de pages) et les cellules sélectionnées (is-multi), comme
+  // les posent applySelClasses et openDetail.
+  function markSelection(body, v) {
+    var selKey = S.selectedUrl && v.def.kind === "pages" ? normUrl(S.selectedUrl) : null, col = S.sel.col;
+    var trs = body.querySelectorAll("tr[data-i]");
+    for (var i = 0; i < trs.length; i++) {
+      var key = normUrl(trs[i].getAttribute("data-url") || ""), on = col >= 0 && !!S.sel.keys[key];
+      trs[i].classList.toggle("is-selected", !!selKey && key === selKey);
+      for (var c = 0; c < trs[i].children.length; c++) trs[i].children[c].classList.toggle("is-multi", on && c === col);
+    }
+  }
+  function hasRowClassOf(def) {
+    // rowClass : appliqué pour les onglets "pages" ET "sitemap" (surlignage alerte).
+    return (def.kind === "pages" || def.kind === "sitemap") && typeof def.rowClass === "function";
+  }
+  // Hauteur de la ligne la plus haute d'un échantillon de la vue (GRID_SAMPLE lignes
+  // réparties du début à la fin), écrit hors de la vue dans un tableau témoin de même
+  // classe, mesuré puis vidé.
+  function sampleRowHeight(v) {
+    if (!v.n) return 0;
+    var probe = S.grid.probe;
+    if (!probe || !probe.parentNode) {
+      probe = document.createElement("div");
+      probe.setAttribute("aria-hidden", "true");
+      probe.style.cssText = "position:absolute;left:0;top:0;width:100%;height:0;overflow:hidden;visibility:hidden;pointer-events:none;";
+      probe.innerHTML = '<table class="grid"><tbody></tbody></table>';
+      gridWrap().appendChild(probe);
+      S.grid.probe = probe;
+    }
+    var rc = hasRowClassOf(v.def);
+    var m = Math.min(v.n, GRID_SAMPLE), html = "";
+    for (var s = 0; s < m; s++) html += rowHtmlAt(v, Math.floor(s * v.n / m), rc);
+    var tb = probe.querySelector("tbody");
+    tb.innerHTML = html;
+    var h = 0;
+    for (var r = 0; r < tb.rows.length; r++) { var x = tb.rows[r].getBoundingClientRect().height; if (x > h) h = x; }
+    tb.innerHTML = "";
+    return h;
+  }
+  // Écrit les lignes [first, last[ — et, s'il y en a, les lignes `pin` ([a, b[, hors de
+  // la fenêtre : celle qui a le focus du clavier et ses deux voisines, cf. renderWindow) à
+  // leur place — entre des lignes d'espacement : T en haut, B en bas, et entre les deux
+  // groupes la hauteur des lignes qui les séparent. Une ligne déjà écrite au même rang
+  // avec le même HTML est GARDÉE (même nœud, jamais retirée ni déplacée) : pendant un
+  // crawl, une infobulle — qui attend ~0,5 s d'immobilité sur le même élément —, le survol
+  // en cours et une sélection de texte tiennent (le but du rendu partiel d'avant, qui
+  // comparait toutes les lignes ; on n'en compare plus qu'une centaine).
+  function writeWindow(body, v, first, last, T, B, H, pin) {
+    var top = body.__padTop, bot = body.__padBot, mid = body.__padMid;
+    if (!top || top.parentNode !== body || !bot || bot.parentNode !== body) {
+      body.innerHTML = '<tr class="grid-pad" aria-hidden="true"><td></td></tr><tr class="grid-pad" aria-hidden="true"><td></td></tr>';
+      top = body.__padTop = body.rows[0];
+      bot = body.__padBot = body.rows[1];
+      body.__win = null;
+    }
+    if (!mid) {
+      mid = body.__padMid = document.createElement("tr");
+      mid.className = "grid-pad"; mid.setAttribute("aria-hidden", "true");
+      mid.appendChild(document.createElement("td"));
+    }
+    // Groupes de rangs écrits, dans l'ordre des rangs, et hauteur des espacements.
+    var spans = [[first, last]], hMid = 0;
+    if (pin && pin[1] <= first) { spans = [pin, [first, last]]; hMid = (first - pin[1]) * H; T = pin[0] * H; }
+    else if (pin) { spans = [[first, last], pin]; hMid = (pin[0] - last) * H; B = Math.max(0, B - (pin[1] - last) * H); }
+    var ncol = v.def.columns.length;
+    top.firstChild.colSpan = ncol; bot.firstChild.colSpan = ncol; mid.firstChild.colSpan = ncol;
+    top.firstChild.style.height = T + "px";
+    bot.firstChild.style.height = B + "px";
+    mid.firstChild.style.height = hMid + "px";
+    var rc = hasRowClassOf(v.def);
+    var html = {}, prev = body.__win, keep = {};
+    for (var s = 0; s < spans.length; s++) {
+      for (var i = spans[s][0]; i < spans[s][1]; i++) {
+        html[i] = rowHtmlAt(v, i, rc);
+        if (prev && prev.tab === v.tab && prev.html[i] === html[i]) keep[i] = true;
       }
-      if (same < rowHtml.length) body.insertAdjacentHTML("beforeend", rowHtml.slice(same).join(""));
     }
-    // Le HTML des lignes n'est gardé que PENDANT un crawl, seul moment où des
-    // rendus répétés gardent le haut de la grille ; hors crawl, chaque rendu vient
-    // d'un geste qui change les lignes (tri, filtre, onglet, langue), et ce texte
-    // coûtait 74 à 142 Mo sur un crawl de 36 679 pages. Sans lui, le rendu
-    // suivant récrit toute la grille, comme avant le rendu partiel.
-    body.__rowHtml = S.running ? rowHtml : null;
-    body.__rowTab = S.activeTab;
+    // Retirer les lignes qui ne restent pas (et l'espacement du milieu, remis à sa place
+    // plus bas) ; insérer, groupe par groupe, les nouvelles par lots entre les lignes
+    // gardées (qui sont déjà dans l'ordre des rangs).
+    var tr = top.nextSibling;
+    while (tr && tr !== bot) {
+      var nx = tr.nextSibling;
+      if (tr === mid || !keep[+tr.getAttribute("data-i")]) body.removeChild(tr);
+      tr = nx;
+    }
+    var cur = top.nextSibling;
+    for (var g = 0; g < spans.length; g++) {
+      if (g) body.insertBefore(mid, cur);
+      var lot = "";
+      for (var j = spans[g][0]; j < spans[g][1]; j++) {
+        if (keep[j]) {
+          if (lot) { cur.insertAdjacentHTML("beforebegin", lot); lot = ""; }
+          cur = cur.nextSibling;
+        } else lot += html[j];
+      }
+      if (lot) cur.insertAdjacentHTML("beforebegin", lot);
+    }
+    body.__win = { tab: v.tab, html: html };
+    markSelection(body, v);
+  }
+  // Hauteur défilable des lignes et échelle de l'ascenseur, pour n lignes de h px et une vue de `vue` px.
+  function gridScale(n, h, vue) {
+    var total = n * h;
+    if (total > GRID_MAX_PX && vue > 0) return { virt: GRID_MAX_PX, k: (total - vue) / (GRID_MAX_PX - vue) };
+    return { virt: total, k: 1 };
+  }
+  // Pose la hauteur h sur toutes les lignes en gardant la ligne en haut de la vue au même endroit de l'écran : la
+  // première ligne ENTIÈREMENT visible sous l'en-tête fixe (celle qu'on lit en premier) ; la ligne à demi cachée
+  // au-dessus d'elle grandit vers le haut, sa partie visible ne bouge pas. Sa position RÉELLE est lue avant (une
+  // ligne plus haute au-dessus d'elle a pu la décaler), puis scrollTop la remet là. `fond` : la vue était tout en
+  // bas au début du geste (ascenseur tiré en bas, touche Fin) ; elle reste tout en bas, au nouveau bas, comme avant
+  // où toutes les lignes avaient déjà leur hauteur.
+  function setRowHeight(h, fond) {
+    var g = S.grid, v = S.view, body = $("grid-body"), wrap = gridWrap(), table = $("grid"), head = $("grid-head");
+    var headH = head.offsetHeight, wTop = wrap.getBoundingClientRect().top, bord = wTop + headH;
+    var rows = body.rows, rang = -1, ecran = 0, repli = -1, ecranRepli = 0;
+    for (var q = 0; q < rows.length; q++) {
+      if (!rows[q].hasAttribute("data-i")) continue;        // lignes d'espacement
+      var r = rows[q].getBoundingClientRect();
+      if (repli < 0 && r.bottom > bord) { repli = +rows[q].getAttribute("data-i"); ecranRepli = r.top - wTop; }
+      if (r.top >= bord - 0.5) { rang = +rows[q].getAttribute("data-i"); ecran = r.top - wTop; break; }
+    }
+    if (rang < 0) { rang = repli; ecran = ecranRepli; }   // vue plus basse qu'une ligne : celle qui la couvre
+    // Le bas, avant la nouvelle hauteur : le maximum de scrollTop et la hauteur des lignes (espacements compris).
+    var maxAvant = wrap.scrollHeight - wrap.clientHeight, hCorps = body.getBoundingClientRect().height;
+    g.h = h;
+    g.voulu = null;                 // une place retenue avant un bornage (renderWindow) ne vaut plus à une autre hauteur
+    body.style.setProperty("--grid-row-h", h + "px");
+    if (!v) return;
+    var sc = gridScale(v.n, h, wrap.clientHeight), k = sc.k;
+    g.k = k;                        // l'échelle suit la nouvelle hauteur ; la place de la vue est fixée ici
+    if (rang < 0 && !fond) return;  // rien d'écrit en vue : la vue sera récrite là où elle est
+    // À l'écran, la ligne `rang` est à rang × h − y (y : position dans le corps, à l'échelle k de l'ascenseur ;
+    // au-dessus du corps — bandeau, en-tête pas encore collé —, sans échelle).
+    var y = rang * h - ecran;
+    // Les lignes d'espacement ont encore l'ancienne hauteur : près du bas, le contenu serait trop court et le
+    // navigateur bornerait la place voulue. L'espacement du bas prend d'abord toute la hauteur nouvelle (la
+    // réécriture qui suit, dans renderWindow, lui rend sa hauteur juste), puis la vue est posée. Tout en bas : au
+    // nouveau maximum, les lignes passant de hCorps à sc.virt (renderWindow les récrit à cette hauteur).
+    if (body.__padBot && body.__padBot.firstChild) body.__padBot.firstChild.style.height = sc.virt + "px";
+    wrap.scrollTop = fond ? Math.round(maxAvant + sc.virt - hCorps) : table.offsetTop + headH + (y > 0 ? y / k : y);
+  }
+  // Écrit ce qui est vu. `force` : les lignes ont pu changer (rendu de la grille) ; sinon (défilement, taille),
+  // rien n'est écrit tant que la vue reste dans la zone écrite. `geste` : la vue vient de bouger ou de changer de
+  // nature (défilement, taille, onglet, tri, filtres, langue) ; sinon c'est une mise à jour des mêmes lignes
+  // (rendu pendant un crawl), qui ne change jamais la hauteur des lignes.
+  function renderWindow(force, geste) {
+    var v = S.view, body = $("grid-body"), wrap = gridWrap(), table = $("grid"), head = $("grid-head");
+    if (!v || !body || !wrap || !table || !head) return;
+    var g = S.grid, n = v.n, key = v.tab + "|" + I18N.lang;
+    var autreVue = force && geste;      // renderGrid, et la vue a changé (onglet, recherche, filtres, langue…)
+    // La vue a bougé depuis la dernière écriture sans passer par ici (l'utilisateur a défilé, ou une autre partie de
+    // la page a posé scrollTop) : la place retenue avant un bornage (plus bas) n'est plus à reprendre.
+    // Un bornage par le NAVIGATEUR n'est pas un geste : quand ce qui défile a raccourci entre-temps (bandeau des
+    // quasi-doublons caché par renderGrid juste avant), scrollTop vaut le maximum et non la valeur écrite ; la
+    // place reste alors retenue (Internal tout en bas → Contenu → Internal doit revenir tout en bas).
+    if (g.voulu !== null && wrap.scrollTop !== Math.min(g.stEcrit, wrap.scrollHeight - wrap.clientHeight)) g.voulu = null;
+    var headH = head.offsetHeight, bodyTop = table.offsetTop + headH;   // haut du corps dans ce qui défile
+    // Ce qui est AU-DESSUS des lignes a changé de hauteur (bandeau des quasi-doublons qui apparaît ou disparaît,
+    // en-tête dont la hauteur suit la langue) : la vue garde ses lignes en décalant scrollTop d'autant, ce que
+    // faisait l'ancrage de défilement du navigateur, coupé pour la grille visible (overflow-anchor: none). Mesuré
+    // avant : +28 / −28 px au bandeau, +2 / −2 px à l'en-tête en japonais, rien quand la vue est tout en haut.
+    if (g.top !== null && bodyTop !== g.top && wrap.scrollTop > 0) {
+      // Vue collée au bas et ce qui est au-dessus a RÉTRÉCI : le navigateur a déjà borné scrollTop d'autant ; le
+      // décaler encore compterait deux fois (mesuré avant : la vue reste au bas).
+      var delta = bodyTop - g.top, maxSt = wrap.scrollHeight - wrap.clientHeight;
+      if (!(delta < 0 && wrap.scrollTop >= maxSt - 0.5)) wrap.scrollTop += delta;
+      if (g.voulu !== null) g.voulu += delta;
+    }
+    g.top = bodyTop;
+    if (!S.pages.length) g.voulu = null;   // « Vider », un autre crawl : la place retenue (plus bas) ne vaut plus
+    // La vue est-elle tout en bas au début de ce geste sur les MÊMES lignes (ascenseur tiré en bas, touche Fin) ? Si
+    // la hauteur des lignes grandit (setRowHeight, ici ou après l'écriture), elle y reste.
+    var fond = geste && !autreVue && wrap.scrollHeight > wrap.clientHeight && wrap.scrollTop + wrap.clientHeight >= wrap.scrollHeight - 1;
+    if (!n) {
+      // Vue vide : la hauteur est oubliée ; « Vider », un nouveau crawl ou l'ouverture d'un autre crawl la
+      // remesurent sur leurs propres lignes. La place retenue aussi (mesuré avant : après une vue vide, le
+      // navigateur ne la reprenait pas — plus aucune ligne à laquelle s'ancrer).
+      g.key = null; g.h = g.hMax = 0; g.voulu = null;
+    } else if (g.key !== key || !g.h) {
+      g.key = key;
+      g.h = g.hMax = sampleRowHeight(v);
+      body.style.setProperty("--grid-row-h", g.h + "px");
+      force = true;
+    } else if (geste && g.hMax > g.h + 0.5) {
+      setRowHeight(g.hMax, fond);   // une ligne plus haute est arrivée pendant un crawl : toutes la rejoignent
+      force = true;
+    }
+    var H = g.h, vue = wrap.clientHeight, sc = gridScale(n, H, vue), k = sc.k;
+    // Échelle de l'ascenseur qui change dans un même onglet (la liste grandit pendant un crawl, la vue change de
+    // hauteur) : la vue reste au même endroit de la liste, scrollTop suit. (Un autre onglet garde scrollTop, comme
+    // avant ; sous le plafond, k vaut toujours 1 et rien ne change.)
+    if (k !== g.k && g.ktab === v.tab && (k > 1 || g.k > 1)) {
+      var sAvant = Math.max(0, wrap.scrollTop - bodyTop);
+      if (sAvant > 0) wrap.scrollTop = bodyTop + sAvant * g.k / k;
+      g.voulu = null;
+    }
+    for (var passe = 0; passe < 3; passe++) {
+      var st = wrap.scrollTop, s = Math.max(0, st - bodyTop), y = s * k;
+      var visFirst = H ? Math.min(n, Math.floor(y / H)) : 0;
+      var visLast = H ? Math.min(n, Math.ceil((y + vue) / H)) : Math.min(n, GRID_MARGIN);
+      if (!passe && !force && k === 1 && g.k === 1 && body.__win && body.__win.tab === v.tab &&
+          (visFirst >= g.first + 5 || g.first === 0) && (visLast <= g.last - 5 || g.last >= n)) { g.stEcrit = st; return; }
+      var first = Math.max(0, visFirst - (k > 1 ? 0 : GRID_MARGIN));
+      var last = Math.min(n, visLast + GRID_MARGIN);
+      // La ligne qui a le focus du clavier (le lien d'une adresse) ne quitte pas la page, ni ses deux voisines (Tab
+      // et Maj+Tab y mènent) : avant, toutes les lignes y étaient, et le focus survivait au défilement. Elles sont
+      // gardées à leur place, hors de la fenêtre si besoin (pas avec l'échelle de l'ascenseur, où les lignes
+      // lointaines n'ont pas de place exacte).
+      var pin = null, ae = document.activeElement;
+      var trf = k === 1 && ae && ae !== document.body && body.contains(ae) && ae.closest ? ae.closest("tr[data-i]") : null;
+      if (trf) {
+        var f = +trf.getAttribute("data-i"), pa = Math.max(0, f - 1), pb = Math.min(n, f + 2);
+        if (pa < pb && pb >= first && pa <= last) { first = Math.min(first, pa); last = Math.max(last, pb); }
+        else if (pa < pb) pin = [pa, pb];
+      }
+      var T = k > 1 ? Math.max(0, first * H - s * (k - 1)) : first * H;
+      var B = Math.max(0, sc.virt - T - (last - first) * H);
+      writeWindow(body, v, first, last, T, B, H, pin);
+      g.first = first; g.last = last; g.k = k; g.ktab = v.tab;
+      // Lire scrollTop met la page en forme : si la vue a raccourci (autre onglet, filtre), le navigateur vient de
+      // le borner à la nouvelle hauteur, et la vue est récrite là où elle est. La place d'avant est RETENUE (g.voulu)
+      // et reprise, autant qu'elle peut l'être, quand une autre vue plus longue est affichée (retour à l'onglet,
+      // recherche vidée) — jamais pendant un crawl ni à un redimensionnement : ce que faisait l'ancrage de défilement
+      // du navigateur, coupé pour la grille visible. Elle tombe quand la vue bouge autrement (l'utilisateur défile :
+      // début de cette fonction), à une vue vide, à une autre hauteur de ligne, à un autre crawl ; un tri la garde,
+      // comme le navigateur.
+      var lu = wrap.scrollTop;
+      if (lu !== st) { if (g.voulu === null && lu < st && n) g.voulu = st; continue; }
+      if (autreVue && g.voulu !== null && lu < g.voulu) {
+        wrap.scrollTop = g.voulu;
+        var repris = wrap.scrollTop;
+        if (repris >= g.voulu) g.voulu = null;
+        if (repris !== lu) continue;
+      }
+      break;
+    }
+    // Une vue qui ne défile plus (plus courte que la place visible) : le navigateur n'y avait plus rien à quoi
+    // s'ancrer et ne reprenait pas la place d'avant (mesuré : recherche « /about », 4 lignes, puis recherche vidée :
+    // retour en haut). Elle est oubliée, et rien n'est retenu.
+    if (wrap.scrollHeight <= wrap.clientHeight) g.voulu = null;
+    g.stEcrit = wrap.scrollTop;
+    if (g.rows !== n + 1) { table.setAttribute("aria-rowcount", String(n + 1)); g.rows = n + 1; }
+    // La plus haute ligne écrite. Plus haute que H, elle garde pour l'instant sa hauteur naturelle ; toutes les
+    // lignes la rejoignent au prochain geste (tout de suite si c'en est un).
+    if (H) {
+      var rows = body.rows, maxH = 0;
+      for (var q = 0; q < rows.length; q++) {
+        if (!rows[q].hasAttribute("data-i")) continue;      // lignes d'espacement
+        var hq = rows[q].getBoundingClientRect().height; if (hq > maxH) maxH = hq;
+      }
+      if (maxH > g.hMax) g.hMax = maxH;
+      if (geste && g.hMax > H + 0.5) { setRowHeight(g.hMax, fond); renderWindow(true, false); }
+    }
+  }
+  function initGridWindow() {
+    var wrap = gridWrap();
+    if (!wrap) return;
+    // Défilement (molette, clavier, ascenseur tiré d'un coup) : écrit tout de suite, dans le gestionnaire, pour
+    // ne jamais montrer de zone vide.
+    wrap.addEventListener("scroll", function () { renderWindow(false, true); }, { passive: true });
+    // Un focus posé dans la grille (clic sur une adresse, Tab, Maj+Tab), même sans défilement : le navigateur le met
+    // en vue (un défilement, même nul) et ne reprenait plus la place d'avant un bornage (renderWindow) ; elle est oubliée.
+    wrap.addEventListener("focusin", function () { S.grid.voulu = null; });
+    // Fenêtre ou panneau de détail redimensionnés, barres qui passent sur deux lignes.
+    if (window.ResizeObserver) new ResizeObserver(function () { renderWindow(false, true); }).observe(wrap);
+    else window.addEventListener("resize", function () { renderWindow(false, true); });
   }
 
   // Une cellule COUPÉE (texte plus large que sa colonne, ou pastille qui finit
@@ -1964,8 +2254,9 @@
       if (!cellIsCut(td)) return;
       var txt = "";
       if (td.querySelector(".badge")) {
-        var row = S.gridRows[td.parentNode.sectionRowIndex];
-        txt = row && row.texts[td.cellIndex] != null ? String(row.texts[td.cellIndex]) : "";
+        // Le rang RÉEL de la ligne (data-i) : seules les lignes vues sont écrites.
+        var ri = +td.parentNode.getAttribute("data-i");
+        txt = S.view && ri >= 0 && ri < S.view.n ? rowTextAt(ri, td.cellIndex) : "";
       }
       if (!txt) txt = td.textContent.replace(/\s+/g, " ").trim();
       if (txt) { td.setAttribute("title", txt); td.setAttribute("data-tip-auto", "1"); }
@@ -2405,37 +2696,40 @@
 
   // Plage [ancre .. clé] dans l'ordre affiche, dans la colonne donnée. Remplace
   // la sélection courante, comme dans un tableur.
+  // Les lignes sont celles de la VUE (S.view), écrites ou non dans la page.
   function selRange(col, fromKey, toKey) {
-    var rows = S.gridRows, a = -1, b = -1;
-    for (var i = 0; i < rows.length; i++) {
-      if (a < 0 && rows[i].key === fromKey) a = i;
-      if (b < 0 && rows[i].key === toKey) b = i;
+    var v = S.view, a = -1, b = -1;
+    if (!v) return;
+    for (var i = 0; i < v.n && (a < 0 || b < 0); i++) {
+      var k = rowKeyAt(i);
+      if (a < 0 && k === fromKey) a = i;
+      if (b < 0 && k === toKey) b = i;
     }
     if (a < 0) a = b;
     if (b < 0) b = a;
     if (a < 0) return;
     var lo = Math.min(a, b), hi = Math.max(a, b);
     S.sel.col = col; S.sel.keys = {};
-    for (var j = lo; j <= hi; j++) S.sel.keys[rows[j].key] = true;
+    for (var j = lo; j <= hi; j++) S.sel.keys[rowKeyAt(j)] = true;
   }
 
-  // Toute la colonne affichée (tri + filtre compris).
+  // Toute la colonne affichée (tri + filtre compris), lignes écrites ou non.
   function selAllColumn(col) {
-    if (col < 0 || !S.gridRows.length) return;
+    if (col < 0 || !S.view || !S.view.n) return;
     S.sel.col = col; S.sel.keys = {};
-    for (var i = 0; i < S.gridRows.length; i++) S.sel.keys[S.gridRows[i].key] = true;
+    for (var i = 0; i < S.view.n; i++) S.sel.keys[rowKeyAt(i)] = true;
     applySelClasses(); updateSelBar();
   }
 
   // Valeurs de la colonne sélectionnée, dans l'ordre affiche, dedoublonnees
   // (l'onglet Liens porte plusieurs lignes pour une même source).
+  // Les textes viennent des données (rowTextAt), pas des lignes écrites.
   function selTexts() {
-    var out = [], seen = {}, col = S.sel.col;
-    if (col < 0) return out;
-    for (var i = 0; i < S.gridRows.length; i++) {
-      var r = S.gridRows[i];
-      if (!S.sel.keys[r.key]) continue;
-      var t = (r.texts[col] != null) ? String(r.texts[col]) : "";
+    var out = [], seen = {}, col = S.sel.col, v = S.view;
+    if (col < 0 || !v) return out;
+    for (var i = 0; i < v.n; i++) {
+      if (!S.sel.keys[rowKeyAt(i)]) continue;
+      var t = rowTextAt(i, col);
       if (!seen[t]) { seen[t] = true; out.push(t); }
     }
     return out;
@@ -2610,7 +2904,7 @@
         // Sans cellules sélectionnées, on laisse Ctrl+C copier le texte surligne.
         if (selCount()) { e.preventDefault(); copySelection(); }
       } else if (mod && (e.key === "a" || e.key === "A")) {
-        if (S.gridRows.length) { e.preventDefault(); selAllColumn(S.sel.col >= 0 ? S.sel.col : 0); }
+        if (S.view && S.view.n) { e.preventDefault(); selAllColumn(S.sel.col >= 0 ? S.sel.col : 0); }
       } else if (e.key === "Escape") {
         if (!$("ctx-menu").hidden) hideCtxMenu();
         else if (selCount()) selClear();
@@ -2624,11 +2918,31 @@
     S.selectedUrl = url;
     var detail = $("detail");
     if (detail) detail.hidden = false;
-    // Marque la ligne sélectionnée dans la grille.
-    document.querySelectorAll("#grid-body tr").forEach(function (tr) {
+    // Marque la ligne sélectionnée dans la grille (lignes écrites ; les autres la
+    // reçoivent à leur écriture, et les lignes d'espacement n'ont pas d'adresse).
+    document.querySelectorAll("#grid-body tr[data-url]").forEach(function (tr) {
       tr.classList.toggle("is-selected", normUrl(tr.getAttribute("data-url")) === normUrl(url));
     });
     renderDetail();
+    showOpenedRow(url);
+  }
+
+  // Point 39 : la ligne qu'on vient d'ouvrir reste visible. En s'ouvrant, le panneau de
+  // détail réduit la grille par le bas : une ligne du bas de la vue se retrouvait cachée
+  // dessous. Si la ligne ouverte est maintenant ENTIÈREMENT cachée sous le bas de la vue, la
+  // grille défile du minimum nécessaire pour la montrer entière, au plus près (pas de
+  // recentrage, et son haut ne passe jamais sous l'en-tête) ; sinon, rien ne bouge : une
+  // ligne seulement coupée reste où elle est (le 2e clic d'un double-clic sur son adresse
+  // doit retomber sur le lien).
+  function showOpenedRow(url) {
+    var wrap = gridWrap(), head = $("grid-head"), body = $("grid-body");
+    if (!wrap || !head || !body) return;
+    var key = normUrl(url), trs = body.querySelectorAll("tr[data-url]"), tr = null;
+    for (var i = 0; i < trs.length; i++) if (normUrl(trs[i].getAttribute("data-url")) === key) { tr = trs[i]; break; }
+    if (!tr) return;
+    var w = wrap.getBoundingClientRect(), r = tr.getBoundingClientRect();
+    var haut = w.top + head.offsetHeight, bas = w.top + wrap.clientHeight;   // ce qu'on voit des lignes
+    if (r.top >= bas - 0.5) wrap.scrollTop += Math.min(r.bottom - bas, Math.max(0, r.top - haut));
   }
 
   function closeDetail() {
@@ -4950,6 +5264,7 @@
     initExternalLinks();  // liens d'URL -> navigateur par defaut du système
     initMultiSelect();    // clic / Shift+clic / Ctrl+clic -> copie des adresses
     initCellTips();       // infobulle au survol d'une cellule coupée
+    initGridWindow();     // grille visible : écrit les lignes vues au défilement et au redimensionnement
 
     // Volet de réglages repliable.
     var toggle = $("btn-toggle-settings");

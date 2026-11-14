@@ -435,13 +435,16 @@ a:hover { text-decoration: underline; }
   text-overflow: ellipsis;
   max-width: 460px;
 }
-.grid tbody tr:nth-child(even) { background: var(--row-alt); }
+/* Zébrage selon le rang RÉEL de la ligne (classe r-alt posée par main.js : une
+   ligne sur deux, la 2e, la 4e…) : la grille n'écrit que les lignes vues, et un
+   :nth-child compterait la ligne d'espacement du haut. */
+.grid tbody tr.r-alt { background: var(--row-alt); }
 /* Ligne en alerte (Vague 2) : URL trop longue/non-ASCII, contenu mixte.
    Seul le FOND est colore (rose leger) pour ne pas écraser les couleurs des
    pastilles/badges. Placee après le zebrage pour primer dessus, mais avant
    hover/sélection qui restent prioritaires (ordre source, même specificite). */
 .grid tbody tr.row--alert,
-.grid tbody tr.row--alert:nth-child(even) { background: var(--err-bg); }
+.grid tbody tr.row--alert.r-alt { background: var(--err-bg); }
 .grid tbody tr:hover { background: var(--row-hover); cursor: pointer; }
 /* Sélection MULTIPLE (clic / Shift+clic / Ctrl+clic), independante de la ligne
    ouverte dans le détail (.is-selected) : les deux peuvent se cumuler. Pas de
@@ -1090,3 +1093,17 @@ body.is-resizing-detail { user-select: none; cursor: ns-resize; }
    dernier recours : en japonais elles suivent aussi les groupes de sens. */
 html:lang(ja) { word-break: auto-phrase; }
 html:lang(ja) .kv-val { word-break: auto-phrase; overflow-wrap: anywhere; }
+
+/* Grille VISIBLE : main.js n'écrit que les lignes vues (et 20 de chaque côté) ;
+   des lignes d'espacement (en haut, en bas, et une 3e quand la ligne qui a le
+   focus du clavier est gardée hors de la vue) tiennent la hauteur des autres,
+   pour que l'ascenseur reste celui de toutes les lignes. Toutes les lignes d'un
+   onglet ont la hauteur de la plus haute (--grid-row-h, mesurée par main.js :
+   26 px de texte, 27 avec une pastille, 29 avec un badge au banc). main.js tient
+   lui-même la vue quand le bandeau ou la hauteur changent : l'ancrage de
+   défilement du navigateur, qui « corrigerait » en même temps, est coupé. */
+.gridwrap { overflow-anchor: none; }
+.grid tbody tr[data-i] { height: var(--grid-row-h, auto); }
+.grid tbody tr.grid-pad,
+.grid tbody tr.grid-pad:hover { background: transparent; cursor: default; }
+.grid tbody tr.grid-pad > td { height: auto; padding: 0; border: 0; max-width: none; }
