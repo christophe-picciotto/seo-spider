@@ -706,6 +706,10 @@
     statusRate: null,                   // débit affiché (pages/s), null = « 0 » initial
     // Compteurs bruts de la barre d'état (cf. renderStatusCounts) ; total null = « ∞ ».
     statusCounts: { done: 0, total: 0, queued: 0, avgms: 0 },
+    // Somme et nombre des temps de réponse des pages reçues, tenus au fil de l'eau par ingestPage : la barre
+    // d'état en tire la moyenne sans reparcourir toutes les pages à chaque page reçue.
+    rtSomme: 0,
+    rtCompte: 0,
 
     unlisteners: []
   };
@@ -1514,6 +1518,13 @@
     return r ? engineResult(r) : e;
   }
 
+  // Ajoute (signe 1) ou retire (signe -1) une page de la somme des temps de réponse. Mêmes pages que l'ancien
+  // calcul de la barre d'état : celles qui ont un temps de réponse non nul.
+  function compterTempsDeReponse(p, signe) {
+    var v = p && p.response_time_ms;
+    if (v) { S.rtSomme += signe * v; S.rtCompte += signe; }
+  }
+
   // =========================================================================
   // INGESTION D'UNE PAGE (event crawl:page)
   // =========================================================================
@@ -1525,11 +1536,13 @@
     // un doublon. En crawl normal chaque URL est unique : comportement inchange.
     var existing = S.byUrl[key];
     if (existing && S.pageIndex[key] != null) {
+      compterTempsDeReponse(S.pages[S.pageIndex[key]], -1);   // la page remplacée sort de la moyenne
       S.pages[S.pageIndex[key]] = p;
     } else {
       S.pageIndex[key] = S.pages.length;
       S.pages.push(p);
     }
+    compterTempsDeReponse(p, 1);
     S.byUrl[key] = p;
 
     // Les agrégats derives (inlinks, issues, severites, bande passante) sont
@@ -3330,9 +3343,10 @@
     }
     setText("status-threads", (S.multi.config && S.multi.config.threads) || 0);
 
-    // Temps de réponse moyen par page (ms) sur les pages mesurées (Vague 4+).
-    var rts = S.pages.filter(function (p) { return p && p.response_time_ms; });
-    var avgMs = rts.length ? Math.round(rts.reduce(function (a, p) { return a + p.response_time_ms; }, 0) / rts.length) : 0;
+    // Temps de réponse moyen par page (ms) sur les pages mesurées (Vague 4+). La somme et le nombre sont tenus
+    // par ingestPage : les recalculer ici sur toutes les pages, à chaque page reçue, coûtait un travail
+    // proportionnel au carré du crawl (3,3 s et ~1,6 Go alloués puis jetés pour 20 001 pages).
+    var avgMs = S.rtCompte ? Math.round(S.rtSomme / S.rtCompte) : 0;
     S.statusCounts.avgms = avgMs;
     renderStatusCounts();
 
@@ -4088,6 +4102,8 @@
   // Vide UNIQUEMENT les données du run courant (pages, index, issues, bw).
   function resetData() {
     S.pages = [];
+    S.rtSomme = 0;
+    S.rtCompte = 0;
     S.byUrl = {};
     S.pageIndex = {};
     S.issues = [];
