@@ -4966,6 +4966,15 @@
       if (s && s.removeAllRanges) s.removeAllRanges();
       openExternal(a.getAttribute("href"));
     }, true);
+
+    // Signature de la barre d'état : un simple clic (ou Entrée au clavier) ouvre le site de l'auteur dans le
+    // navigateur par défaut. Le lien n'est jamais suivi par la fenêtre, quel que soit le bouton de la souris.
+    var auteur = $("app-author");
+    if (auteur) {
+      var ouvrirSite = function (e) { e.preventDefault(); openExternal(auteur.getAttribute("href")); };
+      auteur.addEventListener("click", ouvrirSite);
+      auteur.addEventListener("auxclick", ouvrirSite);
+    }
   }
 
   // #F : redimensionnement des colonnes à la souris ; largeurs persistees par onglet.

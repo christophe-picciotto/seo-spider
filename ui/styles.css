@@ -1007,6 +1007,14 @@ body.is-resizing-detail { user-select: none; cursor: ns-resize; }
   display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 2px 14px;
   flex: 0 1 auto; min-width: 0; margin-left: auto;
 }
+/* Signature, tout à droite de la barre : discrète, jamais coupée, soulignée au survol et au clavier.
+   Fenêtre étroite (les compteurs passent à la ligne) : elle se range au bout de la PREMIÈRE rangée, à côté de
+   l'état, où il y a de la place — elle n'ajoute jamais une rangée à la barre. */
+.status-author { color: inherit; text-decoration: none; white-space: nowrap; cursor: pointer; margin-left: auto; }
+.status-author:hover, .status-author:focus-visible { color: var(--text); text-decoration: underline; }
+@media (max-width: 899px) {
+  .statusbar .status-stats, .statusbar .status-sep, .statusbar .status-item--multi { order: 1; }
+}
 
 /* En-têtes de colonnes (écrits par main.js), DANS TOUTES LES LANGUES, français
    compris : un libellé trop long pour sa colonne finit par « … » au lieu d'être
